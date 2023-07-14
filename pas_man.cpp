@@ -1,3 +1,4 @@
+
 #include <string>
 #include <iostream>
 #include <cstdlib>
@@ -40,7 +41,6 @@ using std::filesystem::directory_iterator;
 		void show();
 		//copy function asks for a platform's name and shows it's own data and copies password on clipboard
 		void copy();
-
 
 ///end of function declaration
 class Login
@@ -159,7 +159,7 @@ int main(int argc , char* argv[])
 				case 5 :
 					show();
 					break;
-
+               
 			}
 			system("CLS");
             menu_choise = menu();
@@ -189,33 +189,71 @@ bool login()
     bool done = false;
     string value , password , correct;
 
-    fstream fin ; 
-    fin.open("enter.txt");
-
-    ///decryption of text of the file with the login password
-    getline(fin,value);
-    
-    do
+    if (std::filesystem::exists("enter.txt"))
     {
-        cout<<"Enter login password";
-        cin>>password;
-        
-        correct = log.decrypt(value);
-        correct.erase(remove(correct.begin(),correct.end(),' '),correct.end());
-        
-        if(password.compare(correct)==0)
-        {
-            done = true ;
-            count = 4 ;
-        }
-        else 
-        {
-            cout<<"Wrong password\nTry again\n";
-            count+=1;
-        }
-    }while(count<3);
+        fstream fin ; 
+        fin.open("enter.txt");
 
-    fin.close();
+        ///decryption of text of the file with the login password
+        getline(fin,value);
+        
+        do
+        {
+            cout<<"Enter login password";
+            cin>>password;
+            
+            correct = log.decrypt(value);
+            correct.erase(remove(correct.begin(),correct.end(),' '),correct.end());
+            
+            if(password.compare(correct)==0)
+            {
+                done = true ;
+                count = 4 ;
+            }
+            else 
+            {
+                cout<<"Wrong password\nTry again\n";
+                count+=1;
+            }
+        }while(count<3);
+
+        fin.close();
+    }
+    else 
+    {
+        string psw,psw2 ;
+        int tries=0 ;
+        cout<<"You are not registered yet\nEnter your Login password : \n";
+        cin>>psw;
+        if(psw!="\0")
+        {
+            do
+            { 
+                cout<<"Please enter again the password";
+                cin>> psw2;
+                if(psw2==psw)
+                {
+                    cout<<"hello";
+                    psw= log.encrypt(psw);
+                    std::ofstream enterf("enter.txt"); 
+                    enterf << psw; 
+                    enterf.close();
+
+                    done = true ; 
+                    break ; 
+                }
+                else 
+                {   
+                    tries+=1 ;
+                    cout<<"\n";
+                }
+            }while(tries<3 && psw2!=psw);
+            cout<<"You are NOT registered yet";
+        }
+
+    }
+    cout<<"\n";
+
     return done;
 }
 
