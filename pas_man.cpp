@@ -22,7 +22,8 @@
 using namespace std ;
 using std::filesystem::directory_iterator;
 
-
+std::vector<int> taps= {0,3, 5};  // Taps for a 3-bit LFSR (x^3 + x^1 + 1)
+std::vector<int> init_state = {1, 0,1};  // Initial state [1, 0, 0]
 
 ///function definetion
 
@@ -45,88 +46,43 @@ using std::filesystem::directory_iterator;
 ///end of function declaration
 class Login
 {
+    private:
+    std::vector<int> taps;
+    std::vector<int> state;
+    
 public:
-	string encrypt(string s);
-	string decrypt(string s);
+    Login(const std::vector<int>& taps, const std::vector<int>& init_state) {
+        this->taps = taps;
+        this->state = init_state;
+    }
+    
+    std::string encrypt(const std::string& plaintext) {
+        std::string encrypted;
+        
+        for (char c : plaintext) {
+            int keystream_bit = state[0];  // Output the first bit of the LFSR state
+            char encrypted_char = c ^ keystream_bit;  // XOR the character with the keystream bit
+            
+            encrypted.push_back(encrypted_char);
+            
+            int feedback_bit = 0;
+            for (int tap : taps) {
+                feedback_bit ^= state[tap];  // Calculate the feedback bit using the specified taps
+            }
+            
+            state.pop_back();
+            state.insert(state.begin(), feedback_bit);  // Shift the LFSR state to the left and insert the feedback bit at the beginning
+        }
+        
+        return encrypted;
+    }
+    
+    std::string decrypt(const std::string& encrypted_text) {
+        return encrypt(encrypted_text);  // Decryption is the same as encryption
+    }
+    
 };
 
-        ///string encryption
-        string Login::encrypt(string s)
-        {
-                int l = s.length();
-            int b = ceil(sqrt(l));
-            int a = floor(sqrt(l));
-            string encrypted;
-            if (b * a < l) {
-                if (min(b, a) == b) {
-                    b = b + 1;
-                }
-                else {
-                    a = a + 1;
-                }
-            }
-
-            // Matrix to generate the
-            // Encrypted String
-            char arr[a][b];
-            memset(arr, ' ', sizeof(arr));
-            int k = 0;
-
-            // Fill the matrix row-wise
-            for (int j = 0; j < a; j++) {
-                for (int i = 0; i < b; i++) {
-                    if (k < l){
-                        arr[j][i] = s[k];
-                    }
-                    k++;
-                }
-            }
-
-            // Loop to generate
-            // encrypted string
-            for (int j = 0; j < b; j++) {
-                for (int i = 0; i < a; i++) {
-                    encrypted = encrypted +
-                                arr[i][j];
-                }
-            }
-            return encrypted;
-        }
-
-        ///string decryption
-        string Login::decrypt(string s)
-        {
-            int l = s.length();
-            int b = ceil(sqrt(l));
-            int a = floor(sqrt(l));
-            string decrypted;
-        
-            // Matrix to generate the
-            // Encrypted String
-            char arr[a][b];
-            memset(arr, ' ', sizeof(arr));
-            int k = 0;
-            
-            // Fill the matrix column-wise
-            for (int j = 0; j < b; j++) {
-                for (int i = 0; i < a; i++) {
-                    if (k < l){
-                        arr[j][i] = s[k];
-                    }
-                    k++;
-                }
-            }
-        
-            // Loop to generate
-            // decrypted string
-            for (int j = 0; j < a; j++) {
-                for (int i = 0; i < b; i++) {
-                    decrypted = decrypted +
-                                arr[i][j];
-                }
-            }
-            return decrypted;
-        }
 
 
 
@@ -183,7 +139,7 @@ int menu()
 
 bool login()
 {
-    Login log;
+    Login log(taps,init_state);
 
     int count = 0;
     bool done = false;
@@ -260,7 +216,7 @@ bool login()
 
 void change()
 {
-    Login dec;
+    Login dec(taps,init_state);
 
     string value;
 
@@ -285,7 +241,7 @@ void add()
 {
 
 
-    Login data;
+    Login data(taps,init_state);
     
 
     string name, check , username, password;
@@ -359,7 +315,7 @@ void del()
 
 void copy()
 {
-    Login dec ;
+    Login dec(taps,init_state) ;
     ifstream fin ;
     fstream fout ;
 
@@ -396,6 +352,7 @@ void copy()
                     CloseClipboard();   
                 }
         }
+        value = dec.encrypt(value);
     }
     else 
     {
@@ -408,7 +365,7 @@ void copy()
 
 void show()
 {
-    string path = ""; //enter path 
+    string path = "C:/Users/menou/Desktop/pass_man"; //enter path 
 
     for (const auto & file : directory_iterator(path))
     {
