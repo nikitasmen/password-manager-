@@ -238,7 +238,8 @@ bool login()
                     std::ofstream enterf("enter.txt"); 
                     enterf << psw; 
                     enterf.close();
-
+                    DWORD attributes = GetFileAttributes("enter.txt");
+                    SetFileAttributes("enter.txt", attributes + FILE_ATTRIBUTE_HIDDEN);
                     done = true ; 
                     break ; 
                 }
