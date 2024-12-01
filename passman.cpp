@@ -106,8 +106,8 @@ bool login() {
     Login log(taps, init_state);
     std::string password, correct, value;
 
-    if (std::filesystem::exists("enter.txt")) {
-        std::ifstream fin("enter.txt", std::ios::binary);
+    if (std::filesystem::exists("enter")) {
+        std::ifstream fin("enter", std::ios::binary);
         getline(fin, value); // Read encrypted value
         fin.close();
 
@@ -129,13 +129,13 @@ bool login() {
         cin >> password;
         if (!password.empty()) {
             std::string encrypted = log.encrypt(password);
-            std::ofstream fout("enter.txt", std::ios::binary);
+            std::ofstream fout("enter", std::ios::binary);
             fout << encrypted;
             fout.close();
 
 #ifdef _WIN32
-            DWORD attributes = GetFileAttributes("enter.txt");
-            SetFileAttributes("enter.txt", attributes | FILE_ATTRIBUTE_HIDDEN);
+            DWORD attributes = GetFileAttributes("enter");
+            SetFileAttributes("enter", attributes | FILE_ATTRIBUTE_HIDDEN);
 #endif
             return true;
         }
@@ -150,7 +150,7 @@ void change() {
     cout << "Enter the new login password (or 0 to cancel): ";
     cin >> new_password;
     if (new_password != "0") {
-        std::ofstream fout("enter.txt", std::ofstream::out | std::ofstream::trunc);
+        std::ofstream fout("enter", std::ofstream::out | std::ofstream::trunc);
         fout << log.encrypt(new_password);
         fout.close();
         cout << "Password successfully updated.\n";
@@ -170,7 +170,7 @@ void add() {
         return;
     }
 
-    std::string filename = platform_name + ".txt";
+    std::string filename = platform_name;
     if (std::filesystem::exists(filename)) {
         cout << "File already exists. Unable to add new platform.\n";
         return;
@@ -206,7 +206,7 @@ void del() {
         return;
     }
 
-    std::string filename = platform_name + ".txt";
+    std::string filename = platform_name;
     if (std::filesystem::exists(filename)) {
         std::filesystem::remove(filename);
         cout << "Record successfully deleted.\n";
@@ -234,7 +234,7 @@ void show() {
         }
     }
 
-    system("pause");
+    // system("pause");
 }
 
 
@@ -251,7 +251,7 @@ void copy() {
         return;
     }
 
-    std::string filename = platform_name + ".txt";
+    std::string filename = platform_name;
 
     // Check if file exists
     if (!std::filesystem::exists(filename)) {
@@ -293,7 +293,17 @@ void copy() {
             cout << "Failed to allocate memory for clipboard operation.\n";
         }
 #else
-        cout << "Clipboard operations are not supported on this platform.\n";
+    #ifdef __linux__
+        // Copy decrypted value to clipboard using xclip or xsel
+        FILE* pipe = popen("xclip -selection clipboard", "w");
+        if (pipe) {
+            fwrite(decrypted_value.c_str(), 1, decrypted_value.size(), pipe);
+            pclose(pipe);
+            cout << "Password copied to clipboard.\n";
+        } else {
+            cout << "Failed to copy to clipboard. Ensure xclip is installed.\n";
+        }
+    #endif
 #endif
     }
 
