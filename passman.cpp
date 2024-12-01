@@ -5,8 +5,15 @@
 #include <fstream>
 #include <cstring>
 
+
+
+
 #ifdef _WIN32
+    #include <conio.h>
     #include <Windows.h>
+#else
+    #include <termios.h>
+    #include <unistd.h>
 #endif
 
 using std::cin;
@@ -24,6 +31,8 @@ void add();
 void del();
 void show();
 void copy();
+
+std::string get_password(const std::string& prompt); 
 
 class Login {
 private:
@@ -115,8 +124,7 @@ bool login() {
 
         int attempts = 0;
         while (attempts < 3) {
-            cout << "Enter login password: ";
-            cin >> password;
+            password= get_password("Enter your password: ");
             if (password == correct) {
                 return true;
             }
@@ -159,6 +167,34 @@ void change() {
     }
 }
 
+
+
+std::string get_password(const std::string& prompt) {
+   
+    struct termios oldt, newt;
+    std::string input;
+
+    // Display prompt
+    std::cout << prompt;
+
+    // Get current terminal settings
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+
+    // Disable echo
+    newt.c_lflag &= ~ECHO;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    // Read input
+    std::cin >> input;
+
+    // Restore terminal settings
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+
+    std::cout << std::endl; // For neat output
+    return input;
+}
+
 void add() {
     Login log(taps, init_state);
     std::string platform_name, username, password;
@@ -178,8 +214,7 @@ void add() {
 
     cout << "Enter platform's username: ";
     cin >> username;
-    cout << "Enter platform's password: ";
-    cin >> password;
+    password = get_password("Enter platform's password: ");
 
     username = log.encrypt(username);
     password = log.encrypt(password);
