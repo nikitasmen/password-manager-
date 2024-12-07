@@ -37,9 +37,14 @@ bool MainFunctionality::login() {
          password = UI::get_password_input("Enter your password: ");
         if (!password.empty()) {
             std::string encrypted = log.encrypt(password);
-            std::ofstream fout(login_file, std::ios::binary);
-            fout << encrypted;
-            fout.close();
+            try{
+                std::ofstream fout(login_file, std::ios::binary);
+                fout << encrypted;
+                fout.close();
+            } catch (std::exception& e) {
+                // std::cout << "Error: " << e.what() << std::endl;
+                return false;
+            }
             return true;
         }
     }
