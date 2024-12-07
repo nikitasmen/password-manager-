@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+#include <limits>
+
 
 
 
@@ -285,27 +287,52 @@ void del() {
 }
 
 
-
 void show() {
+    
     std::string path;
+    cout << "\n=========================================\n";
+    cout << "        SHOW ALL STORED RECORDS          \n";
+    cout << "=========================================\n";
+
     cout << "Enter the directory path to scan for records: ";
     cin >> path;
 
-    // Check if directory exists
+    // Check if the directory exists
     if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
-        cout << "Invalid directory path. Please try again.\n";
+        cout << "\n[ERROR] Invalid directory path. Please try again.\n";
         return;
     }
 
-    cout << "Listing files in the directory:\n";
+    cout << "\n=========================================\n";
+    cout << "         RECORDS IN DIRECTORY            \n";
+    cout << "=========================================\n";
+
+    int file_count = 0;
+    const int page_size = 10; // Number of files to show per page
+
     for (const auto& file : std::filesystem::directory_iterator(path)) {
         if (file.is_regular_file()) { // Only display files
-            cout << file.path().filename().string() << endl;
+            cout << ++file_count << ") " << file.path().filename().string() << endl;
+
+            // Pause after every `page_size` files
+            if (file_count % page_size == 0) {
+                cout << "\n[INFO] Press Enter to show more...\n";
+                cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                cin.get();
+            }
         }
     }
 
-    // system("pause");
+    if (file_count == 0) {
+        cout << "\n[INFO] No files found in the specified directory.\n";
+    } else {
+        cout << "\n=========================================\n";
+        cout << "[INFO] End of records. Press Enter to return to the menu.\n";
+        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        cin.get();
+    }
 }
+
 
 
 void copy() {
