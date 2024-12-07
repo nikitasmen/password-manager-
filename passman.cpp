@@ -250,26 +250,31 @@ void del() {
     }
 }
 
-
 void show() {
     std::string path;
-    cout << "Enter the directory path to scan for records: ";
-    cin >> path;
+    const std::string defaultPath = "."; // Set your default path here
+
+        std::cout << "Enter the directory path to scan for records (press Enter to use default path): ";
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear the input buffer
+    std::getline(std::cin, path);
+
+    // Use default path if input is empty
+    if (path.empty()) {
+        path = defaultPath;
+    }
 
     // Check if directory exists
     if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
-        cout << "Invalid directory path. Please try again.\n";
+        std::cout << "Invalid directory path. Please try again.\n";
         return;
     }
 
-    cout << "Listing files in the directory:\n";
+    std::cout << "Listing files in the directory:\n";
     for (const auto& file : std::filesystem::directory_iterator(path)) {
         if (file.is_regular_file()) { // Only display files
-            cout << file.path().filename().string() << endl;
+            std::cout << file.path().filename().string() << std::endl;
         }
     }
-
-    // system("pause");
 }
 
 
