@@ -104,10 +104,28 @@ int main() {
 }
 
 int menu() {
+    cout << "\n=========================================\n";
+    cout << "      PASSWORD MANAGER - MAIN MENU       \n";
+    cout << "=========================================\n";
+    cout << "1) Change login password\n";
+    cout << "2) Add new platform credentials\n";
+    cout << "3) Copy credentials to clipboard\n";
+    cout << "4) Delete platform credentials\n";
+    cout << "5) Show all stored platforms\n";
+    cout << "0) Exit\n";
+    cout << "-----------------------------------------\n";
+    cout << "Enter your choice: ";
+
     int choice;
-    cout << "\n1) Change login password\n2) Add username/password\n3) Copy username/password to clipboard\n";
-    cout << "4) Delete username/password\n5) Show all\nEnter 0 to exit\n:: ";
     cin >> choice;
+
+    if (cin.fail() || choice < 0 || choice > 5) {
+        cin.clear(); // Clear the error flag
+        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
+        cout << "Invalid choice. Please try again.\n";
+        return menu(); // Recursively call to prompt again
+    }
+
     return choice;
 }
 
@@ -230,7 +248,6 @@ void add() {
 
     cout << "Platform data successfully added and encrypted.\n";
 }
-
 void del() {
     std::string platform_name;
 
@@ -241,14 +258,22 @@ void del() {
         return;
     }
 
-    std::string filename = platform_name;
-    if (std::filesystem::exists(filename)) {
-        std::filesystem::remove(filename);
-        cout << "Record successfully deleted.\n";
+    cout << "Are you sure you want to delete \"" << platform_name << "\"? (y/n): ";
+    char confirm;
+    cin >> confirm;
+
+    if (tolower(confirm) == 'y') {
+        if (std::filesystem::exists(platform_name)) {
+            std::filesystem::remove(platform_name);
+            cout << "Record successfully deleted.\n";
+        } else {
+            cout << "Record does not exist.\n";
+        }
     } else {
-        cout << "Record does not exist.\n";
+        cout << "Delete operation canceled.\n";
     }
 }
+
 
 
 void show() {
