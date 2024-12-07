@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+#include <limits>
+
 
 
 
@@ -104,10 +106,28 @@ int main() {
 }
 
 int menu() {
+    cout << "\n=========================================\n";
+    cout << "          PASSWORD MANAGER MENU          \n";
+    cout << "=========================================\n";
+    cout << "1) Change Login Password\n";
+    cout << "2) Add New Platform Credentials\n";
+    cout << "3) Copy Credentials to Clipboard\n";
+    cout << "4) Delete Platform Credentials\n";
+    cout << "5) Show All Stored Platforms\n";
+    cout << "0) Exit\n";
+    cout << "-----------------------------------------\n";
+    cout << "Enter your choice: ";
+
     int choice;
-    cout << "\n1) Change login password\n2) Add username/password\n3) Copy username/password to clipboard\n";
-    cout << "4) Delete username/password\n5) Show all\nEnter 0 to exit\n:: ";
     cin >> choice;
+
+    if (cin.fail() || choice < 0 || choice > 5) {
+        cin.clear(); // Clear the error flag
+        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
+        cout << "\n[ERROR] Invalid choice. Please try again.\n";
+        return menu(); // Recursively call to prompt again
+    }
+
     return choice;
 }
 
@@ -199,18 +219,26 @@ void add() {
     Login log(taps, init_state);
     std::string platform_name, username, password;
 
-    cout << "Enter platform's name (or 0 to cancel): ";
+    cout << "Platform data successfully added and encrypted.\n";
+
+    cout << "\n=========================================\n";
+    cout << "         ADD NEW PLATFORM CREDENTIALS    \n";
+    cout << "=========================================\n";
+
+    cout << "Enter the platform name (or 0 to cancel): ";
     cin >> platform_name;
     if (platform_name == "0") {
-        cout << "Add operation canceled.\n";
+        cout << "\n[INFO] Add operation canceled.\n";
+        return;
+    }
+    
+    
+    if (std::filesystem::exists(platform_name)) {
+        cout << "\n[ERROR] A record for \"" << platform_name << "\" already exists.\n";
         return;
     }
 
-    std::string filename = platform_name;
-    if (std::filesystem::exists(filename)) {
-        cout << "File already exists. Unable to add new platform.\n";
-        return;
-    }
+
 
     cout << "Enter platform's username: ";
     cin >> username;
@@ -219,7 +247,7 @@ void add() {
     username = log.encrypt(username);
     password = log.encrypt(password);
 
-    std::ofstream fout(filename, std::ios::binary);
+    std::ofstream fout(platform_name, std::ios::binary);
     fout << username << "\n" << password;
     fout.close();
 
@@ -228,8 +256,9 @@ void add() {
     SetFileAttributes(filename.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
 #endif
 
-    cout << "Platform data successfully added and encrypted.\n";
+    cout << "\n[SUCCESS] Credentials for \"" << platform_name << "\" were added successfully.\n";
 }
+
 
 void del() {
     std::string platform_name;
@@ -241,36 +270,69 @@ void del() {
         return;
     }
 
-    std::string filename = platform_name;
-    if (std::filesystem::exists(filename)) {
-        std::filesystem::remove(filename);
-        cout << "Record successfully deleted.\n";
+    cout << "Are you sure you want to delete \"" << platform_name << "\"? (y/n): ";
+    char confirm;
+    cin >> confirm;
+
+    if (tolower(confirm) == 'y') {
+        if (std::filesystem::exists(platform_name)) {
+            std::filesystem::remove(platform_name);
+            cout << "Record successfully deleted.\n";
+        } else {
+            cout << "Record does not exist.\n";
+        }
     } else {
-        cout << "Record does not exist.\n";
+        cout << "Delete operation canceled.\n";
     }
 }
 
 
 void show() {
+    
     std::string path;
+    cout << "\n=========================================\n";
+    cout << "        SHOW ALL STORED RECORDS          \n";
+    cout << "=========================================\n";
+
     cout << "Enter the directory path to scan for records: ";
     cin >> path;
 
-    // Check if directory exists
+    // Check if the directory exists
     if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
-        cout << "Invalid directory path. Please try again.\n";
+        cout << "\n[ERROR] Invalid directory path. Please try again.\n";
         return;
     }
 
-    cout << "Listing files in the directory:\n";
+    cout << "\n=========================================\n";
+    cout << "         RECORDS IN DIRECTORY            \n";
+    cout << "=========================================\n";
+
+    int file_count = 0;
+    const int page_size = 10; // Number of files to show per page
+
     for (const auto& file : std::filesystem::directory_iterator(path)) {
         if (file.is_regular_file()) { // Only display files
-            cout << file.path().filename().string() << endl;
+            cout << ++file_count << ") " << file.path().filename().string() << endl;
+
+            // Pause after every `page_size` files
+            if (file_count % page_size == 0) {
+                cout << "\n[INFO] Press Enter to show more...\n";
+                cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                cin.get();
+            }
         }
     }
 
-    // system("pause");
+    if (file_count == 0) {
+        cout << "\n[INFO] No files found in the specified directory.\n";
+    } else {
+        cout << "\n=========================================\n";
+        cout << "[INFO] End of records. Press Enter to return to the menu.\n";
+        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        cin.get();
+    }
 }
+
 
 
 void copy() {
@@ -278,69 +340,68 @@ void copy() {
     std::ifstream fin;
     std::string platform_name, encrypted_value, decrypted_value;
 
-    cout << "Enter platform's name you want to copy (or 0 to cancel): ";
+    cout << "\n=========================================\n";
+    cout << "         COPY PLATFORM CREDENTIALS       \n";
+    cout << "=========================================\n";
+
+    cout << "Enter the platform name (or 0 to cancel): ";
     cin >> platform_name;
 
     if (platform_name == "0") {
-        cout << "Copy operation canceled.\n";
+        cout << "\n[INFO] Copy operation canceled.\n";
         return;
     }
 
-    std::string filename = platform_name;
-
-    // Check if file exists
-    if (!std::filesystem::exists(filename)) {
-        cout << "Record does not exist.\n";
+    if (!std::filesystem::exists(platform_name)) {
+        cout << "\n[ERROR] No record found for \"" << platform_name << "\".\n";
         return;
     }
 
-    // Read the file
-    fin.open(filename, std::ios::binary);
+    fin.open(platform_name, std::ios::binary);
     if (!fin) {
-        cout << "Failed to open the file.\n";
+        cout << "\n[ERROR] Failed to open the record file.\n";
         return;
     }
 
-    cout << "Decrypted data:\n";
+    cout << "\n[INFO] Decrypted credentials for \"" << platform_name << "\":\n";
     while (getline(fin, encrypted_value)) {
         decrypted_value = dec.decrypt(encrypted_value);
         cout << decrypted_value << "\n";
-
-#ifdef _WIN32
-        // Copy decrypted value to clipboard (Windows-specific)
-        int length = decrypted_value.length() + 1; // Include null terminator
-        HGLOBAL global = GlobalAlloc(GMEM_MOVEABLE, length);
-        if (global) {
-            void* locked_memory = GlobalLock(global);
-            memcpy(locked_memory, decrypted_value.c_str(), length);
-            GlobalUnlock(global);
-
-            if (OpenClipboard(nullptr)) {
-                EmptyClipboard();
-                SetClipboardData(CF_TEXT, global);
-                CloseClipboard();
-                cout << "Password copied to clipboard.\n";
-            } else {
-                cout << "Failed to open clipboard.\n";
-                GlobalFree(global);
-            }
-        } else {
-            cout << "Failed to allocate memory for clipboard operation.\n";
-        }
-#else
-    #ifdef __linux__
-        // Copy decrypted value to clipboard using xclip or xsel
-        FILE* pipe = popen("xclip -selection clipboard", "w");
-        if (pipe) {
-            fwrite(decrypted_value.c_str(), 1, decrypted_value.size(), pipe);
-            pclose(pipe);
-            cout << "Password copied to clipboard.\n";
-        } else {
-            cout << "Failed to copy to clipboard. Ensure xclip is installed.\n";
-        }
-    #endif
-#endif
     }
 
+    #ifdef _WIN32
+            // Copy decrypted value to clipboard (Windows-specific)
+            int length = decrypted_value.length() + 1; // Include null terminator
+            HGLOBAL global = GlobalAlloc(GMEM_MOVEABLE, length);
+            if (global) {
+                void* locked_memory = GlobalLock(global);
+                memcpy(locked_memory, decrypted_value.c_str(), length);
+                GlobalUnlock(global);
+
+                if (OpenClipboard(nullptr)) {
+                    EmptyClipboard();
+                    SetClipboardData(CF_TEXT, global);
+                    CloseClipboard();
+                    cout << "Password copied to clipboard.\n";
+                } else {
+                    cout << "Failed to open clipboard.\n";
+                    GlobalFree(global);
+                }
+            } else {
+                cout << "Failed to allocate memory for clipboard operation.\n";
+            }
+    #else
+        #ifdef __linux__
+            // Copy decrypted value to clipboard using xclip or xsel
+            FILE* pipe = popen("xclip -selection clipboard", "w");
+            if (pipe) {
+                fwrite(decrypted_value.c_str(), 1, decrypted_value.size(), pipe);
+                pclose(pipe);
+                cout << "\n[SUCCESS] Credentials copied to clipboard.\n";
+            } else {
+                cout << "\n[ERROR] Failed to copy to clipboard. Ensure xclip is installed.\n";
+            }
+        #endif
+    #endif
     fin.close();
 }
