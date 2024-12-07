@@ -1,9 +1,10 @@
 #include "MainFunctionality.h"
-#include "./UI.h"
-#include "./Encryption.h"
+#include "GlobalConfig.h"  
+#include "Encryption.h"
+#include "UI.h"
 #include <fstream>
-#include <filesystem>
 #include <iostream>
+#include <filesystem>
 
 extern std::vector<int> taps;
 extern std::vector<int> init_state;
@@ -11,8 +12,10 @@ extern std::vector<int> init_state;
 bool MainFunctionality::login() {
     Encryption log(taps, init_state);
     std::string password, correct, value;
-
-    if (std::filesystem::exists("enter")) {
+    
+    std::string login_file = data_path + "/" + "enter";
+    
+    if (std::filesystem::exists(login_file)) {
         std::ifstream fin("enter", std::ios::binary);
         getline(fin, value); // Read encrypted value
         fin.close();
@@ -31,10 +34,10 @@ bool MainFunctionality::login() {
         return false;
     } else {
         std::cout << "No existing password found. Create a new password: ";
-        std::cin >> password;
+         password = UI::get_password_input("Enter your password: ");
         if (!password.empty()) {
             std::string encrypted = log.encrypt(password);
-            std::ofstream fout("enter", std::ios::binary);
+            std::ofstream fout(login_file, std::ios::binary);
             fout << encrypted;
             fout.close();
             return true;
@@ -43,7 +46,6 @@ bool MainFunctionality::login() {
     return false;
 }
 
-// Implement the other functions here (change_password, add_credentials, delete_credentials, show_credentials, copy_credentials)
 
 void MainFunctionality::update_password() {
     Encryption log(taps, init_state);
@@ -73,7 +75,7 @@ void MainFunctionality::add_credentials() {
         return;
     }
 
-    std::string filename = platform_name;
+    std::string filename = data_path + "/" + platform_name; 
     if (std::filesystem::exists(filename)) {
         std::cout << "File already exists. Unable to add new platform.\n";
         return;
@@ -115,7 +117,7 @@ void MainFunctionality::copy_credentials() {
         return;
     }
 
-    std::string filename = platform_name;
+    std::string filename = data_path + "/" + platform_name;
 
     // Check if file exists
     if (!std::filesystem::exists(filename)) {
@@ -184,7 +186,7 @@ void MainFunctionality::delete_credentials() {
         return;
     }
 
-    std::string filename = platform_name;
+    std::string filename = data_path + "/" + platform_name;
     if (std::filesystem::exists(filename)) {
         std::filesystem::remove(filename);
         std::cout << "Record successfully deleted.\n";
@@ -197,15 +199,14 @@ void MainFunctionality::delete_credentials() {
 
 void MainFunctionality::show_credentials() {
     std::string path;
-    const std::string defaultPath = "."; // Set your default path here
 
-        std::cout << "Enter the directory path to scan for records (press Enter to use default path): ";
+    std::cout << "Enter the directory path to scan for records (press Enter to use default path): ";
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear the input buffer
     std::getline(std::cin, path);
 
     // Use default path if input is empty
     if (path.empty()) {
-        path = defaultPath;
+        path = data_path;
     }
 
     // Check if directory exists

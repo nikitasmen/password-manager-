@@ -1,3 +1,4 @@
+#include "GlobalConfig.h"
 #include "Encryption.h"
 #include <stdexcept>
 
