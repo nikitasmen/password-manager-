@@ -286,7 +286,6 @@ void del() {
     }
 }
 
-
 void show() {
     
     std::string path;
@@ -294,8 +293,16 @@ void show() {
     cout << "        SHOW ALL STORED RECORDS          \n";
     cout << "=========================================\n";
 
-    cout << "Enter the directory path to scan for records: ";
-    cin >> path;
+    const std::string defaultPath = "."; // Set your default path here
+
+        std::cout << "Enter the directory path to scan for records (press Enter to use default path): ";
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear the input buffer
+    std::getline(std::cin, path);
+
+    // Use default path if input is empty
+    if (path.empty()) {
+        path = defaultPath;
+    }
 
     // Check if the directory exists
     if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
