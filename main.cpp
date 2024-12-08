@@ -2,26 +2,29 @@
 #include "./UI.h"
 #include <vector>
 
-
-
-int main() {
-    try {
-        if (MainFunctionality::login()) {
+int main()
+{
+    try
+    {
+        if (MainFunctionality::login())
+        {
             int menu_choice;
-            do {
+            do
+            {
                 menu_choice = UI::display_menu();
-                switch (menu_choice) {
+                switch (menu_choice)
+                {
                 case 1:
                     MainFunctionality::update_password();
                     break;
                 case 2:
                     MainFunctionality::add_credentials();
-                    UI::pause_screen(); 
+                    UI::pause_screen();
                     UI::clear_screen();
                     break;
                 case 3:
                     MainFunctionality::copy_credentials();
-                    UI::pause_screen(); 
+                    UI::pause_screen();
                     UI::clear_screen();
                     break;
                 case 4:
@@ -29,13 +32,24 @@ int main() {
                     break;
                 case 5:
                     MainFunctionality::show_credentials();
-                    UI::pause_screen(); 
+                    UI::pause_screen();
                     UI::clear_screen();
                     break;
+                case 0: 
+                    UI::display_message("Exiting the program...");
+                    exit(0);
+                default:
+                    UI::display_message("Invalid choice. Please try again.");   
+                    break;
                 }
+            // Continue looping until the user chooses to exit (menu_choice == 0)
             } while (menu_choice != 0);
+                    UI::pause_screen();
+                    UI::clear_screen();
         }
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception &e)
+    {
         UI::display_message("Error: " + std::string(e.what()));
     }
     return 0;
