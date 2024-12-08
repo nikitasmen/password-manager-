@@ -42,7 +42,6 @@ int main()
                     UI::display_message("Invalid choice. Please try again.");   
                     break;
                 }
-            // Continue looping until the user chooses to exit (menu_choice == 0)
             } while (menu_choice != 0);
                     UI::pause_screen();
                     UI::clear_screen();

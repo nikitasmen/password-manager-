@@ -42,7 +42,7 @@ bool MainFunctionality::login() {
                 fout << encrypted;
                 fout.close();
             } catch (std::exception& e) {
-                // std::cout << "Error: " << e.what() << std::endl;
+                UI::display_message("Failed to create password file.");
                 return false;
             }
             return true;

@@ -75,3 +75,10 @@ void UI::pause_screen() {
     std::cout << "Press Enter to continue...";
     std::cin.get();
 }
+
+bool UI::login() { 
+    std::string password;
+    std::cout << "Enter login password: ";
+    password = get_password_input("");
+    return password == "password";
+}
