@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <vector> 
 #include "../Crypt/Encryption.h"
 
 class CredentialsManager{ 

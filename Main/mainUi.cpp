@@ -1,4 +1,4 @@
-#include "./MainFunctionality.h"
+#include "./mainUI/MainFunctionality.h"
 #include "./UI.h"
 #include <vector>
 
