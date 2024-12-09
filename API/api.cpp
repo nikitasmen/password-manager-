@@ -1,4 +1,4 @@
-#include "Encryption.h"
+#include "../Crypt/Encryption.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -6,6 +6,12 @@
 // Assume these are initialized elsewhere
 extern std::vector<int> taps;
 extern std::vector<int> initState;
+bool login(const std::string& password);
+bool addCredentials(const std::string& platform, const std::string& user, const std::string& pass);
+bool deleteCredentials(const std::string& platform);
+void showOptions(const std::string& path = ".");
+std::vector<std::string> getCredentials(const std::string& platform);
+
 
 class CredentialManager {
 
@@ -41,7 +47,7 @@ bool CredentialManager::login(const std::string& password) {
     }
 }
 
-bool CredentialManager::addCredentials(const std::string& platformName, const std::string& username, const std::string& password) {
+bool CredentialManager::  addCredentials(const std::string& platformName, const std::string& username, const std::string& password) {
     Encryption log(taps, initState);
 
     std::string filename = platformName;
