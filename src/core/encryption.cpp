@@ -1,5 +1,5 @@
-#include "GlobalConfig.h"
-#include "Encryption.h"
+// #include "GlobalConfig.h"
+#include "./encryption.h"
 #include <stdexcept>
 
 Encryption::Encryption(const std::vector<int>& taps, const std::vector<int>& init_state) {

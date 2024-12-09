@@ -1,7 +1,9 @@
-#include "../Data/data.h"
+#include "../data/loginPassword"
+#include "../data/credentials"
 #include <fstream>  
 #include <iostream>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 

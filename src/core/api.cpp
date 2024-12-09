@@ -1,4 +1,4 @@
-#include "../Crypt/Encryption.h"
+#include "./encryption.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -108,4 +108,9 @@ std::vector<std::string> CredentialManager::getCredentials(const std::string& pl
     }
     fin.close();
     return credentials;
+}
+
+
+int main(int argc, char* argv[]) {
+    return 0; 
 }
