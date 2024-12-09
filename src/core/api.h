@@ -5,7 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <vector> 
-#include "../Crypt/Encryption.h"
+#include "./encryption.h"
 
 class CredentialsManager{ 
     private: 
