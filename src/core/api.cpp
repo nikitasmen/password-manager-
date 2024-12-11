@@ -111,6 +111,3 @@ std::vector<std::string> CredentialManager::getCredentials(const std::string& pl
 }
 
 
-int main(int argc, char* argv[]) {
-    return 0; 
-}
