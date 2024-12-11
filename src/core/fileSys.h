@@ -5,7 +5,9 @@
 #include <fstream>
 #include <iostream>
 #include <vector> 
-#include "../Data/enter"
+#include <string>
+#include "../data/credentials"
+#include "../data/loginPassword"
 
 class Database { 
     private: 
