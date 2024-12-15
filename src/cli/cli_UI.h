@@ -1,5 +1,5 @@
-#ifndef MAINFUNCTIONALITY_H
-#define MAINFUNCTIONALITY_H
+#ifndef CLI_UI_H
+#define CLI_UI_H
 
 #include <string>
 
@@ -13,4 +13,4 @@ public:
     static void copy_credentials();
 };
 
-#endif // MAINFUNCTIONALITY_H
+#endif // CLI_UI_H
