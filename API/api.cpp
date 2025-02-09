@@ -47,7 +47,7 @@ bool CredentialManager::login(const std::string& password) {
     }
 }
 
-bool CredentialManager::  addCredentials(const std::string& platformName, const std::string& username, const std::string& password) {
+bool CredentialManager::addCredentials(const std::string& platformName, const std::string& username, const std::string& password) {
     Encryption log(taps, initState);
 
     std::string filename = platformName;
