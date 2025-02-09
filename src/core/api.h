@@ -12,7 +12,7 @@ class CredentialsManager{
         std::string dataPath;
         Encryption encryptor;
     public: 
-        // CredentialsMAnager(const std::string& dataPath); 
+        // CredentialsManager(const std::string& dataPath); 
         bool CredentialsManager::login(const std::string& password);
         bool CredentialsManager::addCredentials(const std::string& platform, const std::string& user, const std::string& pass); 
         bool CredentialsManager::deleteCredentials(const std::string& platform);
