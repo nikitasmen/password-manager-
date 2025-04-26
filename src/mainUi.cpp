@@ -1,5 +1,5 @@
-#include "./mainUI/MainFunctionality.h"
-#include "./UI.h"
+#include "./cli/cli_ui.h"
+#include "./core/ui.h"
 #include <vector>
 
 int main()
