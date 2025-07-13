@@ -12,13 +12,14 @@ class CredentialsManager{
         std::string dataPath;
         Encryption encryptor;
     public: 
-        // CredentialsManager(const std::string& dataPath); 
-        bool CredentialsManager::login(const std::string& password);
-        bool CredentialsManager::addCredentials(const std::string& platform, const std::string& user, const std::string& pass); 
-        bool CredentialsManager::deleteCredentials(const std::string& platform);
-        void CredentialsManager::showOptions(const std::string& path = ".") const;
-        std::vector<std::string> CredentialsManager::getCredentials(const std::string& platform);
-
+        explicit CredentialsManager(const std::string& dataPath = "."); 
+        bool login(const std::string& password);
+        bool updatePassword(const std::string& newPassword);
+        bool addCredentials(const std::string& platform, const std::string& user, const std::string& pass); 
+        bool deleteCredentials(const std::string& platform);
+        void showOptions(const std::string& path = ".") const;
+        std::vector<std::string> getCredentials(const std::string& platform);
+        std::vector<std::string> getAllPlatforms();
 }; 
 
 

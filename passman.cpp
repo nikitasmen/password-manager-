@@ -6,10 +6,6 @@
 #include <cstring>
 #include <limits>
 
-
-
-
-
 #ifdef _WIN32
     #include <conio.h>
     #include <Windows.h>
@@ -23,6 +19,8 @@ using std::cout;
 using std::endl;
 
 #include "GlobalConfig.h" // Include the global configuration
+#include "src/core/encryption.h"
+#include "src/core/api.h"
 
 // Function declarations
 bool login();
@@ -35,43 +33,7 @@ void copy();
 
 std::string get_password(const std::string& prompt); 
 
-class Login {
-private:
-    std::vector<int> taps;
-    std::vector<int> state;
-
-public:
-    Login(const std::vector<int>& taps, const std::vector<int>& init_state) {
-        if (init_state.size() < taps.back() + 1) {
-            throw std::invalid_argument("Initial state size is too small for the specified taps.");
-        }
-        this->taps = taps;
-        this->state = init_state;
-    }
-
-    std::string encrypt(const std::string& plaintext) {
-        std::string encrypted;
-        for (char c : plaintext) {
-            int keystream_bit = state[0]; // Output the first bit of the LFSR state
-            char encrypted_char = c ^ keystream_bit; // XOR the character with the keystream bit
-            encrypted.push_back(encrypted_char);
-
-            // Calculate feedback bit using the specified taps
-            int feedback_bit = 0;
-            for (int tap : taps) {
-                feedback_bit ^= state[tap];
-            }
-
-            state.pop_back();
-            state.insert(state.begin(), feedback_bit); // Shift the LFSR state left and insert feedback bit
-        }
-        return encrypted;
-    }
-
-    std::string decrypt(const std::string& encrypted_text) {
-        return encrypt(encrypted_text); // XOR encryption is symmetric
-    }
-};
+#include "src/core/encryption.h"
 
 int main() {
     try {
@@ -131,20 +93,14 @@ int menu() {
 }
 
 bool login() {
-    Login log(taps, init_state);
-    std::string password, correct, value;
+    CredentialsManager manager(".");
+    std::string password;
 
     if (std::filesystem::exists("enter")) {
-        std::ifstream fin("enter", std::ios::binary);
-        getline(fin, value); // Read encrypted value
-        fin.close();
-
-        correct = log.decrypt(value);
-
         int attempts = 0;
         while (attempts < 3) {
-            password= get_password("Enter your password: ");
-            if (password == correct) {
+            password = get_password("Enter your password: ");
+            if (manager.login(password)) {
                 return true;
             }
             cout << "Wrong password. Try again.\n";
@@ -155,11 +111,7 @@ bool login() {
         cout << "No existing password found. Create a new password: ";
         cin >> password;
         if (!password.empty()) {
-            std::string encrypted = log.encrypt(password);
-            std::ofstream fout("enter", std::ios::binary);
-            fout << encrypted;
-            fout.close();
-
+            manager.updatePassword(password);
 #ifdef _WIN32
             DWORD attributes = GetFileAttributes("enter");
             SetFileAttributes("enter", attributes | FILE_ATTRIBUTE_HIDDEN);
@@ -171,16 +123,17 @@ bool login() {
 }
 
 void change() {
-    Login log(taps, init_state);
+    CredentialsManager manager(".");
     std::string new_password;
 
     cout << "Enter the new login password (or 0 to cancel): ";
     cin >> new_password;
     if (new_password != "0") {
-        std::ofstream fout("enter", std::ofstream::out | std::ofstream::trunc);
-        fout << log.encrypt(new_password);
-        fout.close();
-        cout << "Password successfully updated.\n";
+        if (manager.updatePassword(new_password)) {
+            cout << "Password successfully updated.\n";
+        } else {
+            cout << "Failed to update password.\n";
+        }
     } else {
         cout << "Password change canceled.\n";
     }
@@ -215,10 +168,8 @@ std::string get_password(const std::string& prompt) {
 }
 
 void add() {
-    Login log(taps, init_state);
+    CredentialsManager manager(".");
     std::string platform_name, username, password;
-
-    cout << "Platform data successfully added and encrypted.\n";
 
     cout << "\n=========================================\n";
     cout << "         ADD NEW PLATFORM CREDENTIALS    \n";
@@ -231,35 +182,24 @@ void add() {
         return;
     }
     
-    
-    if (std::filesystem::exists(platform_name)) {
-        cout << "\n[ERROR] A record for \"" << platform_name << "\" already exists.\n";
-        return;
-    }
-
-
-
     cout << "Enter platform's username: ";
     cin >> username;
     password = get_password("Enter platform's password: ");
 
-    username = log.encrypt(username);
-    password = log.encrypt(password);
-
-    std::ofstream fout(platform_name, std::ios::binary);
-    fout << username << "\n" << password;
-    fout.close();
-
+    if (manager.addCredentials(platform_name, username, password)) {
 #ifdef _WIN32
-    DWORD attributes = GetFileAttributes(filename.c_str());
-    SetFileAttributes(filename.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
+        DWORD attributes = GetFileAttributes(platform_name.c_str());
+        SetFileAttributes(platform_name.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
 #endif
-
-    cout << "\n[SUCCESS] Credentials for \"" << platform_name << "\" were added successfully.\n";
+        cout << "\n[SUCCESS] Credentials for \"" << platform_name << "\" were added successfully.\n";
+    } else {
+        cout << "\n[ERROR] Failed to add credentials for \"" << platform_name << "\".\n";
+    }
 }
 
 
 void del() {
+    CredentialsManager manager(".");
     std::string platform_name;
 
     cout << "Enter platform's name to delete (or 0 to cancel): ";
@@ -274,8 +214,7 @@ void del() {
     cin >> confirm;
 
     if (tolower(confirm) == 'y') {
-        if (std::filesystem::exists(platform_name)) {
-            std::filesystem::remove(platform_name);
+        if (manager.deleteCredentials(platform_name)) {
             cout << "Record successfully deleted.\n";
         } else {
             cout << "Record does not exist.\n";
@@ -286,15 +225,16 @@ void del() {
 }
 
 void show() {
-    
+    CredentialsManager manager(".");
     std::string path;
+    
     cout << "\n=========================================\n";
     cout << "        SHOW ALL STORED RECORDS          \n";
     cout << "=========================================\n";
 
     const std::string defaultPath = "."; // Set your default path here
 
-        std::cout << "Enter the directory path to scan for records (press Enter to use default path): ";
+    std::cout << "Enter the directory path to scan for records (press Enter to use default path): ";
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear the input buffer
     std::getline(std::cin, path);
 
@@ -302,7 +242,7 @@ void show() {
     if (path.empty()) {
         path = defaultPath;
     }
-
+    
     // Check if the directory exists
     if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
         cout << "\n[ERROR] Invalid directory path. Please try again.\n";
@@ -313,19 +253,17 @@ void show() {
     cout << "         RECORDS IN DIRECTORY            \n";
     cout << "=========================================\n";
 
+    std::vector<std::string> platforms = manager.getAllPlatforms();
     int file_count = 0;
     const int page_size = 10; // Number of files to show per page
 
-    for (const auto& file : std::filesystem::directory_iterator(path)) {
-        if (file.is_regular_file()) { // Only display files
-            cout << ++file_count << ") " << file.path().filename().string() << endl;
+    for (const auto& platform : platforms) {
+        cout << ++file_count << ") " << platform << endl;
 
-            // Pause after every `page_size` files
-            if (file_count % page_size == 0) {
-                cout << "\n[INFO] Press Enter to show more...\n";
-                cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                cin.get();
-            }
+        // Pause after every `page_size` files
+        if (file_count % page_size == 0) {
+            cout << "\n[INFO] Press Enter to show more...\n";
+            cin.get();
         }
     }
 
@@ -334,7 +272,6 @@ void show() {
     } else {
         cout << "\n=========================================\n";
         cout << "[INFO] End of records. Press Enter to return to the menu.\n";
-        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
         cin.get();
     }
 }
@@ -342,9 +279,8 @@ void show() {
 
 
 void copy() {
-    Login dec(taps, init_state);
-    std::ifstream fin;
-    std::string platform_name, encrypted_value, decrypted_value;
+    CredentialsManager manager(".");
+    std::string platform_name;
 
     cout << "\n=========================================\n";
     cout << "         COPY PLATFORM CREDENTIALS       \n";
@@ -358,44 +294,40 @@ void copy() {
         return;
     }
 
-    if (!std::filesystem::exists(platform_name)) {
+    std::vector<std::string> credentials = manager.getCredentials(platform_name);
+    
+    if (credentials.empty()) {
         cout << "\n[ERROR] No record found for \"" << platform_name << "\".\n";
         return;
     }
 
-    fin.open(platform_name, std::ios::binary);
-    if (!fin) {
-        cout << "\n[ERROR] Failed to open the record file.\n";
-        return;
-    }
-
     cout << "\n[INFO] Decrypted credentials for \"" << platform_name << "\":\n";
-    while (getline(fin, encrypted_value)) {
-        decrypted_value = dec.decrypt(encrypted_value);
-        cout << decrypted_value << "\n";
-    }
+    cout << "Username: " << credentials[0] << "\n";
+    cout << "Password: " << credentials[1] << "\n";
+
+    std::string decrypted_value = credentials[1]; // Use the password for clipboard
 
     #ifdef _WIN32
-            // Copy decrypted value to clipboard (Windows-specific)
-            int length = decrypted_value.length() + 1; // Include null terminator
-            HGLOBAL global = GlobalAlloc(GMEM_MOVEABLE, length);
-            if (global) {
-                void* locked_memory = GlobalLock(global);
-                memcpy(locked_memory, decrypted_value.c_str(), length);
-                GlobalUnlock(global);
+        // Copy decrypted value to clipboard (Windows-specific)
+        int length = decrypted_value.length() + 1; // Include null terminator
+        HGLOBAL global = GlobalAlloc(GMEM_MOVEABLE, length);
+        if (global) {
+            void* locked_memory = GlobalLock(global);
+            memcpy(locked_memory, decrypted_value.c_str(), length);
+            GlobalUnlock(global);
 
-                if (OpenClipboard(nullptr)) {
-                    EmptyClipboard();
-                    SetClipboardData(CF_TEXT, global);
-                    CloseClipboard();
-                    cout << "Password copied to clipboard.\n";
-                } else {
-                    cout << "Failed to open clipboard.\n";
-                    GlobalFree(global);
-                }
+            if (OpenClipboard(nullptr)) {
+                EmptyClipboard();
+                SetClipboardData(CF_TEXT, global);
+                CloseClipboard();
+                cout << "Password copied to clipboard.\n";
             } else {
-                cout << "Failed to allocate memory for clipboard operation.\n";
+                cout << "Failed to open clipboard.\n";
+                GlobalFree(global);
             }
+        } else {
+            cout << "Failed to allocate memory for clipboard operation.\n";
+        }
     #else
         #ifdef __linux__
             // Copy decrypted value to clipboard using xclip or xsel
@@ -409,5 +341,4 @@ void copy() {
             }
         #endif
     #endif
-    fin.close();
 }
