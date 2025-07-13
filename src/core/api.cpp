@@ -1,37 +1,18 @@
-#include "./encryption.h"
+#include "./api.h"
+#include "../../GlobalConfig.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
 
-// Assume these are initialized elsewhere
 extern std::vector<int> taps;
-extern std::vector<int> initState;
-bool login(const std::string& password);
-bool addCredentials(const std::string& platform, const std::string& user, const std::string& pass);
-bool deleteCredentials(const std::string& platform);
-void showOptions(const std::string& path = ".");
-std::vector<std::string> getCredentials(const std::string& platform);
-
-
-class CredentialManager {
-
-private:
-    std::string dataPath;
-    Encryption encryptor;
-
-public:
-    explicit CredentialManager(const std::string& dataPath);
-    bool login(const std::string& password);
-    bool addCredentials(const std::string& platform, const std::string& user, const std::string& pass);
-    bool deleteCredentials(const std::string& platform);
-    void showOptions(const std::string& path = ".") const;
-    std::vector<std::string> getCredentials(const std::string& platform);
-};
+extern std::vector<int> init_state;
 
 // Method definitions
 
-bool CredentialManager::login(const std::string& password) {
-    Encryption log(taps, initState);
+CredentialsManager::CredentialsManager(const std::string& dataPath) : dataPath(dataPath), encryptor(taps, init_state) {
+}
+
+bool CredentialsManager::login(const std::string& password) {
     std::string correct, value;
     std::string loginFile = "enter"; // Simplified for single command usage
 
@@ -39,7 +20,7 @@ bool CredentialManager::login(const std::string& password) {
         std::ifstream fin(loginFile, std::ios::binary);
         getline(fin, value); // Read encrypted value
         fin.close();
-        correct = log.decrypt(value);
+        correct = encryptor.decrypt(value);
         return password == correct;
     } else {
         std::cerr << "No existing password found. Please create one using the setup tool.\n";
@@ -47,27 +28,40 @@ bool CredentialManager::login(const std::string& password) {
     }
 }
 
-bool CredentialManager::addCredentials(const std::string& platformName, const std::string& username, const std::string& password) {
-    Encryption log(taps, initState);
+bool CredentialsManager::updatePassword(const std::string& newPassword) {
+    std::string loginFile = "enter";
+    std::ofstream fout(loginFile, std::ofstream::out | std::ofstream::trunc);
+    if (!fout) {
+        return false;
+    }
+    fout << encryptor.encrypt(newPassword);
+    fout.close();
+    return true;
+}
 
-    std::string filename = platformName;
-    if (std::filesystem::exists(filename)) {
+bool CredentialsManager::addCredentials(const std::string& platform, const std::string& user, const std::string& pass) {
+    std::string platformName = platform;
+    
+    // Check if platform already exists
+    if (std::filesystem::exists(platformName)) {
         std::cerr << "Record already exists.\n";
         return false;
     }
 
-    std::ofstream fout(filename, std::ios::binary);
+    std::ofstream fout(platformName, std::ios::binary);
     if (!fout) {
         std::cerr << "Failed to create the record file.\n";
         return false;
     }
 
-    fout << log.encrypt(username) << "\n" << log.encrypt(password);
+    fout << encryptor.encrypt(user) << "\n" << encryptor.encrypt(pass);
     fout.close();
     return true;
 }
 
-bool CredentialManager::deleteCredentials(const std::string& platformName) {
+bool CredentialsManager::deleteCredentials(const std::string& platform) {
+    std::string platformName = platform;
+    
     if (std::filesystem::exists(platformName)) {
         std::filesystem::remove(platformName);
         return true;
@@ -77,7 +71,7 @@ bool CredentialManager::deleteCredentials(const std::string& platformName) {
     }
 }
 
-void CredentialManager::showOptions(const std::string& path) const {
+void CredentialsManager::showOptions(const std::string& path) const {
     if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
         std::cerr << "Invalid directory path.\n";
         return;
@@ -91,21 +85,37 @@ void CredentialManager::showOptions(const std::string& path) const {
     }
 }
 
-std::vector<std::string> CredentialManager::getCredentials(const std::string& platformName) {
-    Encryption dec(taps, initState);
+std::vector<std::string> CredentialsManager::getAllPlatforms() {
+    std::vector<std::string> platforms;
+    
+    for (const auto& entry : std::filesystem::directory_iterator(dataPath)) {
+        if (entry.is_regular_file() && entry.path().filename() != "enter") {
+            platforms.push_back(entry.path().filename().string());
+        }
+    }
+    
+    return platforms;
+}
+
+std::vector<std::string> CredentialsManager::getCredentials(const std::string& platform) {
     std::vector<std::string> credentials;
-    std::string filename = platformName;
-    std::ifstream fin(filename, std::ios::binary);
-
+    std::string platformName = platform;
+    
+    if (!std::filesystem::exists(platformName)) {
+        return credentials;
+    }
+    
+    std::ifstream fin(platformName, std::ios::binary);
     if (!fin) {
-        std::cerr << "Failed to open the file. Record does not exist.\n";
-        return {};
+        return credentials;
     }
-
-    std::string encryptedValue;
-    while (getline(fin, encryptedValue)) {
-        credentials.push_back(dec.decrypt(encryptedValue));
+    
+    std::string encryptedUser, encryptedPass;
+    if (getline(fin, encryptedUser) && getline(fin, encryptedPass)) {
+        credentials.push_back(encryptor.decrypt(encryptedUser));
+        credentials.push_back(encryptor.decrypt(encryptedPass));
     }
+    
     fin.close();
     return credentials;
 }
