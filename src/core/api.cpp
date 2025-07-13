@@ -1,11 +1,12 @@
 #include "./encryption.h"
+#include "../../GlobalConfig.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
 
 // Assume these are initialized elsewhere
 extern std::vector<int> taps;
-extern std::vector<int> initState;
+extern std::vector<int> init_state;
 bool login(const std::string& password);
 bool addCredentials(const std::string& platform, const std::string& user, const std::string& pass);
 bool deleteCredentials(const std::string& platform);
@@ -31,7 +32,7 @@ public:
 // Method definitions
 
 bool CredentialManager::login(const std::string& password) {
-    Encryption log(taps, initState);
+    Encryption log(taps, init_state);
     std::string correct, value;
     std::string loginFile = "enter"; // Simplified for single command usage
 
@@ -48,7 +49,7 @@ bool CredentialManager::login(const std::string& password) {
 }
 
 bool CredentialManager::addCredentials(const std::string& platformName, const std::string& username, const std::string& password) {
-    Encryption log(taps, initState);
+    Encryption log(taps, init_state);
 
     std::string filename = platformName;
     if (std::filesystem::exists(filename)) {
@@ -92,7 +93,7 @@ void CredentialManager::showOptions(const std::string& path) const {
 }
 
 std::vector<std::string> CredentialManager::getCredentials(const std::string& platformName) {
-    Encryption dec(taps, initState);
+    Encryption dec(taps, init_state);
     std::vector<std::string> credentials;
     std::string filename = platformName;
     std::ifstream fin(filename, std::ios::binary);

@@ -1,8 +1,11 @@
+#include "data.h"
 #include <fstream>
 #include <filesystem>
 #include <iostream>
 
-
+// Define the file paths for data storage
+const std::string LOGIN_PASSWORD_FILE = "src/data/loginPassword";
+const std::string CREDENTIALS_FILE = "src/data/credentials";
 
 class Data{ 
     private: 
