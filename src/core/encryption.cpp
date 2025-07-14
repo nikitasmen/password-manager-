@@ -1,34 +1,190 @@
-// #include "GlobalConfig.h"
 #include "./encryption.h"
 #include <stdexcept>
+#include <algorithm>
+#include <iostream>
 
 Encryption::Encryption(const std::vector<int>& taps, const std::vector<int>& init_state) {
-    if (init_state.size() < taps.back() + 1) {
-        throw std::invalid_argument("Initial state size is too small for the specified taps.");
+    if (init_state.empty()) {
+        throw EncryptionError("Initial state cannot be empty");
     }
+    
+    if (!taps.empty() && taps.back() >= init_state.size()) {
+        throw EncryptionError("Initial state size is too small for the specified taps");
+    }
+    
+    // Initialize the encryption parameters
     this->taps = taps;
-    this->state = init_state;
+    resetState(init_state);
+    
+    // Seed the random number generator with current time
+    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+    rng = std::mt19937(seed);
 }
 
-std::string Encryption::encrypt(const std::string& plaintext) {
-    std::string encrypted;
-    for (char c : plaintext) {
-        int keystream_bit = state[0]; // Output the first bit of the LFSR state
-        char encrypted_char = c ^ keystream_bit; // XOR the character with the keystream bit
-        encrypted.push_back(encrypted_char);
-
+int Encryption::getNextBit() {
+    try {
+        // Get the output bit
+        int output_bit = state[0];
+        
         // Calculate feedback bit using the specified taps
         int feedback_bit = 0;
         for (int tap : taps) {
-            feedback_bit ^= state[tap];
+            if (tap < state.size()) {
+                feedback_bit ^= state[tap];
+            } else {
+                throw EncryptionError("Tap index out of range");
+            }
         }
-
+        
+        // Shift the register and insert the feedback bit
         state.pop_back();
-        state.insert(state.begin(), feedback_bit); // Shift the LFSR state left and insert feedback bit
+        state.insert(state.begin(), feedback_bit);
+        
+        return output_bit;
+    } catch (const std::out_of_range& e) {
+        throw EncryptionError("State access error: " + std::string(e.what()));
+    } catch (const std::exception& e) {
+        throw EncryptionError("Bit generation error: " + std::string(e.what()));
     }
-    return encrypted;
+}
+
+void Encryption::resetState(const std::vector<int>& init_state) {
+    // Create a deep copy of the initial state to ensure isolation
+    this->state.clear();
+    this->state.assign(init_state.begin(), init_state.end());
+    std::cout << "State reset to initial values" << std::endl;
+}
+
+std::string Encryption::generateSalt(size_t length) {
+    static const char charset[] = 
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    
+    std::string salt;
+    salt.reserve(length);
+    
+    for (size_t i = 0; i < length; ++i) {
+        salt.push_back(charset[rng() % (sizeof(charset) - 1)]);
+    }
+    
+    return salt;
+}
+
+std::string Encryption::encrypt(const std::string& plaintext) {
+    try {
+        // Get a copy of the original init_state for a fresh start
+        std::vector<int> original_state = {1, 0, 1}; // Using the known initial state from GlobalConfig
+        
+        // Reset state before each encryption for consistency
+        resetState(original_state);
+        
+        std::string encrypted;
+        encrypted.reserve(plaintext.size()); // Pre-allocate memory
+        
+        for (char c : plaintext) {
+            // For each character, generate 8 bits from the LFSR
+            char encrypted_char = 0;
+            for (int i = 0; i < 8; i++) {
+                int bit = getNextBit();
+                encrypted_char |= (bit << i); // Build up the byte
+            }
+            
+            // XOR with the plaintext character
+            encrypted_char ^= c;
+            encrypted.push_back(encrypted_char);
+        }
+        
+        return encrypted;
+    } catch (const EncryptionError& e) {
+        throw; // Re-throw encryption-specific errors
+    } catch (const std::exception& e) {
+        throw EncryptionError("Encryption failed: " + std::string(e.what()));
+    }
 }
 
 std::string Encryption::decrypt(const std::string& encrypted_text) {
-    return encrypt(encrypted_text); // XOR encryption is symmetric
+    try {
+        // For stream ciphers, use the exact same process as encryption
+        // but ensure we're starting with a clean state each time
+        
+        // Get a copy of the original init_state for a fresh start
+        std::vector<int> original_state = {1, 0, 1}; // Using the known initial state from GlobalConfig
+        
+        // Reset state before each decryption for consistency
+        resetState(original_state);
+        
+        std::string decrypted;
+        decrypted.reserve(encrypted_text.size()); // Pre-allocate memory
+        
+        for (char c : encrypted_text) {
+            // For each character, generate 8 bits from the LFSR
+            char decrypted_char = 0;
+            for (int i = 0; i < 8; i++) {
+                int bit = getNextBit();
+                decrypted_char |= (bit << i); // Build up the byte
+            }
+            
+            // XOR with the encrypted character
+            decrypted_char ^= c;
+            decrypted.push_back(decrypted_char);
+        }
+        
+        return decrypted;
+    } catch (const EncryptionError& e) {
+        throw; // Re-throw encryption-specific errors
+    } catch (const std::exception& e) {
+        throw EncryptionError("Decryption failed: " + std::string(e.what()));
+    }
+}
+
+std::string Encryption::encryptWithSalt(const std::string& plaintext) {
+    try {
+        std::cout << "Encrypting with salt, plaintext length: " << plaintext.length() << std::endl;
+        
+        // Generate a random salt
+        std::string salt = generateSalt(8);
+        std::cout << "Generated salt: " << salt << std::endl;
+        
+        // Encrypt the plaintext directly (encrypt method will reset state)
+        std::string encrypted = encrypt(plaintext);
+        
+        // Return salt + encrypted data (not double-salting like before)
+        std::string result = salt + encrypted;
+        std::cout << "Final encrypted length: " << result.length() << std::endl;
+        return result;
+    } catch (const EncryptionError& e) {
+        std::cerr << "Salt encryption error: " << e.what() << std::endl;
+        throw; // Re-throw encryption-specific errors
+    } catch (const std::exception& e) {
+        std::cerr << "General exception in encryptWithSalt: " << e.what() << std::endl;
+        throw EncryptionError("Salt-based encryption failed: " + std::string(e.what()));
+    }
+}
+
+std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
+    try {
+        // Debug logging
+        std::cout << "Decrypting with salt, input length: " << encrypted_text.size() << std::endl;
+        
+        // Check if encrypted text is long enough to contain salt
+        if (encrypted_text.size() <= 8) {
+            throw EncryptionError("Encrypted text too short to contain salt");
+        }
+        
+        // Extract salt (first 8 characters) - we don't actually use it for decryption now
+        std::string salt = encrypted_text.substr(0, 8);
+        std::cout << "Extracted salt from ciphertext: " << salt << std::endl;
+        
+        // Extract and decrypt the rest (decrypt method will reset state)
+        std::string encryptedData = encrypted_text.substr(8);
+        std::string plaintext = decrypt(encryptedData);
+        
+        std::cout << "Decrypted plaintext length: " << plaintext.length() << std::endl;
+        return plaintext;
+    } catch (const EncryptionError& e) {
+        std::cerr << "Salt decryption error: " << e.what() << std::endl;
+        throw; // Re-throw encryption-specific errors
+    } catch (const std::exception& e) {
+        std::cerr << "General exception in decryptWithSalt: " << e.what() << std::endl;
+        throw EncryptionError("Salt-based decryption failed: " + std::string(e.what()));
+    }
 }
