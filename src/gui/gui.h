@@ -11,7 +11,7 @@
 #include <FL/Fl_Text_Buffer.H>
 #include <FL/Fl_Menu_Bar.H>
 #include <FL/Fl_Check_Button.H>
-#include <FL/fl_ask.H>
+#include <FL/fl_message.H>
 #include <string>
 #include <vector>
 #include <memory>
@@ -25,6 +25,11 @@ private:
     // Login screen components
     std::unique_ptr<Fl_Input> masterPasswordInput;
     std::unique_ptr<Fl_Button> loginButton;
+    
+    // Setup screen components
+    std::unique_ptr<Fl_Secret_Input> newPasswordInput;
+    std::unique_ptr<Fl_Secret_Input> confirmPasswordInput;
+    std::unique_ptr<Fl_Button> createPasswordButton;
     
     // Main view components
     std::unique_ptr<Fl_Menu_Bar> menuBar;
@@ -52,11 +57,13 @@ private:
     
     // Helper methods
     void createLoginScreen();
+    void createSetupScreen();
     void createMainScreen();
     void refreshPlatformsList();
 
     // Callback methods
     static void loginCallback(Fl_Widget* w, void* data);
+    static void createPasswordCallback(Fl_Widget* w, void* data);
     static void addCredentialCallback(Fl_Widget* w, void* data);
     static void viewCredentialCallback(Fl_Widget* w, void* data);
     static void deleteCredentialCallback(Fl_Widget* w, void* data);
