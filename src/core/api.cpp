@@ -21,7 +21,6 @@ CredentialsManager::CredentialsManager(const std::string& dataPath) : dataPath(d
     fs::path dir(dataPath);
     if (!fs::exists(dir)) {
         fs::create_directories(dir);
-        std::cout << "Created data directory: " << dataPath << std::endl;
     }
 }
 
@@ -29,10 +28,6 @@ bool CredentialsManager::login(const std::string& password) {
     try {
         std::string correct, value;
         std::string loginFile = dataPath + "/enter"; // Use the dataPath specified in constructor
-        
-        std::cout << "Login attempt with data path: " << dataPath << std::endl;
-        std::cout << "Checking login file: " << loginFile << std::endl;
-        std::cout << "Checking if file exists: " << (fs::exists(loginFile) ? "yes" : "no") << std::endl;
 
         if (fs::exists(loginFile)) {
             std::ifstream fin(loginFile, std::ios::binary);
@@ -47,14 +42,8 @@ bool CredentialsManager::login(const std::string& password) {
             }
             fin.close();
             
-            std::cout << "Encrypted value read: " << value << std::endl;
             correct = encryptor.decrypt(value);
-            std::cout << "Decrypted value: " << correct << std::endl;
-            std::cout << "Provided password: " << password << std::endl;
-            
-            bool match = (password == correct);
-            std::cout << "Password match: " << (match ? "yes" : "no") << std::endl;
-            return match;
+            return (password == correct);
         } else {
             std::cerr << "No existing password found. Please create one using the setup tool.\n";
             return false;
@@ -67,17 +56,14 @@ bool CredentialsManager::login(const std::string& password) {
 
 bool CredentialsManager::updatePassword(const std::string& newPassword) {
     try {
-        std::cout << "Updating password in dataPath: " << dataPath << std::endl;
         std::string loginFile = dataPath + "/enter";
         
         // Ensure directory exists
         fs::path dirPath(dataPath);
         if (!fs::exists(dirPath)) {
-            std::cout << "Creating directory: " << dataPath << std::endl;
             fs::create_directories(dirPath);
         }
         
-        std::cout << "Opening file for writing: " << loginFile << std::endl;
         std::ofstream fout(loginFile, std::ofstream::out | std::ofstream::trunc);
         if (!fout) {
             std::cerr << "Failed to open file for writing: " << loginFile << std::endl;
@@ -85,7 +71,6 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
         }
         
         std::string encrypted = encryptor.encrypt(newPassword);
-        std::cout << "Writing encrypted password to file" << std::endl;
         fout << encrypted;
         fout.close();
         
@@ -95,7 +80,6 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
             return false;
         }
         
-        std::cout << "Password updated successfully" << std::endl;
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Exception during password update: " << e.what() << std::endl;
@@ -150,7 +134,6 @@ void CredentialsManager::showOptions(const std::string& path) const {
 }
 
 std::vector<std::string> CredentialsManager::getAllPlatforms() {
-    std::cout << "getAllPlatforms called with dataPath: " << dataPath << std::endl;
     std::vector<std::string> platforms;
     
     if (dataPath.empty()) {
@@ -158,32 +141,22 @@ std::vector<std::string> CredentialsManager::getAllPlatforms() {
         return platforms;
     }
     
-    // Check if directory exists
-    if (!fs::exists(dataPath)) {
-        std::cerr << "Error: dataPath directory doesn't exist: " << dataPath << std::endl;
-        return platforms;
-    }
-    
-    // Check if it's actually a directory
-    if (!fs::is_directory(dataPath)) {
-        std::cerr << "Error: dataPath is not a directory: " << dataPath << std::endl;
+    // Check if directory exists and is actually a directory
+    if (!fs::exists(dataPath) || !fs::is_directory(dataPath)) {
+        std::cerr << "Error: Invalid dataPath: " << dataPath << std::endl;
         return platforms;
     }
     
     try {
-        std::cout << "Iterating directory: " << dataPath << std::endl;
         for (const auto& entry : fs::directory_iterator(dataPath)) {
             if (entry.is_regular_file()) {
                 std::string filename = entry.path().filename().string();
-                std::cout << "Found file: " << filename << std::endl;
                 if (filename != "enter") {
-                    std::cout << "Adding to platforms list: " << filename << std::endl;
                     platforms.push_back(filename);
                 }
             }
         }
         
-        std::cout << "Found " << platforms.size() << " platform(s)" << std::endl;
         return platforms;
     } catch (const std::exception& e) {
         std::cerr << "Exception while iterating directory: " << e.what() << std::endl;

@@ -25,7 +25,6 @@ PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
         // Check if the data directory exists, create if not
         if (!fs::exists(data_path)) {
             fs::create_directories(data_path);
-            std::cout << "Created data directory: " << data_path << std::endl;
         }
         
         // Check if login file exists - use the global data path
@@ -61,111 +60,152 @@ void PasswordManagerGUI::show() {
 }
 
 void PasswordManagerGUI::createLoginScreen() {
-    // Create main window
-    mainWindow = std::make_unique<Fl_Window>(400, 200, "Password Manager - Login");
-    mainWindow->begin();
+    // Create main window - use heap allocation for more stability
+    Fl_Window* win = new Fl_Window(400, 200, "Password Manager - Login");
+    win->begin();
     
     // Add title
-    auto titleBox = std::make_unique<Fl_Box>(10, 10, 380, 30, "Password Manager");
+    Fl_Box* titleBox = new Fl_Box(10, 10, 380, 30, "Password Manager");
     titleBox->labelsize(20);
     
     // Create master password input
-    masterPasswordInput = std::make_unique<Fl_Secret_Input>(150, 70, 200, 30, "Master Password:");
+    Fl_Secret_Input* passInput = new Fl_Secret_Input(150, 70, 200, 30, "Master Password:");
     
     // Create login button
-    loginButton = std::make_unique<Fl_Button>(150, 120, 100, 30, "Login");
-    loginButton->callback(loginCallback, this);
+    Fl_Button* loginBtn = new Fl_Button(150, 120, 100, 30, "Login");
+    loginBtn->callback(loginCallback, this);
     
-    mainWindow->end();
-    mainWindow->callback([](Fl_Widget* w, void*) { 
+    win->end();
+    win->callback([](Fl_Widget* w, void*) { 
         if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
             w->hide(); 
         }
     });
+    
+    // Store widgets in member variables
+    mainWindow.reset(win);
+    masterPasswordInput.reset(passInput);
+    loginButton.reset(loginBtn);
+    
+    // Show window
+    win->show();
 }
 
 void PasswordManagerGUI::createSetupScreen() {
-    // Create main window for first-time setup
-    mainWindow = std::make_unique<Fl_Window>(450, 250, "Password Manager - First Time Setup");
-    mainWindow->begin();
+    // Create main window for first-time setup - use heap allocation for more stability
+    Fl_Window* win = new Fl_Window(450, 250, "Password Manager - First Time Setup");
+    win->begin();
     
     // Add title
-    auto titleBox = std::make_unique<Fl_Box>(10, 10, 430, 30, "Password Manager Setup");
+    Fl_Box* titleBox = new Fl_Box(10, 10, 430, 30, "Password Manager Setup");
     titleBox->labelsize(20);
     
     // Add description
-    auto descBox = std::make_unique<Fl_Box>(20, 50, 410, 30, "Welcome! Please create a master password to get started:");
+    Fl_Box* descBox = new Fl_Box(20, 50, 410, 30, "Welcome! Please create a master password to get started:");
     
     // Create master password input
-    newPasswordInput = std::make_unique<Fl_Secret_Input>(180, 100, 200, 30, "New Master Password:");
+    Fl_Secret_Input* newPassInput = new Fl_Secret_Input(180, 100, 200, 30, "New Master Password:");
     
     // Create confirm password input
-    confirmPasswordInput = std::make_unique<Fl_Secret_Input>(180, 150, 200, 30, "Confirm Password:");
+    Fl_Secret_Input* confirmPassInput = new Fl_Secret_Input(180, 150, 200, 30, "Confirm Password:");
     
     // Create setup button
-    createPasswordButton = std::make_unique<Fl_Button>(175, 200, 100, 30, "Create");
-    createPasswordButton->callback(createPasswordCallback, this);
+    Fl_Button* createBtn = new Fl_Button(175, 200, 100, 30, "Create");
+    createBtn->callback(createPasswordCallback, this);
     
-    mainWindow->end();
-    mainWindow->callback([](Fl_Widget* w, void*) { 
+    win->end();
+    win->callback([](Fl_Widget* w, void*) { 
         if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
             exit(0); // First time setup is critical, so exit app if canceled
         }
     });
+    
+    // Store widgets in member variables
+    mainWindow.reset(win);
+    newPasswordInput.reset(newPassInput);
+    confirmPasswordInput.reset(confirmPassInput);
+    createPasswordButton.reset(createBtn);
+    
+    // Show window
+    win->show();
 }
 
 void PasswordManagerGUI::createMainScreen() {
-    // Before creating a new window, ensure we properly clean up the old one
-    if (mainWindow) {
-        // Properly clean up any text buffers to avoid callback errors
-        if (platformsDisplay && platformsBuffer) {
-            platformsDisplay->buffer(nullptr);  // Disconnect buffer before destroying
+    try {
+        // Before creating a new window, ensure we properly clean up the old one
+        if (mainWindow) {
+            // Properly clean up any text buffers to avoid callback errors
+            if (platformsDisplay && platformsBuffer) {
+                platformsDisplay->buffer(nullptr);  // Disconnect buffer before destroying
+            }
+            
+            mainWindow->hide();  // Hide the window
         }
         
-        mainWindow->hide();  // Hide the window
-    }
-    
-    // Reset all pointers to ensure clean state
-    menuBar.reset();
-    platformsDisplay.reset();
-    platformsBuffer.reset();
-    
-    // Create main application window
-    mainWindow = std::make_unique<Fl_Window>(600, 400, "Password Manager");
-    if (!mainWindow) {
-        std::cerr << "Failed to create main window!" << std::endl;
-        return;
-    }
-    mainWindow->begin();
-    
-    // Create menu bar
-    menuBar = std::make_unique<Fl_Menu_Bar>(0, 0, 600, 30);
-    if (menuBar) {
-        menuBar->add("File/Add Credential", 0, addCredentialCallback, this);
-        menuBar->add("File/Exit", 0, exitCallback, this);
-        menuBar->add("Help/About", 0, aboutCallback, this);
-    } else {
-        std::cerr << "Failed to create menu bar!" << std::endl;
-    }
-    
-    // Create text display for showing platforms
-    platformsBuffer = std::make_unique<Fl_Text_Buffer>();
-    platformsDisplay = std::make_unique<Fl_Text_Display>(20, 50, 560, 300, "Stored Platforms:");
-    if (platformsDisplay && platformsBuffer) {
-        platformsDisplay->buffer(platformsBuffer.get());
-    }
-    
-    mainWindow->end();  // End before refreshing to ensure proper widget hierarchy
-    
-    // Now refresh platforms list
-    refreshPlatformsList();
-    
-    // Set callback for window close
-    mainWindow->callback([](Fl_Widget* w, void*) { 
-        if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-            w->hide(); 
+        // Create main application window - use heap allocation for more stability
+        Fl_Window* win = new Fl_Window(600, 400, "Password Manager");
+        win->begin();
+        
+        // Create menu bar - use heap allocation
+        Fl_Menu_Bar* menu = new Fl_Menu_Bar(0, 0, 600, 30);
+        menu->add("File/Add Credential", 0, addCredentialCallback, this);
+        menu->add("File/Exit", 0, exitCallback, this);
+        menu->add("Help/About", 0, aboutCallback, this);
+        
+        // Create text display for showing platforms - use heap allocation
+        Fl_Text_Buffer* buffer = new Fl_Text_Buffer();
+        Fl_Text_Display* display = new Fl_Text_Display(20, 50, 560, 300, "Stored Platforms:");
+        display->buffer(buffer);
+        
+        // Add buttons directly here - use heap allocation
+        int y = 360;
+        Fl_Button* viewButton = new Fl_Button(20, y, 100, 25, "View");
+        viewButton->callback(viewCredentialCallback, this);
+        
+        Fl_Button* deleteButton = new Fl_Button(140, y, 100, 25, "Delete");
+        deleteButton->callback(deleteCredentialCallback, this);
+        
+        win->end();
+        
+        // Set callback for window close
+        win->callback([](Fl_Widget* w, void*) { 
+            if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
+                w->hide(); 
+            }
+        });
+        
+        // Populate the platforms list
+        try {
+            // Get platforms data
+            std::vector<std::string> platforms = credManager->getAllPlatforms();
+            
+            // Format and display platforms
+            std::stringstream ss;
+            ss << "Double-click a platform to view credentials:\n\n";
+            
+            for (const auto& platform : platforms) {
+                ss << "• " << platform << "\n";
+            }
+            
+            buffer->text(ss.str().c_str());
+        } catch (const std::exception& e) {
+            std::cerr << "Exception getting platforms: " << e.what() << std::endl;
         }
-    });
+        
+        // Store the widgets in our member variables
+        mainWindow.reset(win);
+        menuBar.reset(menu);
+        platformsBuffer.reset(buffer);
+        platformsDisplay.reset(display);
+        
+        // Show the window
+        win->show();
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in createMainScreen: " << e.what() << std::endl;
+        fl_message_title("Error");
+        fl_message("Failed to create main screen");
+    }
 }
 
 void PasswordManagerGUI::refreshPlatformsList() {
@@ -173,54 +213,24 @@ void PasswordManagerGUI::refreshPlatformsList() {
         return;
     }
     
-    // Get platforms data
-    std::vector<std::string> platforms;
     try {
-        platforms = credManager->getAllPlatforms();
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in getAllPlatforms: " << e.what() << std::endl;
-        return;
-    }
-    
-    // Format and display platforms
-    std::stringstream ss;
-    ss << "Double-click a platform to view credentials:\n\n";
-    
-    for (const auto& platform : platforms) {
-        ss << "• " << platform << "\n";
-    }
-    
-    platformsBuffer->text(ss.str().c_str());
-    
-    // Remove all widgets except the menu bar and text display
-    // This is a safer approach to avoid memory leaks
-    mainWindow->begin();
-    
-    // Store children that we want to keep
-    Fl_Widget* menuBarWidget = menuBar.get();
-    Fl_Widget* textDisplayWidget = platformsDisplay.get();
-    
-    // Remove children we don't want to keep, starting from the end
-    // to avoid shifting indices
-    for (int i = mainWindow->children() - 1; i >= 0; i--) {
-        Fl_Widget* child = mainWindow->child(i);
-        if (child != menuBarWidget && child != textDisplayWidget) {
-            mainWindow->remove(child);
-            delete child; // Safe to delete as we removed it from the parent
+        // Get platforms data
+        std::vector<std::string> platforms = credManager->getAllPlatforms();
+        
+        // Format and display platforms
+        std::stringstream ss;
+        ss << "Double-click a platform to view credentials:\n\n";
+        
+        for (const auto& platform : platforms) {
+            ss << "• " << platform << "\n";
         }
+        
+        // Update the text buffer only - don't modify the widgets
+        platformsBuffer->text(ss.str().c_str());
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in refreshPlatformsList: " << e.what() << std::endl;
     }
-    
-    // Add new buttons
-    int y = 360;
-    
-    // Use automatic management for these buttons
-    Fl_Button* viewButton = new Fl_Button(20, y, 100, 25, "View");
-    viewButton->callback(viewCredentialCallback, this);
-    
-    Fl_Button* deleteButton = new Fl_Button(140, y, 100, 25, "Delete");
-    deleteButton->callback(deleteCredentialCallback, this);
-    
-    mainWindow->end();
 }
 
 void PasswordManagerGUI::login(const std::string& password) {
@@ -234,14 +244,7 @@ void PasswordManagerGUI::login(const std::string& password) {
         if (credManager->login(password)) {
             isLoggedIn = true;
             masterPassword = password;
-            
-            try {
-                createMainScreen();
-            } catch (const std::exception& e) {
-                std::cerr << "Exception in createMainScreen: " << e.what() << std::endl;
-                fl_message_title("Error");
-                fl_message("Error creating main screen");
-            }
+            createMainScreen();
         } else {
             fl_message_title("Error");
             fl_message("Invalid master password!");
