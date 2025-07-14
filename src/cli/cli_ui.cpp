@@ -1,6 +1,7 @@
 #include "../core/ui.h"
 #include "../core/api.h"
-#include "./cli_ui.h"
+#include "./cli_UI.h"
+#include "../../GlobalConfig.h"
 #include <iostream>
 
 bool MainFunctionality::login() {
@@ -9,7 +10,7 @@ bool MainFunctionality::login() {
 
 void MainFunctionality::update_password() {
     std::string newPassword = UI::get_password_input("Enter new password: ");
-    CredentialsManager manager(data_path);
+    CredentialsManager manager;
     if (manager.updatePassword(newPassword)) {
         UI::display_message("Password updated successfully.");
     } else {
@@ -21,7 +22,7 @@ void MainFunctionality::add_credentials() {
     std::string platform = UI::get_password_input("Enter platform name: ");
     std::string username = UI::get_password_input("Enter username: ");
     std::string password = UI::get_password_input("Enter password: ");
-    CredentialsManager manager(data_path);
+    CredentialsManager manager;
     if (manager.addCredentials(platform, username, password)) {
         UI::display_message("Credentials added successfully.");
     } else {
@@ -31,7 +32,7 @@ void MainFunctionality::add_credentials() {
 
 void MainFunctionality::delete_credentials() {
     std::string platform = UI::get_password_input("Enter platform name to delete: ");
-    CredentialsManager manager(data_path);
+    CredentialsManager manager;
     if (manager.deleteCredentials(platform)) {
         UI::display_message("Credentials deleted successfully.");
     } else {
@@ -40,13 +41,13 @@ void MainFunctionality::delete_credentials() {
 }
 
 void MainFunctionality::show_credentials() {
-    CredentialsManager manager(data_path);
+    CredentialsManager manager;
     manager.showOptions();
 }
 
 void MainFunctionality::copy_credentials() {
     std::string platform = UI::get_password_input("Enter platform name to copy: ");
-    CredentialsManager manager(data_path);
+    CredentialsManager manager;
     auto credentials = manager.getCredentials(platform);
     if (!credentials.empty()) {
         UI::display_message("Credentials copied to clipboard.");

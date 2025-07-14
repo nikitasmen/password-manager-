@@ -1,5 +1,79 @@
-#ignore all .DS_Store files
-.DS_Store
+# C++ build artifacts
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.a
+*.lib
+*.lo
+*.la
+*.slo
 
-#ignore all .vscode files
-.vscode
+# Build directories
+build/
+build-*/
+direct-build/
+gui-build/
+simple-build/
+debug/
+release/
+bin/
+lib/
+CMakeFiles/
+cmake-build-*/
+
+# CMake files
+CMakeCache.txt
+CMakeUserPresets.json
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+install_manifest.txt
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
+.vscode/
+# Mac OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Project-specific files
+src/data/credentials
+src/data/loginPassword
+
+# Generated files
+Makefile
+Testing/
+install/
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*-build-*
+
+# Dependency directories
+vendor/
+third_party/
+deps/
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Core dumps
+core
+
+# Backup files
+*~
+*.bak
+*.backup
+*.save

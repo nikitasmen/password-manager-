@@ -6,7 +6,10 @@ A secure, lightweight password management tool written in C++.
 
 - **Local Storage**: All passwords are stored locally on your machine
 - **Strong Encryption**: Uses LFSR (Linear Feedback Shift Register) encryption
-- **Multiple Interfaces**: Both command-line interface (CLI) and interactive UI
+- **Multiple Interfaces**:  
+  - Command-line interface (CLI) for scripting and automation
+  - Interactive terminal UI for console-based interaction
+  - Graphical user interface (GUI) for user-friendly desktop experience
 - **Password Management**:
   - Store credentials (username/password) for different platforms
   - Retrieve and copy credentials to clipboard
@@ -21,7 +24,9 @@ The project is organized into three main components:
   - Encryption/decryption
   - File system operations
   - Credential management
-- **UI**: Interactive user interface for managing passwords
+- **UI**:  
+  - Terminal-based interactive user interface
+  - Graphical user interface using FLTK
 - **CLI**: Command-line interface for scripting and automation
 
 ## Project Structure
@@ -59,12 +64,27 @@ password-manager-/
 
 ## Usage
 
-### Interactive UI
+### Graphical User Interface
 
-Run the application without arguments to use the interactive interface:
+For a more user-friendly experience, run the GUI version:
 
 ```bash
-./password-manager
+./password_manager_gui
+```
+
+The GUI provides:
+
+- Login dialog for master password
+- List view of all stored platforms
+- Forms for adding/viewing credentials
+- Ability to delete credentials
+
+### Interactive Terminal UI
+
+Run the terminal UI version without arguments:
+
+```bash
+./password_manager
 ```
 
 ### Command-line Interface
@@ -98,6 +118,38 @@ Available options:
 
 ## 🔧 Build Instructions
 
+### Using the Unified Build Script
+
+The easiest way to build all versions:
+
+```bash
+./build.sh
+```
+
+This will create all three executables in the `build` directory.
+
+You can customize your build with various options:
+
+```bash
+# Build only the GUI version
+./build.sh --gui
+
+# Build without CMake (direct compilation)
+./build.sh --direct
+
+# Clean and rebuild everything
+./build.sh --clean
+
+# Build CLI and terminal UI only
+./build.sh --cli --tui
+```
+
+For all available options, run:
+
+```bash
+./build.sh --help
+```
+
 ### Option 1: Simple Compile
 
 ```bash
@@ -123,6 +175,13 @@ make
 - All data is stored locally - no internet connection required
 - The master password is used for encryption/decryption
 - For actual production use, consider implementing additional security measures
+
+## Dependencies
+
+- C++17 or later
+- CMake 3.10+ (for building)
+- FLTK 1.3+ (for the GUI version)
+- For clipboard functionality on Linux: xclip or xsel
 
 ## 📌 Future Improvements
 
