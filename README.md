@@ -1,11 +1,14 @@
-# Password Manager
+# Enhanced Password Manager
 
-A secure, lightweight password management tool written in C++.
+A secure, lightweight password management tool written in C++ with advanced security features.
 
 ## Features
 
 - **Local Storage**: All passwords are stored locally on your machine
-- **Strong Encryption**: Uses LFSR (Linear Feedback Shift Register) encryption
+- **Enhanced Encryption**:
+  - LFSR (Linear Feedback Shift Register) based encryption
+  - Salt-based security for improved resistance to attacks
+  - Enhanced error handling and recovery mechanisms
 - **Multiple Interfaces**:  
   - Command-line interface (CLI) for scripting and automation
   - Interactive terminal UI for console-based interaction
@@ -15,19 +18,29 @@ A secure, lightweight password management tool written in C++.
   - Retrieve and copy credentials to clipboard
   - Delete credentials when no longer needed
   - List all platforms with stored credentials
+- **Enhanced Security Features**:
+  - Path sanitization to prevent traversal attacks
+  - Automatic backup of credential files
+  - Robust exception handling
+  - Secure credential storage with salt-based encryption
 
 ## Architecture
 
 The project is organized into three main components:
 
 - **Core**: Provides the fundamental functionality
-  - Encryption/decryption
-  - File system operations
-  - Credential management
+  - Secure encryption/decryption with salt-based protection
+  - File system operations with path security
+  - Credential management with error handling
+  - User interface abstractions
 - **UI**:  
   - Terminal-based interactive user interface
   - Graphical user interface using FLTK
+  - Improved error reporting and user feedback
 - **CLI**: Command-line interface for scripting and automation
+  - Enhanced command parsing
+  - Better error handling and status reporting
+  - Support for batch operations
 
 ## Project Structure
 
@@ -90,14 +103,32 @@ Run the terminal UI version without arguments:
 ### Command-line Interface
 
 ```bash
-./cli_api <userPassword> <option> [values...]
+./cli_api <option> <userPassword> [values...]
 ```
 
 Available options:
 
-- `-h` - Show manual and available commands
-- `-a <platform> <user> <pass>` - Add password for a specific platform
-- `-s` - Show all records
+- `-h`, `--help` - Show help message and available commands
+- `-a`, `--add <password> <platform> <username> <platform_password>` - Add new credentials
+- `-s`, `--show <password>` - List all stored platforms
+- `-g`, `--get <password> <platform>` - Show credentials for specified platform
+- `-d`, `--delete <password> <platform>` - Delete credentials for specified platform
+- `-p`, `--password <old_password> <new_password>` - Change master password
+
+### Security Enhancements
+
+This improved version includes several security enhancements:
+
+1. **Salt-Based Encryption**: Adds random data to each encrypted value, making dictionary attacks significantly harder
+2. **Path Sanitization**: Prevents path traversal attacks by sanitizing platform names used in file paths
+3. **File System Security**: Better handling of file system operations with proper error checking
+4. **Backup System**: Automatically creates backups of credential files before modifying them
+5. **Error Handling**: Comprehensive exception handling throughout the codebase
+6. **Memory Management**: Improved memory handling to prevent leaks and buffer overflows
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 - `-c <platform>` - Return and copy record for the specified platform
 
 ### Examples
