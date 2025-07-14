@@ -37,18 +37,35 @@ set(DATA_SOURCES
     src/data/data.cpp
 )
 
+# Add filesystem library if needed
+if(UNIX AND NOT APPLE)
+    set(FILESYSTEM_LIB stdc++fs)
+else()
+    set(FILESYSTEM_LIB "")
+endif()
+
 # Create CLI executable
 add_executable(cli_api ${CORE_SOURCES} ${CLI_SOURCES} ${DATA_SOURCES})
 target_include_directories(cli_api PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(FILESYSTEM_LIB)
+    target_link_libraries(cli_api ${FILESYSTEM_LIB})
+endif()
+
 
 # Create interactive UI executable
 add_executable(password_manager ${CORE_SOURCES} ${UI_SOURCES} ${DATA_SOURCES} src/cli/cli_ui.cpp)
 target_include_directories(password_manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(FILESYSTEM_LIB)
+    target_link_libraries(password_manager ${FILESYSTEM_LIB})
+endif()
 
 # Create GUI executable
 add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} ${DATA_SOURCES})
 target_include_directories(password_manager_gui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(password_manager_gui ${FLTK_LIBRARIES})
+if(FILESYSTEM_LIB)
+    target_link_libraries(password_manager_gui ${FILESYSTEM_LIB})
+endif()
 
 # Create the data directory if it doesn't exist
 add_custom_command(
