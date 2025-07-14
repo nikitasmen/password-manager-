@@ -23,7 +23,7 @@ private:
     std::unique_ptr<Fl_Window> mainWindow;
     
     // Login screen components
-    std::unique_ptr<Fl_Input> masterPasswordInput;
+    std::unique_ptr<Fl_Secret_Input> masterPasswordInput;
     std::unique_ptr<Fl_Button> loginButton;
     
     // Setup screen components
@@ -35,6 +35,7 @@ private:
     std::unique_ptr<Fl_Menu_Bar> menuBar;
     std::unique_ptr<Fl_Text_Display> platformsDisplay;
     std::unique_ptr<Fl_Text_Buffer> platformsBuffer;
+    std::vector<std::unique_ptr<Fl_Button>> actionButtons;
     
     // Add credential components
     std::unique_ptr<Fl_Window> addCredentialWindow;
@@ -55,11 +56,28 @@ private:
     bool isLoggedIn;
     std::string masterPassword;
     
-    // Helper methods
+    // Window creation helper methods
     void createLoginScreen();
     void createSetupScreen();
     void createMainScreen();
+    void createAddCredentialDialog();
+    void createViewCredentialDialog(const std::string& platform);
+    
+    // UI update methods
     void refreshPlatformsList();
+    void clearCurrentScreen();
+    
+    // Memory management helpers
+    template <typename T, typename... Args>
+    std::unique_ptr<T> makeWidget(Args&&... args) {
+        return std::make_unique<T>(std::forward<Args>(args)...);
+    }
+    
+    template <typename T, typename... Args>
+    T* addWidget(std::unique_ptr<T>& ptr, Args&&... args) {
+        ptr = std::make_unique<T>(std::forward<Args>(args)...);
+        return ptr.get();
+    }
 
     // Callback methods
     static void loginCallback(Fl_Widget* w, void* data);

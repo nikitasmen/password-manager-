@@ -13,24 +13,20 @@ namespace fs = std::experimental::filesystem;
 
 PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
     try {
-        // Initialize member variables to prevent null pointer issues
-        platformsBuffer = nullptr;
-        platformsDisplay = nullptr;
-        credentialBuffer = nullptr;
-        credentialDisplay = nullptr;
-        
         // Initialize the credential manager with global data path
         credManager = std::make_unique<CredentialsManager>(data_path);
         
-        // Check if the data directory exists, create if not
-        if (!fs::exists(data_path)) {
-            fs::create_directories(data_path);
+        // Ensure data directory exists
+        fs::path dir(data_path);
+        if (!fs::exists(dir)) {
+            fs::create_directories(dir);
         }
         
-        // Check if login file exists - use the global data path
+        // Check if this is first time setup or regular login
         std::string loginFile = data_path + "/enter";
         bool firstTime = !fs::exists(loginFile);
         
+        // Create appropriate initial screen
         if (firstTime) {
             createSetupScreen();
         } else {
@@ -60,35 +56,40 @@ void PasswordManagerGUI::show() {
 }
 
 void PasswordManagerGUI::createLoginScreen() {
-    // Create main window - use heap allocation for more stability
-    Fl_Window* win = new Fl_Window(400, 200, "Password Manager - Login");
-    win->begin();
-    
-    // Add title
-    Fl_Box* titleBox = new Fl_Box(10, 10, 380, 30, "Password Manager");
-    titleBox->labelsize(20);
-    
-    // Create master password input
-    Fl_Secret_Input* passInput = new Fl_Secret_Input(150, 70, 200, 30, "Master Password:");
-    
-    // Create login button
-    Fl_Button* loginBtn = new Fl_Button(150, 120, 100, 30, "Login");
-    loginBtn->callback(loginCallback, this);
-    
-    win->end();
-    win->callback([](Fl_Widget* w, void*) { 
-        if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-            w->hide(); 
-        }
-    });
-    
-    // Store widgets in member variables
-    mainWindow.reset(win);
-    masterPasswordInput.reset(passInput);
-    loginButton.reset(loginBtn);
-    
-    // Show window
-    win->show();
+    try {
+        // Clear any existing screens
+        clearCurrentScreen();
+        
+        // Create main window
+        mainWindow = std::make_unique<Fl_Window>(400, 200, "Password Manager - Login");
+        mainWindow->begin();
+        
+        // Create title
+        auto titleBox = new Fl_Box(10, 10, 380, 30, "Password Manager");
+        titleBox->labelsize(20);
+        
+        // Create password input field
+        masterPasswordInput = std::make_unique<Fl_Secret_Input>(150, 70, 200, 30, "Master Password:");
+        
+        // Create login button
+        loginButton = std::make_unique<Fl_Button>(150, 120, 100, 30, "Login");
+        loginButton->callback(loginCallback, this);
+        
+        // Set up window close handler
+        mainWindow->end();
+        mainWindow->callback([](Fl_Widget* w, void*) { 
+            if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
+                w->hide(); 
+            }
+        });
+        
+        // Display the window
+        mainWindow->show();
+    } catch (const std::exception& e) {
+        std::cerr << "Error creating login screen: " << e.what() << std::endl;
+        fl_message_title("Error");
+        fl_message("Failed to create login screen: %s", e.what());
+    }
 }
 
 void PasswordManagerGUI::createSetupScreen() {
@@ -342,6 +343,37 @@ void PasswordManagerGUI::deleteCredential(const std::string& platform) {
             fl_message("Failed to delete credentials!");
         }
     }
+}
+
+void PasswordManagerGUI::clearCurrentScreen() {
+    // Clean up text displays first by disconnecting buffers
+    if (platformsDisplay && platformsBuffer) {
+        platformsDisplay->buffer(nullptr);
+    }
+    
+    if (credentialDisplay && credentialBuffer) {
+        credentialDisplay->buffer(nullptr);
+    }
+    
+    // Hide and destroy any existing windows
+    if (mainWindow) {
+        mainWindow->hide();
+    }
+    
+    if (addCredentialWindow) {
+        addCredentialWindow->hide();
+    }
+    
+    if (viewCredentialWindow) {
+        viewCredentialWindow->hide();
+    }
+    
+    // Reset pointers to clear memory
+    mainWindow.reset();
+    menuBar.reset();
+    platformsDisplay.reset();
+    platformsBuffer.reset();
+    actionButtons.clear();
 }
 
 // Static callback implementations
