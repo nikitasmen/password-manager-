@@ -1,9 +1,9 @@
 #include "../core/api.h"
 #include "../core/ui.h"
+#include "../../GlobalConfig.h"
 #include <iostream>
-// extern std::string data_path;   
 
-int main(int argc, char **argv) {
+int cli_main(int argc, char **argv) {
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << " <userPassword> <option> [values...]\n";
         return 1;
@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     std::string userPassword = argv[1];
     std::string option = argv[2];
 
-    CredentialsManager manager();
+    CredentialsManager manager;
 
     if (!manager.login(userPassword)) {
         std::cerr << "Invalid password.\n";
