@@ -13,6 +13,9 @@ namespace fs = std::experimental::filesystem;
 
 PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
     try {
+        // Make sure we're using the correct data path
+        std::cout << "Using data path: " << data_path << std::endl;
+        
         // Initialize the credential manager with global data path
         credManager = std::make_unique<CredentialsManager>(data_path);
         
@@ -102,7 +105,7 @@ void PasswordManagerGUI::createSetupScreen() {
     titleBox->labelsize(20);
     
     // Add description
-    Fl_Box* descBox = new Fl_Box(20, 50, 410, 30, "Welcome! Please create a master password to get started:");
+    new Fl_Box(20, 50, 410, 30, "Welcome! Please create a master password to get started:");
     
     // Create master password input
     Fl_Secret_Input* newPassInput = new Fl_Secret_Input(180, 100, 200, 30, "New Master Password:");
@@ -237,16 +240,31 @@ void PasswordManagerGUI::refreshPlatformsList() {
 void PasswordManagerGUI::login(const std::string& password) {
     try {
         if (!credManager) {
+            std::cerr << "Error: credential manager not initialized!" << std::endl;
             fl_message_title("Error");
             fl_message("Internal error: credential manager not initialized!");
             return;
         }
         
+        std::cout << "Attempting to login with password: [length: " << password.length() << "]" << std::endl;
+        
+        // Check if the login file exists
+        std::string loginFilePath = data_path + "/enter";
+        std::ifstream testFile(loginFilePath);
+        if (!testFile) {
+            std::cerr << "Login file does not exist or cannot be opened at: " << loginFilePath << std::endl;
+            fl_message_title("Error");
+            fl_message("Login file not found. Please create a master password first.");
+            return;
+        }
+        
         if (credManager->login(password)) {
+            std::cout << "Login successful!" << std::endl;
             isLoggedIn = true;
             masterPassword = password;
             createMainScreen();
         } else {
+            std::cerr << "Login failed: Invalid password" << std::endl;
             fl_message_title("Error");
             fl_message("Invalid master password!");
         }
@@ -380,6 +398,12 @@ void PasswordManagerGUI::clearCurrentScreen() {
 void PasswordManagerGUI::loginCallback(Fl_Widget* w, void* data) {
     auto* gui = static_cast<PasswordManagerGUI*>(data);
     std::string password = gui->masterPasswordInput->value();
+    
+    // Debug info
+    std::cout << "Login button clicked" << std::endl;
+    std::cout << "Password field has " << password.length() << " characters" << std::endl;
+    
+    // Perform login
     gui->login(password);
 }
 
@@ -460,25 +484,33 @@ void PasswordManagerGUI::createPasswordCallback(Fl_Widget* w, void* data) {
     const char* newPass = gui->newPasswordInput->value();
     const char* confirmPass = gui->confirmPasswordInput->value();
     
+    std::cout << "Creating new password" << std::endl;
+    
     if (!newPass || strlen(newPass) == 0) {
+        std::cerr << "Error: Empty password provided" << std::endl;
         fl_message_title("Error");
         fl_message("Please enter a password!");
         return;
     }
     
     if (strcmp(newPass, confirmPass) != 0) {
+        std::cerr << "Error: Passwords do not match" << std::endl;
         fl_message_title("Error");
         fl_message("Passwords do not match!");
         return;
     }
     
+    std::cout << "Attempting to create master password with length: " << strlen(newPass) << std::endl;
+    
     // Create the new master password
     if (gui->credManager->updatePassword(newPass)) {
+        std::cout << "Password created successfully!" << std::endl;
         fl_message("Master password created successfully!");
         gui->isLoggedIn = true;
         gui->masterPassword = newPass;
         gui->createMainScreen();
     } else {
+        std::cerr << "Failed to create master password" << std::endl;
         fl_message_title("Error");
         fl_message("Failed to create master password!");
     }
