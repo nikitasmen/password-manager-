@@ -45,9 +45,6 @@ CPackSourceConfig.cmake
 Icon
 ._*
 
-# Project-specific files
-src/data/credentials
-src/data/loginPassword
 
 # Generated files
 Makefile
