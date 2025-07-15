@@ -189,15 +189,17 @@ build_direct() {
     # Build CLI
     if [ "$BUILD_CLI" = true ]; then
         echo -e "${YELLOW}Compiling CLI version...${NC}"
-        c++ -std=c++17 -Wall -o direct-build/cli_api src/mainApi.cpp src/cli/cli_api.cpp \
-            src/cli/cli_ui.cpp src/core/api.cpp src/core/encryption.cpp \
-            src/core/fileSys.cpp src/core/ui.cpp src/data/data.cpp GlobalConfig.cpp
+        echo -e "${RED}Error: Direct compilation is no longer supported.${NC}"
+        echo -e "${RED}Please use CMake to build the project.${NC}"
+        exit 1
     fi
     
     # Build terminal UI
     if [ "$BUILD_TUI" = true ]; then
         echo -e "${YELLOW}Compiling terminal UI version...${NC}"
-        c++ -std=c++17 -Wall -o direct-build/password_manager src/mainUi.cpp src/cli/cli_ui.cpp \
+        echo -e "${RED}Error: Direct compilation is no longer supported.${NC}"
+        echo -e "${RED}Please use CMake to build the project.${NC}"
+        exit 1
             src/core/api.cpp src/core/encryption.cpp src/core/fileSys.cpp \
             src/core/ui.cpp src/data/data.cpp GlobalConfig.cpp
     fi
