@@ -1,7 +1,7 @@
 #include "./cli_api.h"
 #include "../core/api.h"
 #include "../core/ui.h"
-#include "../../GlobalConfig.h"
+#include "../config/GlobalConfig.h"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>

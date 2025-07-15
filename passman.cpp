@@ -18,7 +18,7 @@ using std::cin;
 using std::cout;
 using std::endl;
 
-#include "GlobalConfig.h" // Include the global configuration
+#include "src/config/GlobalConfig.h" // Include the global configuration
 #include "src/core/encryption.h"
 #include "src/core/api.h"
 

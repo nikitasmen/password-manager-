@@ -1,7 +1,7 @@
 #include "../core/ui.h"
 #include "../core/api.h"
-#include "./cli_UI.h"
-#include "../../GlobalConfig.h"
+#include "./cli_ui.h"
+#include "../config/GlobalConfig.h"
 #include <iostream>
 
 bool MainFunctionality::login() {

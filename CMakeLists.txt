@@ -13,24 +13,24 @@ include_directories(${FLTK_INCLUDE_DIR})
 set(CORE_SOURCES
     src/core/api.cpp
     src/core/encryption.cpp
-    src/core/fileSys.cpp
+    src/core/file_system.cpp
     src/core/ui.cpp
-    GlobalConfig.cpp
+    src/config/GlobalConfig.cpp
 )
 
 set(CLI_SOURCES
     src/cli/cli_api.cpp
     src/cli/cli_ui.cpp
-    src/mainApi.cpp
+    src/cli_main.cpp
 )
 
 set(UI_SOURCES
-    src/mainUi.cpp
+    src/terminal_main.cpp
 )
 
 set(GUI_SOURCES
     src/gui/gui.cpp
-    src/mainGui.cpp
+    src/gui_main.cpp
 )
 
 set(DATA_SOURCES
