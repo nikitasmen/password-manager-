@@ -28,9 +28,6 @@ bool Database::ensureDataPathExists() const {
             return fs::create_directories(dir);
         }
         return true;
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "Filesystem error: " << e.what() << std::endl;
-        return false;
     } catch (const std::exception& e) {
         std::cerr << "Error creating directory: " << e.what() << std::endl;
         return false;
@@ -118,7 +115,7 @@ bool Database::addCredentials(const std::string& platformName, const std::string
     try {
         // Input validation
         if (platformName.empty() || userName.empty() || password.empty()) {
-            throw DatabaseError("Empty platform name, username, or password");
+            return false;
         }
         
         // Sanitize platform name
@@ -129,7 +126,7 @@ bool Database::addCredentials(const std::string& platformName, const std::string
         std::vector<std::string> platforms = getAllPlatforms();
         for (const std::string& platform : platforms) {
             if (platform == sanitizedName) {
-                throw DatabaseError("Platform '" + platformName + "' already exists");
+                return false;
             }
         }
         
@@ -148,9 +145,6 @@ bool Database::addCredentials(const std::string& platformName, const std::string
         fout.close();
         
         return true;
-    } catch (const DatabaseError& e) {
-        std::cerr << e.what() << std::endl;
-        return false;
     } catch (const std::exception& e) {
         std::cerr << "Error adding credentials: " << e.what() << std::endl;
         return false;
@@ -160,7 +154,7 @@ bool Database::addCredentials(const std::string& platformName, const std::string
 bool Database::deleteCredentials(const std::string& platformName) {
     try {
         if (platformName.empty()) {
-            throw DatabaseError("Empty platform name provided");
+            return false;
         }
         
         // Create backup before modification
@@ -189,7 +183,7 @@ bool Database::deleteCredentials(const std::string& platformName) {
         fin.close();
         
         if (!found) {
-            throw DatabaseError("Platform '" + platformName + "' not found");
+            return false;
         }
         
         // Write back all credentials except the deleted one
@@ -204,9 +198,6 @@ bool Database::deleteCredentials(const std::string& platformName) {
         fout.close();
         
         return true;
-    } catch (const DatabaseError& e) {
-        std::cerr << e.what() << std::endl;
-        return false;
     } catch (const std::exception& e) {
         std::cerr << "Error deleting credentials: " << e.what() << std::endl;
         return false;
@@ -217,7 +208,7 @@ std::vector<std::string> Database::getAllPlatforms() {
     std::vector<std::string> platforms;
     
     try {
-        if (!fs::exists(credentialsFile)) {
+        if (!std::ifstream(credentialsFile).good()) {
             return platforms; // Empty vector if file doesn't exist
         }
         
@@ -243,10 +234,10 @@ std::vector<std::string> Database::getCredentials(const std::string& platformNam
     
     try {
         if (platformName.empty()) {
-            throw DatabaseError("Empty platform name provided");
+            return credentials;
         }
         
-        if (!fs::exists(credentialsFile)) {
+        if (!std::ifstream(credentialsFile).good()) {
             return credentials; // Return empty vector if file doesn't exist
         }
         
@@ -267,10 +258,6 @@ std::vector<std::string> Database::getCredentials(const std::string& platformNam
             }
         }
         fin.close();
-        
-        if (!found) {
-            std::cerr << "Platform '" << platformName << "' not found" << std::endl;
-        }
     } catch (const DatabaseError& e) {
         std::cerr << e.what() << std::endl;
     } catch (const std::exception& e) {

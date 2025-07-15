@@ -6,14 +6,10 @@
 
 int main(int argc, char** argv) {
     try {
-        // Print data path for debugging
-        std::cout << "GUI application starting" << std::endl;
-        std::cout << "Using data path: " << data_path << std::endl;
         
         // Create data directory if it doesn't exist
         std::filesystem::path dir(data_path);
         if (!std::filesystem::exists(dir)) {
-            std::cout << "Creating data directory: " << data_path << std::endl;
             std::filesystem::create_directories(dir);
         }
         

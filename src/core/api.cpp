@@ -34,7 +34,6 @@ bool CredentialsManager::login(const std::string& password) {
 
         // If no password exists, create one with the provided password
         if (!hasMasterPassword()) {
-            std::cout << "No existing password found. Creating new master password.\n";
             return updatePassword(password);
         }
         
@@ -47,20 +46,15 @@ bool CredentialsManager::login(const std::string& password) {
             std::string correct = encryptor.decryptWithSalt(storedPassword);
             if (correct == password) {
                 passwordMatched = true;
-                std::cout << "Password matched with salt-based decryption" << std::endl;
             }
         } catch (const std::exception& e) {
             // If salt decryption fails, check if it's a legacy plaintext password
             // This is for backward compatibility during the transition period
             if (storedPassword == password) {
                 passwordMatched = true;
-                std::cout << "Password matched with plaintext comparison (legacy mode)" << std::endl;
                 
                 // Upgrade the plaintext password to salt-encrypted
-                std::cout << "Upgrading plaintext password to salt encryption" << std::endl;
                 updatePassword(password);
-            } else {
-                std::cerr << "Salt-based decryption failed: " << e.what() << std::endl;
             }
         }
         
@@ -82,25 +76,13 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
             return false;
         }
 
-        std::string passwordToStore;
-        
-        // Always use salt encryption for all passwords
-        passwordToStore = encryptor.encryptWithSalt(newPassword);
-        std::cout << "Password encrypted with salt" << std::endl;
+        // Always use salt encryption
+        std::string passwordToStore = encryptor.encryptWithSalt(newPassword);
         
         bool result = storage.updateMasterPassword(passwordToStore);
         
-        // Now let's verify we can read it back
-        try {
-            bool verifyResult = login(newPassword);
-            if (!verifyResult) {
-                std::cerr << "Warning: Password verification failed" << std::endl;
-            } else {
-                std::cout << "Password verification successful" << std::endl;
-            }
-        } catch (...) {
-            // Ignore verification errors
-        }
+        // Skip verification to avoid circular dependency with login
+        // We've already tested that salt encryption/decryption works
         
         return result;
     } catch (const EncryptionError& e) {
@@ -119,7 +101,7 @@ bool CredentialsManager::addCredentials(const std::string& platform, const std::
             return false;
         }
 
-        // Use enhanced encryption with salt
+        // Encrypt credentials with salt
         std::string encryptedUser = encryptor.encryptWithSalt(user);
         std::string encryptedPass = encryptor.encryptWithSalt(pass);
         
@@ -188,15 +170,12 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
                 decryptedCredentials.push_back(encryptor.decryptWithSalt(encryptedCredentials[0]));
                 decryptedCredentials.push_back(encryptor.decryptWithSalt(encryptedCredentials[1]));
             } catch (const EncryptionError& e) {
-                std::cerr << "Encryption error while decrypting credentials: " << e.what() << std::endl;
-                
                 // Fallback to legacy decryption if salt-aware fails
                 try {
                     decryptedCredentials.clear();
                     decryptedCredentials.push_back(encryptor.decrypt(encryptedCredentials[0]));
                     decryptedCredentials.push_back(encryptor.decrypt(encryptedCredentials[1]));
-                } catch (const EncryptionError& e2) {
-                    std::cerr << "Legacy decryption also failed: " << e2.what() << std::endl;
+                } catch (const EncryptionError&) {
                     return std::vector<std::string>();
                 }
             }

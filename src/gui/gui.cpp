@@ -13,9 +13,6 @@ namespace fs = std::experimental::filesystem;
 
 PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
     try {
-        // Make sure we're using the correct data path
-        std::cout << "Using data path: " << data_path << std::endl;
-        
         // Initialize the credential manager with global data path
         credManager = std::make_unique<CredentialsManager>(data_path);
         
@@ -27,14 +24,13 @@ PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
         
         // Check if this is first time setup or regular login by checking for master password
         bool hasMasterPassword = credManager->hasMasterPassword();
-        std::cout << "Master password check: " << (hasMasterPassword ? "Found" : "Not found") << std::endl;
         
         // Create appropriate initial screen
         if (!hasMasterPassword) {
-            std::cout << "No master password found. Showing setup screen." << std::endl;
+            // std::cout << "No master password found. Showing setup screen." << std::endl;
             createSetupScreen();
         } else {
-            std::cout << "Master password found. Showing login screen." << std::endl;
+            // std::cout << "Master password found. Showing login screen." << std::endl;
             createLoginScreen();
         }
     } catch (const std::exception& e) {

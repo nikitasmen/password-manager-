@@ -52,7 +52,6 @@ void Encryption::resetState(const std::vector<int>& init_state) {
     // Create a deep copy of the initial state to ensure isolation
     this->state.clear();
     this->state.assign(init_state.begin(), init_state.end());
-    std::cout << "State reset to initial values" << std::endl;
 }
 
 std::string Encryption::generateSalt(size_t length) {
@@ -138,33 +137,24 @@ std::string Encryption::decrypt(const std::string& encrypted_text) {
 
 std::string Encryption::encryptWithSalt(const std::string& plaintext) {
     try {
-        std::cout << "Encrypting with salt, plaintext length: " << plaintext.length() << std::endl;
-        
         // Generate a random salt
         std::string salt = generateSalt(8);
-        std::cout << "Generated salt: " << salt << std::endl;
         
         // Encrypt the plaintext directly (encrypt method will reset state)
         std::string encrypted = encrypt(plaintext);
         
-        // Return salt + encrypted data (not double-salting like before)
+        // Return salt + encrypted data
         std::string result = salt + encrypted;
-        std::cout << "Final encrypted length: " << result.length() << std::endl;
         return result;
     } catch (const EncryptionError& e) {
-        std::cerr << "Salt encryption error: " << e.what() << std::endl;
         throw; // Re-throw encryption-specific errors
     } catch (const std::exception& e) {
-        std::cerr << "General exception in encryptWithSalt: " << e.what() << std::endl;
         throw EncryptionError("Salt-based encryption failed: " + std::string(e.what()));
     }
 }
 
 std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
     try {
-        // Debug logging
-        std::cout << "Decrypting with salt, input length: " << encrypted_text.size() << std::endl;
-        
         // Check if encrypted text is long enough to contain salt
         if (encrypted_text.size() <= 8) {
             throw EncryptionError("Encrypted text too short to contain salt");
@@ -172,19 +162,15 @@ std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
         
         // Extract salt (first 8 characters) - we don't actually use it for decryption now
         std::string salt = encrypted_text.substr(0, 8);
-        std::cout << "Extracted salt from ciphertext: " << salt << std::endl;
         
         // Extract and decrypt the rest (decrypt method will reset state)
         std::string encryptedData = encrypted_text.substr(8);
         std::string plaintext = decrypt(encryptedData);
         
-        std::cout << "Decrypted plaintext length: " << plaintext.length() << std::endl;
         return plaintext;
     } catch (const EncryptionError& e) {
-        std::cerr << "Salt decryption error: " << e.what() << std::endl;
         throw; // Re-throw encryption-specific errors
     } catch (const std::exception& e) {
-        std::cerr << "General exception in decryptWithSalt: " << e.what() << std::endl;
         throw EncryptionError("Salt-based decryption failed: " + std::string(e.what()));
     }
 }

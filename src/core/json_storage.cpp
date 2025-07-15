@@ -39,9 +39,6 @@ bool JsonStorage::ensureDataPathExists() const {
             return fs::create_directories(dir);
         }
         return true;
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "Filesystem error: " << e.what() << std::endl;
-        return false;
     } catch (const std::exception& e) {
         std::cerr << "Error creating directory: " << e.what() << std::endl;
         return false;
@@ -140,7 +137,6 @@ std::string JsonStorage::getMasterPassword() const {
                 try {
                     return Base64::decode(encodedPassword);
                 } catch (const std::exception& e) {
-                    std::cerr << "Failed to decode password, treating as raw: " << e.what() << std::endl;
                     return encodedPassword; // Return as-is for backward compatibility
                 }
             }
@@ -164,8 +160,6 @@ bool JsonStorage::updateMasterPassword(const std::string& password) {
         std::string encodedPassword = Base64::encode(password);
         credentialsData[masterPasswordKey] = encodedPassword;
         
-        std::cout << "Encoded master password for storage" << std::endl;
-        
         modified = true;
         return saveData(); // Save immediately for password changes
     } catch (const std::exception& e) {
@@ -180,14 +174,12 @@ bool JsonStorage::addCredentials(const std::string& platformName,
     try {
         // Input validation
         if (platformName.empty() || userName.empty() || password.empty()) {
-            std::cerr << "Empty platform name, username, or password" << std::endl;
             return false;
         }
         
         // Check if platform already exists
         if (credentialsData.contains("platforms") && 
             credentialsData["platforms"].contains(platformName)) {
-            std::cerr << "Platform '" << platformName << "' already exists" << std::endl;
             return false;
         }
         
@@ -220,14 +212,12 @@ bool JsonStorage::addCredentials(const std::string& platformName,
 bool JsonStorage::deleteCredentials(const std::string& platformName) {
     try {
         if (platformName.empty()) {
-            std::cerr << "Empty platform name provided" << std::endl;
             return false;
         }
         
         // Check if platforms and the specific platform exist
         if (!credentialsData.contains("platforms") || 
             !credentialsData["platforms"].contains(platformName)) {
-            std::cerr << "Platform '" << platformName << "' not found" << std::endl;
             return false;
         }
         
@@ -264,7 +254,6 @@ std::vector<std::string> JsonStorage::getCredentials(const std::string& platform
     
     try {
         if (platformName.empty()) {
-            std::cerr << "Empty platform name provided" << std::endl;
             return credentials;
         }
         
@@ -293,13 +282,11 @@ std::vector<std::string> JsonStorage::getCredentials(const std::string& platform
                         credentials.push_back(encodedPassword); // Use as-is for backward compatibility
                     }
                 } catch (const std::exception& e) {
-                    std::cerr << "Error decoding credentials (using raw values): " << e.what() << std::endl;
+                    // Fall back to raw values if decoding fails
                     credentials.push_back(encodedUsername);
                     credentials.push_back(encodedPassword);
                 }
             }
-        } else {
-            std::cerr << "Platform '" << platformName << "' not found" << std::endl;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error retrieving credentials: " << e.what() << std::endl;
