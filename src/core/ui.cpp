@@ -1,4 +1,6 @@
 #include "./ui.h"
+#include "../core/api.h"
+#include "../../GlobalConfig.h"
 #include <iostream>
 #include <limits>
 #include <iomanip>
@@ -165,9 +167,12 @@ bool UI::login(int maxAttempts) {
         
         std::string password = get_password_input("Enter master password: ");
         
-        // In a real implementation, this would validate against stored credentials
-        // For now, we'll just return true as a placeholder
-        return true;
+        // Validate the password using CredentialsManager
+        CredentialsManager manager(data_path);
+        if (manager.login(password)) {
+            display_message("Login successful!");
+            return true;
+        }
     }
     
     display_message("Maximum login attempts exceeded. Exiting...", true);

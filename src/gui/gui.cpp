@@ -13,9 +13,6 @@ namespace fs = std::experimental::filesystem;
 
 PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
     try {
-        // Make sure we're using the correct data path
-        std::cout << "Using data path: " << data_path << std::endl;
-        
         // Initialize the credential manager with global data path
         credManager = std::make_unique<CredentialsManager>(data_path);
         
@@ -25,14 +22,15 @@ PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
             fs::create_directories(dir);
         }
         
-        // Check if this is first time setup or regular login
-        std::string loginFile = data_path + "/enter";
-        bool firstTime = !fs::exists(loginFile);
+        // Check if this is first time setup or regular login by checking for master password
+        bool hasMasterPassword = credManager->hasMasterPassword();
         
         // Create appropriate initial screen
-        if (firstTime) {
+        if (!hasMasterPassword) {
+            // std::cout << "No master password found. Showing setup screen." << std::endl;
             createSetupScreen();
         } else {
+            // std::cout << "Master password found. Showing login screen." << std::endl;
             createLoginScreen();
         }
     } catch (const std::exception& e) {
@@ -248,16 +246,7 @@ void PasswordManagerGUI::login(const std::string& password) {
         
         std::cout << "Attempting to login with password: [length: " << password.length() << "]" << std::endl;
         
-        // Check if the login file exists
-        std::string loginFilePath = data_path + "/enter";
-        std::ifstream testFile(loginFilePath);
-        if (!testFile) {
-            std::cerr << "Login file does not exist or cannot be opened at: " << loginFilePath << std::endl;
-            fl_message_title("Error");
-            fl_message("Login file not found. Please create a master password first.");
-            return;
-        }
-        
+        // Try to login using the credentials manager
         if (credManager->login(password)) {
             std::cout << "Login successful!" << std::endl;
             isLoggedIn = true;

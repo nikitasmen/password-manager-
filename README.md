@@ -4,11 +4,15 @@ A secure, lightweight password management tool written in C++ with advanced secu
 
 ## Features
 
-- **Local Storage**: All passwords are stored locally on your machine
+- **Local Storage**: All passwords are stored locally on your machine in a secure JSON format
 - **Enhanced Encryption**:
   - LFSR (Linear Feedback Shift Register) based encryption
   - Salt-based security for improved resistance to attacks
   - Enhanced error handling and recovery mechanisms
+- **JSON-based Storage**:
+  - Single file storage for better organization
+  - Backup system with timestamped file copies
+  - Improved data structure and management
 - **Multiple Interfaces**:  
   - Command-line interface (CLI) for scripting and automation
   - Interactive terminal UI for console-based interaction
@@ -31,6 +35,7 @@ The project is organized into three main components:
 - **Core**: Provides the fundamental functionality
   - Secure encryption/decryption with salt-based protection
   - File system operations with path security
+  - JSON-based credential storage for better organization
   - Credential management with error handling
   - User interface abstractions
 - **UI**:  
