@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <optional>
 #include "./encryption.h"
+#include "./json_storage.h"
 
 /**
  * @class CredentialsManager
@@ -21,22 +22,7 @@ class CredentialsManager {
     private: 
         std::string dataPath;               // Path where data files are stored
         Encryption encryptor;               // Encryption engine for securing credentials
-        const std::string LOGIN_FILE = "enter"; // Default login file name
-
-        /**
-         * @brief Get the full path to a platform's credential file
-         * 
-         * @param platform Platform name
-         * @return std::filesystem::path The path to the credential file
-         */
-        std::filesystem::path getPlatformPath(const std::string& platform) const;
-        
-        /**
-         * @brief Ensure data directory exists
-         * 
-         * @return bool True if directory exists or was created successfully
-         */
-        bool ensureDataPathExists() const;
+        JsonStorage storage;                // Storage engine for credentials
 
     public: 
         /**
