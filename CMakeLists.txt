@@ -27,6 +27,7 @@ include_directories(${FLTK_INCLUDE_DIR})
 # --- Source files ---
 set(CORE_SOURCES
     src/core/api.cpp
+    src/core/base64.cpp
     src/core/encryption.cpp
     src/core/file_system.cpp
     src/core/json_storage.cpp
