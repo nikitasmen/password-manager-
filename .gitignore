@@ -66,9 +66,6 @@ deps/
 *.sqlite
 *.db
 
-# Core dumps
-core
-
 # Backup files
 *~
 *.bak
