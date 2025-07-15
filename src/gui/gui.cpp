@@ -25,21 +25,9 @@ PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
             fs::create_directories(dir);
         }
         
-        // Check if this is first time setup or regular login
-        std::string storageFile = data_path + "/secure_storage.json";
-        bool hasExistingData = fs::exists(storageFile);
-        
-        // Check if the storage file exists and has a master password
-        bool hasMasterPassword = false;
-        if (hasExistingData) {
-            try {
-                std::string masterPassword = credManager->storage.getMasterPassword();
-                hasMasterPassword = !masterPassword.empty();
-                std::cout << "Master password check: " << (hasMasterPassword ? "Found" : "Not found") << std::endl;
-            } catch (const std::exception& e) {
-                std::cerr << "Error checking master password: " << e.what() << std::endl;
-            }
-        }
+        // Check if this is first time setup or regular login by checking for master password
+        bool hasMasterPassword = credManager->hasMasterPassword();
+        std::cout << "Master password check: " << (hasMasterPassword ? "Found" : "Not found") << std::endl;
         
         // Create appropriate initial screen
         if (!hasMasterPassword) {

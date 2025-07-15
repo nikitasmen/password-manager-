@@ -25,6 +25,13 @@ class CredentialsManager {
     
     public:
         JsonStorage storage;                // Storage engine for credentials
+        
+        /**
+         * @brief Check if a master password exists in storage
+         * 
+         * @return bool True if a master password exists
+         */
+        bool hasMasterPassword() const;
 
     public: 
         /**

@@ -32,37 +32,35 @@ bool CredentialsManager::login(const std::string& password) {
             return false;
         }
 
-        std::string storedPassword = storage.getMasterPassword();
-        
-        if (storedPassword.empty()) {
-            std::cerr << "No existing password found. Please create one using the setup tool.\n";
-            return false;
+        // If no password exists, create one with the provided password
+        if (!hasMasterPassword()) {
+            std::cout << "No existing password found. Creating new master password.\n";
+            return updatePassword(password);
         }
+        
+        std::string storedPassword = storage.getMasterPassword();
         
         bool passwordMatched = false;
         
-        // Handle simple case: plaintext password (for initial setup)
-        if (storedPassword == password) {
-            passwordMatched = true;
-        } else {
-            // Try the salt-based method first
-            try {
-                std::string correct = encryptor.decryptWithSalt(storedPassword);
-                if (password == correct) {
-                    passwordMatched = true;
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "Salt-based decryption failed: " << e.what() << std::endl;
+        // Try the salt-based method only
+        try {
+            std::string correct = encryptor.decryptWithSalt(storedPassword);
+            if (correct == password) {
+                passwordMatched = true;
+                std::cout << "Password matched with salt-based decryption" << std::endl;
+            }
+        } catch (const std::exception& e) {
+            // If salt decryption fails, check if it's a legacy plaintext password
+            // This is for backward compatibility during the transition period
+            if (storedPassword == password) {
+                passwordMatched = true;
+                std::cout << "Password matched with plaintext comparison (legacy mode)" << std::endl;
                 
-                // Try legacy method only if salt method fails
-                try {
-                    std::string correct = encryptor.decrypt(storedPassword);
-                    if (password == correct) {
-                        passwordMatched = true;
-                    }
-                } catch (const std::exception& e) {
-                    std::cerr << "Legacy decryption failed: " << e.what() << std::endl;
-                }
+                // Upgrade the plaintext password to salt-encrypted
+                std::cout << "Upgrading plaintext password to salt encryption" << std::endl;
+                updatePassword(password);
+            } else {
+                std::cerr << "Salt-based decryption failed: " << e.what() << std::endl;
             }
         }
         
@@ -86,15 +84,9 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
 
         std::string passwordToStore;
         
-        // For very simple cases, just save plaintext
-        if (newPassword.length() <= 3) {
-            passwordToStore = newPassword;
-            std::cout << "Using plain text storage for short passwords" << std::endl;
-        } else {
-            // Use enhanced encryption with salt for longer passwords
-            passwordToStore = encryptor.encryptWithSalt(newPassword);
-            std::cout << "Password encrypted with salt" << std::endl;
-        }
+        // Always use salt encryption for all passwords
+        passwordToStore = encryptor.encryptWithSalt(newPassword);
+        std::cout << "Password encrypted with salt" << std::endl;
         
         bool result = storage.updateMasterPassword(passwordToStore);
         
@@ -216,6 +208,16 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
     } catch (const std::exception& e) {
         std::cerr << "Exception while getting credentials: " << e.what() << std::endl;
         return std::vector<std::string>();
+    }
+}
+
+bool CredentialsManager::hasMasterPassword() const {
+    try {
+        std::string storedPassword = storage.getMasterPassword();
+        return !storedPassword.empty();
+    } catch (const std::exception& e) {
+        std::cerr << "Exception checking master password: " << e.what() << std::endl;
+        return false;
     }
 }
 

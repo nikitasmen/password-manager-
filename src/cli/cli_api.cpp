@@ -149,10 +149,9 @@ bool CliManager::handleChangePassword(const std::string& newPassword) {
 bool CliManager::handleSetup(const std::string& newPassword) {
     CredentialsManager manager(dataPath);
     
-    // Check if login file already exists
-    std::filesystem::path loginPath = std::filesystem::path(dataPath) / "enter";
-    if (std::filesystem::exists(loginPath)) {
-        std::cerr << "Error: Password file already exists. Use the change password function instead." << std::endl;
+    // Check if a master password already exists
+    if (manager.hasMasterPassword()) {
+        std::cerr << "Error: Master password already exists. Use the change password function instead." << std::endl;
         return false;
     }
     
