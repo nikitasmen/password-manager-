@@ -22,6 +22,8 @@ class CredentialsManager {
     private: 
         std::string dataPath;               // Path where data files are stored
         Encryption encryptor;               // Encryption engine for securing credentials
+    
+    public:
         JsonStorage storage;                // Storage engine for credentials
 
     public: 
