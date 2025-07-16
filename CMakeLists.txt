@@ -82,6 +82,10 @@ add_custom_target(create_data_dir ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/data
 )
 
+# --- Base64 Test executable ---
+add_executable(base64_test tests/base64_test.cpp src/core/base64.cpp)
+link_common(base64_test)
+
 # --- Install (optional; skip for local dev to speed up) ---
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     message(STATUS "Skipping install step for faster local builds")
