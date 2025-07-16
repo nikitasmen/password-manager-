@@ -1,6 +1,6 @@
-#include "./ui.h"
+#include "./terminal_ui.h"
 #include "../core/api.h"
-#include "../../GlobalConfig.h"
+#include "../config/GlobalConfig.h"
 #include <iostream>
 #include <limits>
 #include <iomanip>
@@ -12,7 +12,7 @@
 #include <unistd.h>
 #endif
 
-int UI::display_menu() {
+int TerminalUI::display_menu() {
     int choice;
     std::cout << "\n+---------------------------------------+\n";
     std::cout << "|          PASSWORD MANAGER MENU          |\n";
@@ -44,7 +44,7 @@ int UI::display_menu() {
     return choice;
 }
 
-void UI::display_message(const std::string& message, bool isError) {
+void TerminalUI::display_message(const std::string& message, bool isError) {
     if (isError) {
         std::cerr << "\033[1;31m[ERROR] " << message << "\033[0m" << std::endl;
     } else {
@@ -52,7 +52,7 @@ void UI::display_message(const std::string& message, bool isError) {
     }
 }
 
-std::string UI::get_password_input(const std::string& prompt) {
+std::string TerminalUI::get_password_input(const std::string& prompt) {
     std::string input;
     
     if (!prompt.empty()) {
@@ -86,7 +86,7 @@ std::string UI::get_password_input(const std::string& prompt) {
     return input;
 }
 
-std::string UI::get_text_input(const std::string& prompt) {
+std::string TerminalUI::get_text_input(const std::string& prompt) {
     std::string input;
     
     if (!prompt.empty()) {
@@ -97,7 +97,7 @@ std::string UI::get_text_input(const std::string& prompt) {
     return input;
 }
 
-void UI::clear_screen() {
+void TerminalUI::clear_screen() {
 #ifdef _WIN32
     system("cls");
 #else
@@ -105,12 +105,12 @@ void UI::clear_screen() {
 #endif
 }
 
-void UI::pause_screen() {
+void TerminalUI::pause_screen() {
     std::cout << "\nPress Enter to continue...";
     std::cin.get();
 }
 
-void UI::display_list(const std::vector<std::string>& items, const std::string& header) {
+void TerminalUI::display_list(const std::vector<std::string>& items, const std::string& header) {
     if (items.empty()) {
         display_message("No items to display.", false);
         return;
@@ -144,7 +144,7 @@ void UI::display_list(const std::vector<std::string>& items, const std::string& 
     std::cout << "+" << std::string(maxWidth + 2, '-') << "+" << std::endl;
 }
 
-bool UI::confirm(const std::string& message) {
+bool TerminalUI::confirm(const std::string& message) {
     std::string input;
     std::cout << message << " (y/n): ";
     std::cin >> input;
@@ -153,7 +153,7 @@ bool UI::confirm(const std::string& message) {
     return (input == "y" || input == "Y" || input == "yes" || input == "Yes");
 }
 
-bool UI::login(int maxAttempts) {
+bool TerminalUI::login(int maxAttempts) {
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         clear_screen();
         std::cout << "+---------------------------------------+\n";
@@ -168,7 +168,7 @@ bool UI::login(int maxAttempts) {
         std::string password = get_password_input("Enter master password: ");
         
         // Validate the password using CredentialsManager
-        CredentialsManager manager(data_path);
+        CredentialsManager manager(g_data_path);
         if (manager.login(password)) {
             display_message("Login successful!");
             return true;

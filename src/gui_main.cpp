@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
     try {
         
         // Create data directory if it doesn't exist
-        std::filesystem::path dir(data_path);
+        std::filesystem::path dir(g_data_path);
         if (!std::filesystem::exists(dir)) {
             std::filesystem::create_directories(dir);
         }

@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include "./base64.h"
 
@@ -23,6 +24,25 @@ private:
     std::string masterPasswordKey;             // Key for master password in JSON
     nlohmann::json credentialsData;            // In-memory representation of credentials
     bool modified;                             // Flag to track if data has been modified
+
+    /**
+     * @brief RAII wrapper for safe file operations
+     */
+    class SafeFileHandler {
+    private:
+        std::fstream file;
+        std::string filename;
+        bool isOpen;
+        
+    public:
+        SafeFileHandler(const std::string& filename, std::ios::openmode mode);
+        ~SafeFileHandler();
+        
+        bool is_open() const { return isOpen && file.is_open(); }
+        std::fstream& get() { return file; }
+        bool close();
+        bool flush();
+    };
 
     /**
      * @brief Ensures the data directory exists
@@ -115,7 +135,7 @@ public:
      * @param platformName Name of the platform
      * @return std::vector<std::string> Vector containing [username, password]
      */
-    std::vector<std::string> getCredentials(const std::string& platformName) const;
+    std::vector<std::string> getCredentials(const std::string& platformName);
 };
 
 #endif // JSON_STORAGE_H

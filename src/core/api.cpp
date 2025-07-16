@@ -1,6 +1,6 @@
 #include "./api.h"
 #include "./encryption.h" // Include the encryption header with EncryptionError
-#include "../../GlobalConfig.h"
+#include "../config/GlobalConfig.h"
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -22,7 +22,23 @@ extern std::vector<int> init_state;
 // Method implementations
 
 CredentialsManager::CredentialsManager(const std::string& dataPath) 
-    : dataPath(dataPath), encryptor(taps, init_state), storage(dataPath) {
+    : dataPath(dataPath) {
+    // Dynamically allocate memory for encryptor and storage
+    encryptor = new Encryption(taps, init_state);
+    storage = new JsonStorage(dataPath);
+}
+
+CredentialsManager::~CredentialsManager() {
+    // Clean up allocated memory
+    if (encryptor) {
+        delete encryptor;
+        encryptor = nullptr;
+    }
+    
+    if (storage) {
+        delete storage;
+        storage = nullptr;
+    }
 }
 
 bool CredentialsManager::login(const std::string& password) {
@@ -37,13 +53,13 @@ bool CredentialsManager::login(const std::string& password) {
             return updatePassword(password);
         }
         
-        std::string storedPassword = storage.getMasterPassword();
+        std::string storedPassword = storage->getMasterPassword();
         
         bool passwordMatched = false;
         
         // Try the salt-based method only
         try {
-            std::string correct = encryptor.decryptWithSalt(storedPassword);
+            std::string correct = encryptor->decryptWithSalt(storedPassword);
             if (correct == password) {
                 passwordMatched = true;
             }
@@ -77,9 +93,9 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
         }
 
         // Always use salt encryption
-        std::string passwordToStore = encryptor.encryptWithSalt(newPassword);
+        std::string passwordToStore = encryptor->encryptWithSalt(newPassword);
         
-        bool result = storage.updateMasterPassword(passwordToStore);
+        bool result = storage->updateMasterPassword(passwordToStore);
         
         // Skip verification to avoid circular dependency with login
         // We've already tested that salt encryption/decryption works
@@ -102,10 +118,10 @@ bool CredentialsManager::addCredentials(const std::string& platform, const std::
         }
 
         // Encrypt credentials with salt
-        std::string encryptedUser = encryptor.encryptWithSalt(user);
-        std::string encryptedPass = encryptor.encryptWithSalt(pass);
+        std::string encryptedUser = encryptor->encryptWithSalt(user);
+        std::string encryptedPass = encryptor->encryptWithSalt(pass);
         
-        return storage.addCredentials(platform, encryptedUser, encryptedPass);
+        return storage->addCredentials(platform, encryptedUser, encryptedPass);
     } catch (const EncryptionError& e) {
         std::cerr << "Encryption error while adding credentials: " << e.what() << std::endl;
         return false;
@@ -122,7 +138,7 @@ bool CredentialsManager::deleteCredentials(const std::string& platform) {
             return false;
         }
         
-        return storage.deleteCredentials(platform);
+        return storage->deleteCredentials(platform);
     } catch (const std::exception& e) {
         std::cerr << "Exception while deleting credentials: " << e.what() << std::endl;
         return false;
@@ -131,7 +147,7 @@ bool CredentialsManager::deleteCredentials(const std::string& platform) {
 
 void CredentialsManager::showOptions(const std::string& path) const {
     try {
-        std::vector<std::string> platforms = storage.getAllPlatforms();
+        std::vector<std::string> platforms = storage->getAllPlatforms();
         
         std::cout << "Available platforms:\n";
         std::cout << "==================\n";
@@ -151,7 +167,7 @@ void CredentialsManager::showOptions(const std::string& path) const {
 }
 
 std::vector<std::string> CredentialsManager::getAllPlatforms() {
-    return storage.getAllPlatforms();
+    return storage->getAllPlatforms();
 }
 
 std::vector<std::string> CredentialsManager::getCredentials(const std::string& platform) {
@@ -161,20 +177,20 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
             return std::vector<std::string>();
         }
         
-        std::vector<std::string> encryptedCredentials = storage.getCredentials(platform);
+        std::vector<std::string> encryptedCredentials = storage->getCredentials(platform);
         std::vector<std::string> decryptedCredentials;
         
         if (encryptedCredentials.size() == 2) {
             try {
                 // Use salt-aware decryption
-                decryptedCredentials.push_back(encryptor.decryptWithSalt(encryptedCredentials[0]));
-                decryptedCredentials.push_back(encryptor.decryptWithSalt(encryptedCredentials[1]));
+                decryptedCredentials.push_back(encryptor->decryptWithSalt(encryptedCredentials[0]));
+                decryptedCredentials.push_back(encryptor->decryptWithSalt(encryptedCredentials[1]));
             } catch (const EncryptionError& e) {
                 // Fallback to legacy decryption if salt-aware fails
                 try {
                     decryptedCredentials.clear();
-                    decryptedCredentials.push_back(encryptor.decrypt(encryptedCredentials[0]));
-                    decryptedCredentials.push_back(encryptor.decrypt(encryptedCredentials[1]));
+                    decryptedCredentials.push_back(encryptor->decrypt(encryptedCredentials[0]));
+                    decryptedCredentials.push_back(encryptor->decrypt(encryptedCredentials[1]));
                 } catch (const EncryptionError&) {
                     return std::vector<std::string>();
                 }
@@ -182,7 +198,7 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
         } else {
             std::cerr << "Failed to retrieve credentials for platform: " << platform << "\n";
         }
-        
+
         return decryptedCredentials;
     } catch (const std::exception& e) {
         std::cerr << "Exception while getting credentials: " << e.what() << std::endl;
@@ -192,7 +208,7 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
 
 bool CredentialsManager::hasMasterPassword() const {
     try {
-        std::string storedPassword = storage.getMasterPassword();
+        std::string storedPassword = storage->getMasterPassword();
         return !storedPassword.empty();
     } catch (const std::exception& e) {
         std::cerr << "Exception checking master password: " << e.what() << std::endl;

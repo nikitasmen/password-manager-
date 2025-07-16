@@ -12,9 +12,13 @@ Encryption::Encryption(const std::vector<int>& taps, const std::vector<int>& ini
         throw EncryptionError("Initial state size is too small for the specified taps");
     }
     
+    // Lock to ensure thread safety during initialization
+    std::lock_guard<std::mutex> lock(state_mutex);
+    
     // Initialize the encryption parameters
     this->taps = taps;
-    resetState(init_state);
+    this->initial_state.assign(init_state.begin(), init_state.end());
+    this->state.assign(init_state.begin(), init_state.end());
     
     // Seed the random number generator with current time
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
@@ -23,6 +27,9 @@ Encryption::Encryption(const std::vector<int>& taps, const std::vector<int>& ini
 
 int Encryption::getNextBit() {
     try {
+        // Lock to ensure thread safety during state modification
+        std::lock_guard<std::mutex> lock(state_mutex);
+        
         // Get the output bit
         int output_bit = state[0];
         
@@ -48,10 +55,12 @@ int Encryption::getNextBit() {
     }
 }
 
-void Encryption::resetState(const std::vector<int>& init_state) {
-    // Create a deep copy of the initial state to ensure isolation
-    this->state.clear();
-    this->state.assign(init_state.begin(), init_state.end());
+void Encryption::resetState() {
+    // Lock to ensure thread safety during state reset
+    std::lock_guard<std::mutex> lock(state_mutex);
+    
+    // Reset to the saved initial state
+    this->state = initial_state; // Using assignment instead of clear+assign
 }
 
 std::string Encryption::generateSalt(size_t length) {
@@ -70,11 +79,14 @@ std::string Encryption::generateSalt(size_t length) {
 
 std::string Encryption::encrypt(const std::string& plaintext) {
     try {
-        // Get a copy of the original init_state for a fresh start
-        std::vector<int> original_state = {1, 0, 1}; // Using the known initial state from GlobalConfig
+        // Create a local copy of the state
+        std::vector<int> local_state;
         
-        // Reset state before each encryption for consistency
-        resetState(original_state);
+        {
+            // Lock only while copying the state
+            std::lock_guard<std::mutex> lock(state_mutex);
+            local_state = initial_state;
+        }
         
         std::string encrypted;
         encrypted.reserve(plaintext.size()); // Pre-allocate memory
@@ -83,8 +95,22 @@ std::string Encryption::encrypt(const std::string& plaintext) {
             // For each character, generate 8 bits from the LFSR
             char encrypted_char = 0;
             for (int i = 0; i < 8; i++) {
-                int bit = getNextBit();
-                encrypted_char |= (bit << i); // Build up the byte
+                // Get the output bit from local state
+                int output_bit = local_state[0];
+                
+                // Calculate feedback bit using the specified taps
+                int feedback_bit = 0;
+                for (int tap : taps) {
+                    if (tap < local_state.size()) {
+                        feedback_bit ^= local_state[tap];
+                    }
+                }
+                
+                // Update the local state
+                local_state.pop_back();
+                local_state.insert(local_state.begin(), feedback_bit);
+                
+                encrypted_char |= (output_bit << i); // Build up the byte
             }
             
             // XOR with the plaintext character
@@ -102,14 +128,14 @@ std::string Encryption::encrypt(const std::string& plaintext) {
 
 std::string Encryption::decrypt(const std::string& encrypted_text) {
     try {
-        // For stream ciphers, use the exact same process as encryption
-        // but ensure we're starting with a clean state each time
+        // Create a local copy of the state
+        std::vector<int> local_state;
         
-        // Get a copy of the original init_state for a fresh start
-        std::vector<int> original_state = {1, 0, 1}; // Using the known initial state from GlobalConfig
-        
-        // Reset state before each decryption for consistency
-        resetState(original_state);
+        {
+            // Lock only while copying the state
+            std::lock_guard<std::mutex> lock(state_mutex);
+            local_state = initial_state;
+        }
         
         std::string decrypted;
         decrypted.reserve(encrypted_text.size()); // Pre-allocate memory
@@ -118,8 +144,22 @@ std::string Encryption::decrypt(const std::string& encrypted_text) {
             // For each character, generate 8 bits from the LFSR
             char decrypted_char = 0;
             for (int i = 0; i < 8; i++) {
-                int bit = getNextBit();
-                decrypted_char |= (bit << i); // Build up the byte
+                // Get the output bit from local state
+                int output_bit = local_state[0];
+                
+                // Calculate feedback bit using the specified taps
+                int feedback_bit = 0;
+                for (int tap : taps) {
+                    if (tap < local_state.size()) {
+                        feedback_bit ^= local_state[tap];
+                    }
+                }
+                
+                // Update the local state
+                local_state.pop_back();
+                local_state.insert(local_state.begin(), feedback_bit);
+                
+                decrypted_char |= (output_bit << i); // Build up the byte
             }
             
             // XOR with the encrypted character
@@ -140,8 +180,35 @@ std::string Encryption::encryptWithSalt(const std::string& plaintext) {
         // Generate a random salt
         std::string salt = generateSalt(8);
         
-        // Encrypt the plaintext directly (encrypt method will reset state)
-        std::string encrypted = encrypt(plaintext);
+        // Use a fresh encryption for each call - no state sharing between operations
+        Encryption localEncryptor(taps, initial_state);
+        
+        // Encrypt the plaintext using a local encryptor
+        std::vector<int> local_state = initial_state;
+        
+        std::string encrypted;
+        encrypted.reserve(plaintext.size());
+        
+        for (char c : plaintext) {
+            char encrypted_char = 0;
+            for (int i = 0; i < 8; i++) {
+                int output_bit = local_state[0];
+                
+                int feedback_bit = 0;
+                for (int tap : taps) {
+                    if (tap < local_state.size()) {
+                        feedback_bit ^= local_state[tap];
+                    }
+                }
+                
+                local_state.pop_back();
+                local_state.insert(local_state.begin(), feedback_bit);
+                
+                encrypted_char |= (output_bit << i);
+            }
+            encrypted_char ^= c;
+            encrypted.push_back(encrypted_char);
+        }
         
         // Return salt + encrypted data
         std::string result = salt + encrypted;
@@ -160,12 +227,36 @@ std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
             throw EncryptionError("Encrypted text too short to contain salt");
         }
         
-        // Extract salt (first 8 characters) - we don't actually use it for decryption now
+        // Extract salt (first 8 characters) - we don't actually use it for decryption
         std::string salt = encrypted_text.substr(0, 8);
-        
-        // Extract and decrypt the rest (decrypt method will reset state)
         std::string encryptedData = encrypted_text.substr(8);
-        std::string plaintext = decrypt(encryptedData);
+        
+        // Use a fresh decryption for each call - no state sharing between operations
+        std::vector<int> local_state = initial_state;
+        
+        std::string plaintext;
+        plaintext.reserve(encryptedData.size());
+        
+        for (char c : encryptedData) {
+            char decrypted_char = 0;
+            for (int i = 0; i < 8; i++) {
+                int output_bit = local_state[0];
+                
+                int feedback_bit = 0;
+                for (int tap : taps) {
+                    if (tap < local_state.size()) {
+                        feedback_bit ^= local_state[tap];
+                    }
+                }
+                
+                local_state.pop_back();
+                local_state.insert(local_state.begin(), feedback_bit);
+                
+                decrypted_char |= (output_bit << i);
+            }
+            decrypted_char ^= c;
+            plaintext.push_back(decrypted_char);
+        }
         
         return plaintext;
     } catch (const EncryptionError& e) {

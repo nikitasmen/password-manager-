@@ -241,8 +241,8 @@ std::vector<std::string> Database::getCredentials(const std::string& platformNam
             return credentials; // Return empty vector if file doesn't exist
         }
         
-        std::ifstream fin(credentialsFile);
-        if (!fin) {
+        std::ifstream fin(credentialsFile, std::ios::in);
+        if (!fin.is_open()) {
             throw DatabaseError("Failed to open credentials file for reading: " + credentialsFile);
         }
         
@@ -257,9 +257,12 @@ std::vector<std::string> Database::getCredentials(const std::string& platformNam
                 break; // Stop after finding the first match
             }
         }
-        fin.close();
-    } catch (const DatabaseError& e) {
-        std::cerr << e.what() << std::endl;
+        
+        fin.close(); // Ensure the file stream is closed
+        
+        if (!found) {
+            throw DatabaseError("Platform not found: " + platformName);
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error retrieving credentials: " << e.what() << std::endl;
     }

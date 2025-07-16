@@ -14,10 +14,10 @@ namespace fs = std::experimental::filesystem;
 PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
     try {
         // Initialize the credential manager with global data path
-        credManager = std::make_unique<CredentialsManager>(data_path);
+        credManager = std::make_unique<CredentialsManager>(g_data_path);
         
         // Ensure data directory exists
-        fs::path dir(data_path);
+        fs::path dir(g_data_path);
         if (!fs::exists(dir)) {
             fs::create_directories(dir);
         }
@@ -40,16 +40,27 @@ PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
 }
 
 PasswordManagerGUI::~PasswordManagerGUI() {
-    // Properly disconnect buffers before destroying
+    // Clean up dialog windows
+    cleanupAddCredentialDialog();
+    cleanupViewCredentialDialog();
+    
+    // Clean up main window components
     if (platformsDisplay && platformsBuffer) {
         platformsDisplay->buffer(nullptr);
     }
+    platformsBuffer.reset();
+    platformsDisplay.reset();
+    menuBar.reset();
+    actionButtons.clear();
     
-    if (credentialDisplay && credentialBuffer) {
-        credentialDisplay->buffer(nullptr);
+    // Clean up credential manager
+    credManager.reset();
+    
+    // Finally, destroy the main window
+    if (mainWindow) {
+        mainWindow->hide();
+        mainWindow.reset();
     }
-    
-    // Smart pointers will handle the rest of the cleanup
 }
 
 void PasswordManagerGUI::show() {
@@ -78,18 +89,13 @@ void PasswordManagerGUI::createLoginScreen() {
         
         // Set up window close handler
         mainWindow->end();
-        mainWindow->callback([](Fl_Widget* w, void*) { 
-            if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-                w->hide(); 
-            }
-        });
+        setWindowCloseHandler(mainWindow.get());
         
         // Display the window
         mainWindow->show();
     } catch (const std::exception& e) {
         std::cerr << "Error creating login screen: " << e.what() << std::endl;
-        fl_message_title("Error");
-        fl_message("Failed to create login screen: %s", e.what());
+        showMessage("Error", "Failed to create login screen: " + std::string(e.what()), true);
     }
 }
 
@@ -116,11 +122,8 @@ void PasswordManagerGUI::createSetupScreen() {
     createBtn->callback(createPasswordCallback, this);
     
     win->end();
-    win->callback([](Fl_Widget* w, void*) { 
-        if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-            exit(0); // First time setup is critical, so exit app if canceled
-        }
-    });
+    // First time setup is critical, so exit app if closed
+    setWindowCloseHandler(win, true);
     
     // Store widgets in member variables
     mainWindow.reset(win);
@@ -170,11 +173,7 @@ void PasswordManagerGUI::createMainScreen() {
         win->end();
         
         // Set callback for window close
-        win->callback([](Fl_Widget* w, void*) { 
-            if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-                w->hide(); 
-            }
-        });
+        setWindowCloseHandler(win);
         
         // Populate the platforms list
         try {
@@ -205,8 +204,7 @@ void PasswordManagerGUI::createMainScreen() {
         
     } catch (const std::exception& e) {
         std::cerr << "Exception in createMainScreen: " << e.what() << std::endl;
-        fl_message_title("Error");
-        fl_message("Failed to create main screen");
+        showMessage("Error", "Failed to create main screen", true);
     }
 }
 
@@ -216,8 +214,9 @@ void PasswordManagerGUI::refreshPlatformsList() {
     }
     
     try {
-        // Get platforms data
-        std::vector<std::string> platforms = credManager->getAllPlatforms();
+        // Get fresh credentials manager and retrieve platforms
+        auto tempCredManager = getFreshCredManager();
+        std::vector<std::string> platforms = tempCredManager->getAllPlatforms();
         
         // Format and display platforms
         std::stringstream ss;
@@ -269,46 +268,39 @@ void PasswordManagerGUI::addCredential(const std::string& platform,
                                      const std::string& password) {
     if (!isLoggedIn) return;
     
-    if (credManager->addCredentials(platform, username, password)) {
-        fl_message_title("Success");
-        fl_message("Credentials added successfully!");
+    // Get fresh credentials manager
+    auto tempCredManager = getFreshCredManager();
+    
+    if (tempCredManager->addCredentials(platform, username, password)) {
+        showMessage("Success", "Credentials added successfully!");
         refreshPlatformsList();
     } else {
-        fl_message_title("Error");
-        fl_message("Failed to add credentials!");
+        showMessage("Error", "Failed to add credentials!", true);
     }
 }
 
 void PasswordManagerGUI::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
     
+    // Get fresh credentials manager
+    auto tempCredManager = getFreshCredManager();
+    
     // Get credentials for the platform
-    std::vector<std::string> credentials = credManager->getCredentials(platform);
+    std::vector<std::string> credentials = tempCredManager->getCredentials(platform);
     
     if (credentials.empty() || credentials.size() < 2) {
-        fl_message_title("Error");
-        fl_message("No valid credentials found for this platform!");
+        showMessage("Error", "No valid credentials found for this platform!", true);
         return;
     }
     
-    // Clean up existing window if it exists
-    if (viewCredentialWindow) {
-        // Disconnect buffer before destroying to avoid callback errors
-        if (credentialDisplay && credentialBuffer) {
-            credentialDisplay->buffer(nullptr);
-        }
-        
-        viewCredentialWindow->hide();
-        viewCredentialWindow.reset();
-        credentialDisplay.reset();
-        credentialBuffer.reset();
-        closeViewButton.reset();
-    }
+    // Clean up existing dialog if it exists
+    cleanupViewCredentialDialog();
     
     // Create a window to display credentials
     viewCredentialWindow = std::make_unique<Fl_Window>(400, 200, ("Credentials for " + platform).c_str());
     viewCredentialWindow->begin();
     
+    // Create buffer first, then display
     credentialBuffer = std::make_unique<Fl_Text_Buffer>();
     credentialDisplay = std::make_unique<Fl_Text_Display>(20, 20, 360, 120);
     credentialDisplay->buffer(credentialBuffer.get());
@@ -323,12 +315,8 @@ void PasswordManagerGUI::viewCredential(const std::string& platform) {
     closeViewButton = std::make_unique<Fl_Button>(150, 160, 100, 30, "Close");
     closeViewButton->callback([](Fl_Widget* w, void* data) {
         auto* gui = static_cast<PasswordManagerGUI*>(data);
-        if (gui && gui->viewCredentialWindow) {
-            // Disconnect buffer first
-            if (gui->credentialDisplay) {
-                gui->credentialDisplay->buffer(nullptr);
-            }
-            gui->viewCredentialWindow->hide();
+        if (gui) {
+            gui->cleanupViewCredentialDialog();
         }
     }, this);
     
@@ -341,46 +329,74 @@ void PasswordManagerGUI::deleteCredential(const std::string& platform) {
     
     std::string message = "Are you sure you want to delete credentials for " + platform + "?";
     if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
-        if (credManager->deleteCredentials(platform)) {
-            fl_message_title("Success");
-            fl_message("Credentials deleted successfully!");
+        // Get fresh credentials manager
+        auto tempCredManager = getFreshCredManager();
+        
+        if (tempCredManager->deleteCredentials(platform)) {
+            showMessage("Success", "Credentials deleted successfully!");
             refreshPlatformsList();
         } else {
-            fl_message_title("Error");
-            fl_message("Failed to delete credentials!");
+            showMessage("Error", "Failed to delete credentials!", true);
         }
     }
 }
 
 void PasswordManagerGUI::clearCurrentScreen() {
-    // Clean up text displays first by disconnecting buffers
+    // Clean up dialog windows
+    cleanupAddCredentialDialog();
+    cleanupViewCredentialDialog();
+    
+    // Clear main window elements
+    if (mainWindow) {
+        mainWindow->clear();
+    }
+    
+    // Reset login screen components
+    masterPasswordInput.reset();
+    loginButton.reset();
+    
+    // Reset setup screen components
+    newPasswordInput.reset();
+    confirmPasswordInput.reset();
+    createPasswordButton.reset();
+    
+    // Reset main view components
+    menuBar.reset();
     if (platformsDisplay && platformsBuffer) {
         platformsDisplay->buffer(nullptr);
     }
-    
-    if (credentialDisplay && credentialBuffer) {
-        credentialDisplay->buffer(nullptr);
-    }
-    
-    // Hide and destroy any existing windows
-    if (mainWindow) {
-        mainWindow->hide();
-    }
-    
-    if (addCredentialWindow) {
-        addCredentialWindow->hide();
-    }
-    
-    if (viewCredentialWindow) {
-        viewCredentialWindow->hide();
-    }
-    
-    // Reset pointers to clear memory
-    mainWindow.reset();
-    menuBar.reset();
     platformsDisplay.reset();
     platformsBuffer.reset();
     actionButtons.clear();
+}
+
+void PasswordManagerGUI::cleanupViewCredentialDialog() {
+    if (viewCredentialWindow) {
+        // Disconnect buffer first to avoid callback errors
+        if (credentialDisplay) {
+            credentialDisplay->buffer(nullptr);
+        }
+        
+        // Reset components in reverse order
+        closeViewButton.reset();
+        credentialBuffer.reset();
+        credentialDisplay.reset();
+        viewCredentialWindow->hide();
+        viewCredentialWindow.reset();
+    }
+}
+
+void PasswordManagerGUI::cleanupAddCredentialDialog() {
+    if (addCredentialWindow) {
+        // Reset components in reverse order
+        cancelButton.reset();
+        saveButton.reset();
+        passwordInput.reset();
+        usernameInput.reset();
+        platformInput.reset();
+        addCredentialWindow->hide();
+        addCredentialWindow.reset();
+    }
 }
 
 // Static callback implementations
@@ -399,6 +415,9 @@ void PasswordManagerGUI::loginCallback(Fl_Widget* w, void* data) {
 void PasswordManagerGUI::addCredentialCallback(Fl_Widget* w, void* data) {
     auto* gui = static_cast<PasswordManagerGUI*>(data);
     
+    // Clean up existing dialog if it exists
+    gui->cleanupAddCredentialDialog();
+    
     gui->addCredentialWindow = std::make_unique<Fl_Window>(400, 250, "Add New Credentials");
     gui->addCredentialWindow->begin();
     
@@ -412,7 +431,7 @@ void PasswordManagerGUI::addCredentialCallback(Fl_Widget* w, void* data) {
     gui->cancelButton = std::make_unique<Fl_Button>(220, 200, 80, 30, "Cancel");
     gui->cancelButton->callback([](Fl_Widget* w, void* data) {
         auto* gui = static_cast<PasswordManagerGUI*>(data);
-        gui->addCredentialWindow->hide();
+        gui->cleanupAddCredentialDialog();
     }, gui);
     
     gui->addCredentialWindow->end();
@@ -445,13 +464,12 @@ void PasswordManagerGUI::saveCredentialCallback(Fl_Widget* w, void* data) {
     std::string password = gui->passwordInput->value();
     
     if (platform.empty() || username.empty() || password.empty()) {
-        fl_message_title("Error");
-        fl_message("All fields are required!");
+        gui->showMessage("Error", "All fields are required!", true);
         return;
     }
     
     gui->addCredential(platform, username, password);
-    gui->addCredentialWindow->hide();
+    gui->cleanupAddCredentialDialog();
 }
 
 void PasswordManagerGUI::exitCallback(Fl_Widget* w, void* data) {
@@ -477,15 +495,13 @@ void PasswordManagerGUI::createPasswordCallback(Fl_Widget* w, void* data) {
     
     if (!newPass || strlen(newPass) == 0) {
         std::cerr << "Error: Empty password provided" << std::endl;
-        fl_message_title("Error");
-        fl_message("Please enter a password!");
+        gui->showMessage("Error", "Please enter a password!", true);
         return;
     }
     
     if (strcmp(newPass, confirmPass) != 0) {
         std::cerr << "Error: Passwords do not match" << std::endl;
-        fl_message_title("Error");
-        fl_message("Passwords do not match!");
+        gui->showMessage("Error", "Passwords do not match!", true);
         return;
     }
     
@@ -494,13 +510,12 @@ void PasswordManagerGUI::createPasswordCallback(Fl_Widget* w, void* data) {
     // Create the new master password
     if (gui->credManager->updatePassword(newPass)) {
         std::cout << "Password created successfully!" << std::endl;
-        fl_message("Master password created successfully!");
+        gui->showMessage("Success", "Master password created successfully!");
         gui->isLoggedIn = true;
         gui->masterPassword = newPass;
         gui->createMainScreen();
     } else {
         std::cerr << "Failed to create master password" << std::endl;
-        fl_message_title("Error");
-        fl_message("Failed to create master password!");
+        gui->showMessage("Error", "Failed to create master password!", true);
     }
 }
