@@ -3,7 +3,7 @@
 
 #include <string>
 
-class MainFunctionality {
+class TerminalAppController {
 public:
     static bool login();
     static void update_password();
