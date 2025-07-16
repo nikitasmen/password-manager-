@@ -68,9 +68,10 @@ JsonStorage::JsonStorage(const std::string& dataPath, const std::string& filenam
       modified(false) 
 {
     ensureDataPathExists();
-    if (!loadData()) {
-        std::cerr << "Warning: Failed to load existing data, starting with empty storage" << std::endl;
-    }
+    // Initialize with empty data, will be loaded on first access
+    credentialsData = nlohmann::json::object();
+    // Load initial data
+    loadData();
 }
 
 // Destructor implementation - save data if modified
@@ -123,7 +124,7 @@ bool JsonStorage::backupStorageFile() const {
 
 bool JsonStorage::loadData() {
     try {
-        // If file doesn't exist, start with empty JSON object
+        // If file doesn't exist, keep the empty JSON object
         if (!fs::exists(storageFile)) {
             credentialsData = nlohmann::json::object();
             return true;
@@ -213,8 +214,38 @@ bool JsonStorage::saveData() {
 
 std::string JsonStorage::getMasterPassword() const {
     try {
-        if (credentialsData.contains(masterPasswordKey)) {
-            std::string encodedPassword = credentialsData[masterPasswordKey];
+        // Create a temporary copy to work with
+        nlohmann::json currentData;
+        
+        // Load fresh data from disk for this operation
+        try {
+            if (fs::exists(storageFile)) {
+                SafeFileHandler fileHandler(storageFile, std::ios::in);
+                if (fileHandler.is_open()) {
+                    std::string content((std::istreambuf_iterator<char>(fileHandler.get())),
+                                        std::istreambuf_iterator<char>());
+                    fileHandler.close();
+                    
+                    if (!content.empty()) {
+                        currentData = nlohmann::json::parse(content);
+                    } else {
+                        currentData = nlohmann::json::object();
+                    }
+                } else {
+                    // If can't open, use cached data
+                    currentData = credentialsData;
+                }
+            } else {
+                // If file doesn't exist, use cached data
+                currentData = credentialsData;
+            }
+        } catch (const std::exception& e) {
+            // If error reading, use cached data
+            currentData = credentialsData;
+        }
+        
+        if (currentData.contains(masterPasswordKey)) {
+            std::string encodedPassword = currentData[masterPasswordKey];
             // If the password is base64-encoded, decode it first
             if (encodedPassword.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == 0) {
                 try {
@@ -237,6 +268,11 @@ bool JsonStorage::updateMasterPassword(const std::string& password) {
         if (password.empty()) {
             std::cerr << "Empty password provided" << std::endl;
             return false;
+        }
+        
+        // Load the latest data before updating
+        if (!loadData()) {
+            std::cerr << "Failed to load data before updating master password" << std::endl;
         }
         
         // Encode the password in Base64 to ensure it's valid UTF-8 in JSON
@@ -343,9 +379,37 @@ std::vector<std::string> JsonStorage::getAllPlatforms() const {
     std::vector<std::string> platforms;
     
     try {
+        // Load fresh data for this operation
+        nlohmann::json currentData;
+        try {
+            if (fs::exists(storageFile)) {
+                SafeFileHandler fileHandler(storageFile, std::ios::in);
+                if (fileHandler.is_open()) {
+                    std::string content((std::istreambuf_iterator<char>(fileHandler.get())),
+                                        std::istreambuf_iterator<char>());
+                    fileHandler.close();
+                    
+                    if (!content.empty()) {
+                        currentData = nlohmann::json::parse(content);
+                    } else {
+                        currentData = nlohmann::json::object();
+                    }
+                } else {
+                    // If can't open, use cached data
+                    currentData = credentialsData;
+                }
+            } else {
+                // If file doesn't exist, use cached data
+                currentData = credentialsData;
+            }
+        } catch (const std::exception& e) {
+            // If error reading, use cached data
+            currentData = credentialsData;
+        }
+        
         // If platforms object exists, get all keys
-        if (credentialsData.contains("platforms")) {
-            for (const auto& [platform, _] : credentialsData["platforms"].items()) {
+        if (currentData.contains("platforms")) {
+            for (const auto& [platform, _] : currentData["platforms"].items()) {
                 platforms.push_back(platform);
             }
         }
