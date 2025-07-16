@@ -16,6 +16,7 @@
 #include <vector>
 #include <memory>
 #include "../core/api.h"
+#include "../config/GlobalConfig.h"
 
 class PasswordManagerGUI {
 private:
@@ -55,6 +56,37 @@ private:
     std::unique_ptr<CredentialsManager> credManager;
     bool isLoggedIn;
     std::string masterPassword;
+    
+    // Helper methods
+    std::unique_ptr<CredentialsManager> getFreshCredManager() {
+        return std::make_unique<CredentialsManager>(g_data_path);
+    }
+    
+    // Dialog cleanup helpers
+    void cleanupViewCredentialDialog();
+    void cleanupAddCredentialDialog();
+    
+    // UI helper methods
+    void showMessage(const std::string& title, const std::string& message, bool isError = false) {
+        fl_message_title(title.c_str());
+        fl_message("%s", message.c_str());
+        if (isError) {
+            std::cerr << title << ": " << message << std::endl;
+        }
+    }
+    
+    void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false) {
+        window->callback([](Fl_Widget* w, void* data) { 
+            bool exitApp = static_cast<bool>(reinterpret_cast<uintptr_t>(data));
+            if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
+                if (exitApp) {
+                    exit(0); 
+                } else {
+                    w->hide();
+                }
+            }
+        }, reinterpret_cast<void*>(static_cast<uintptr_t>(exitOnClose)));
+    }
     
     // Window creation helper methods
     void createLoginScreen();
