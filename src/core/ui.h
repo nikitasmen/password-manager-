@@ -1,17 +1,17 @@
-#ifndef UI_H
-#define UI_H
+#ifndef TERMINAL_UI_H
+#define TERMINAL_UI_H
 
 #include <string>
 #include <vector>
 
 /**
- * @class UI
- * @brief User Interface handling class
+ * @class TerminalUI
+ * @brief Terminal User Interface handling class
  * 
  * Provides methods for handling console user interface interactions,
  * including menus, message display, and secure password input
  */
-class UI {
+class TerminalUI {
 public:
     /**
      * @brief Display the main menu and get user choice

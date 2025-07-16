@@ -21,11 +21,10 @@
 class CredentialsManager { 
     private: 
         std::string dataPath;               // Path where data files are stored
-        Encryption encryptor;               // Encryption engine for securing credentials
-    
-    public:
-        JsonStorage storage;                // Storage engine for credentials
-        
+        Encryption* encryptor;              // Encryption engine for securing credentials - dynamically allocated
+        JsonStorage* storage;               // Storage engine for credentials - dynamically allocated
+
+    public: 
         /**
          * @brief Check if a master password exists in storage
          * 
@@ -33,13 +32,17 @@ class CredentialsManager {
          */
         bool hasMasterPassword() const;
 
-    public: 
         /**
          * @brief Construct a new Credentials Manager object
          * 
          * @param dataPath Path where credential data will be stored
          */
-        explicit CredentialsManager(const std::string& dataPath = "."); 
+        explicit CredentialsManager(const std::string& dataPath = ".");
+        
+        /**
+         * @brief Destroy the Credentials Manager object and free allocated memory
+         */
+        ~CredentialsManager(); 
         
         /**
          * @brief Verify login credentials
