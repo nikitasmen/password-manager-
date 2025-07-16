@@ -1,6 +1,6 @@
 #include "./api.h"
 #include "./encryption.h" // Include the encryption header with EncryptionError
-#include "../../GlobalConfig.h"
+#include "../config/GlobalConfig.h"
 #include <fstream>
 #include <iostream>
 #include <sstream>

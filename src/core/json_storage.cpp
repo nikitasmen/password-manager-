@@ -14,6 +14,52 @@ namespace fs = std::filesystem;
 namespace fs = std::experimental::filesystem;
 #endif
 
+// SafeFileHandler implementation
+JsonStorage::SafeFileHandler::SafeFileHandler(const std::string& filename, std::ios::openmode mode) 
+    : filename(filename), isOpen(false) {
+    try {
+        file.open(filename, mode);
+        isOpen = file.is_open();
+        if (!isOpen) {
+            std::cerr << "Failed to open file: " << filename << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception opening file " << filename << ": " << e.what() << std::endl;
+        isOpen = false;
+    }
+}
+
+JsonStorage::SafeFileHandler::~SafeFileHandler() {
+    close();
+}
+
+bool JsonStorage::SafeFileHandler::close() {
+    if (isOpen && file.is_open()) {
+        try {
+            file.close();
+            isOpen = false;
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << "Exception closing file " << filename << ": " << e.what() << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool JsonStorage::SafeFileHandler::flush() {
+    if (isOpen && file.is_open()) {
+        try {
+            file.flush();
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << "Exception flushing file " << filename << ": " << e.what() << std::endl;
+            return false;
+        }
+    }
+    return false;
+}
+
 // Constructor implementation
 JsonStorage::JsonStorage(const std::string& dataPath, const std::string& filename)
     : dataPath(dataPath), 
@@ -22,13 +68,18 @@ JsonStorage::JsonStorage(const std::string& dataPath, const std::string& filenam
       modified(false) 
 {
     ensureDataPathExists();
-    loadData();
+    if (!loadData()) {
+        std::cerr << "Warning: Failed to load existing data, starting with empty storage" << std::endl;
+    }
 }
 
 // Destructor implementation - save data if modified
 JsonStorage::~JsonStorage() {
     if (modified) {
-        saveData();
+        std::cout << "Saving modified data on destruction..." << std::endl;
+        if (!saveData()) {
+            std::cerr << "Error: Failed to save data on destruction!" << std::endl;
+        }
     }
 }
 
@@ -78,22 +129,36 @@ bool JsonStorage::loadData() {
             return true;
         }
         
-        // Open and read the file
-        std::ifstream file(storageFile);
-        if (!file.is_open()) {
+        // Use SafeFileHandler for automatic file closing
+        SafeFileHandler fileHandler(storageFile, std::ios::in);
+        if (!fileHandler.is_open()) {
             std::cerr << "Failed to open storage file: " << storageFile << std::endl;
             return false;
         }
         
         try {
-            file >> credentialsData;
+            // Read the entire file content first
+            std::string content((std::istreambuf_iterator<char>(fileHandler.get())),
+                               std::istreambuf_iterator<char>());
+            
+            // Ensure file is closed before parsing
+            if (!fileHandler.close()) {
+                std::cerr << "Warning: Failed to properly close file after reading" << std::endl;
+            }
+            
+            // Parse JSON from the content
+            if (!content.empty()) {
+                credentialsData = nlohmann::json::parse(content);
+            } else {
+                credentialsData = nlohmann::json::object();
+            }
         } catch (const nlohmann::json::parse_error& e) {
             std::cerr << "JSON parse error: " << e.what() << std::endl;
             credentialsData = nlohmann::json::object(); // Reset to empty on parse error
+            fileHandler.close(); // Ensure file is closed on error
             return false;
         }
         
-        file.close();
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error loading data: " << e.what() << std::endl;
@@ -110,18 +175,36 @@ bool JsonStorage::saveData() {
         // Create the directory if it doesn't exist
         ensureDataPathExists();
         
-        // Write the JSON to the file with pretty formatting
-        std::ofstream file(storageFile);
-        if (!file.is_open()) {
+        // Use SafeFileHandler for automatic file closing
+        SafeFileHandler fileHandler(storageFile, std::ios::out | std::ios::trunc);
+        if (!fileHandler.is_open()) {
             std::cerr << "Failed to open storage file for writing: " << storageFile << std::endl;
             return false;
         }
         
-        file << credentialsData.dump(4); // Pretty print with 4-space indent
-        file.close();
-        
-        modified = false; // Reset the modified flag
-        return true;
+        try {
+            // Write JSON data to file
+            fileHandler.get() << credentialsData.dump(4); // Pretty print with 4-space indent
+            
+            // Flush to ensure data is written to disk
+            if (!fileHandler.flush()) {
+                std::cerr << "Failed to flush data to disk" << std::endl;
+                return false;
+            }
+            
+            // Close file explicitly and check for errors
+            if (!fileHandler.close()) {
+                std::cerr << "Failed to properly close file after writing" << std::endl;
+                return false;
+            }
+            
+            modified = false; // Reset the modified flag only after successful write
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << "Error writing JSON data: " << e.what() << std::endl;
+            fileHandler.close(); // Ensure file is closed on error
+            return false;
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error saving data: " << e.what() << std::endl;
         return false;
@@ -177,6 +260,12 @@ bool JsonStorage::addCredentials(const std::string& platformName,
             return false;
         }
         
+        // Reload data to ensure we have the latest version
+        if (!loadData()) {
+            std::cerr << "Failed to reload data before adding credentials" << std::endl;
+            return false;
+        }
+        
         // Check if platform already exists
         if (credentialsData.contains("platforms") && 
             credentialsData["platforms"].contains(platformName)) {
@@ -202,6 +291,12 @@ bool JsonStorage::addCredentials(const std::string& platformName,
         credentialsData["platforms"][platformName] = platform;
         modified = true;
         
+        // Immediately save to disk for transaction safety
+        if (!saveData()) {
+            std::cerr << "Failed to save credentials addition" << std::endl;
+            return false;
+        }
+        
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error adding credentials: " << e.what() << std::endl;
@@ -215,6 +310,12 @@ bool JsonStorage::deleteCredentials(const std::string& platformName) {
             return false;
         }
         
+        // Reload data to ensure we have the latest version
+        if (!loadData()) {
+            std::cerr << "Failed to reload data before deleting credentials" << std::endl;
+            return false;
+        }
+        
         // Check if platforms and the specific platform exist
         if (!credentialsData.contains("platforms") || 
             !credentialsData["platforms"].contains(platformName)) {
@@ -224,6 +325,12 @@ bool JsonStorage::deleteCredentials(const std::string& platformName) {
         // Remove the platform
         credentialsData["platforms"].erase(platformName);
         modified = true;
+        
+        // Immediately save to disk for transaction safety
+        if (!saveData()) {
+            std::cerr << "Failed to save credentials deletion" << std::endl;
+            return false;
+        }
         
         return true;
     } catch (const std::exception& e) {
@@ -249,11 +356,17 @@ std::vector<std::string> JsonStorage::getAllPlatforms() const {
     return platforms;
 }
 
-std::vector<std::string> JsonStorage::getCredentials(const std::string& platformName) const {
+std::vector<std::string> JsonStorage::getCredentials(const std::string& platformName) {
     std::vector<std::string> credentials;
     
     try {
         if (platformName.empty()) {
+            return credentials;
+        }
+        
+        // Reload data to ensure we have the latest version
+        if (!loadData()) {
+            std::cerr << "Failed to reload data before getting credentials" << std::endl;
             return credentials;
         }
         
@@ -282,14 +395,16 @@ std::vector<std::string> JsonStorage::getCredentials(const std::string& platform
                         credentials.push_back(encodedPassword); // Use as-is for backward compatibility
                     }
                 } catch (const std::exception& e) {
-                    // Fall back to raw values if decoding fails
+                    std::cerr << "Error decoding credentials: " << e.what() << std::endl;
+                    // Fall back to raw values
+                    credentials.clear();
                     credentials.push_back(encodedUsername);
                     credentials.push_back(encodedPassword);
                 }
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error retrieving credentials: " << e.what() << std::endl;
+        std::cerr << "Error getting credentials: " << e.what() << std::endl;
     }
     
     return credentials;

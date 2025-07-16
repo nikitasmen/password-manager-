@@ -14,10 +14,10 @@ namespace fs = std::experimental::filesystem;
 PasswordManagerGUI::PasswordManagerGUI() : isLoggedIn(false) {
     try {
         // Initialize the credential manager with global data path
-        credManager = std::make_unique<CredentialsManager>(data_path);
+        credManager = std::make_unique<CredentialsManager>(g_data_path);
         
         // Ensure data directory exists
-        fs::path dir(data_path);
+        fs::path dir(g_data_path);
         if (!fs::exists(dir)) {
             fs::create_directories(dir);
         }
@@ -216,8 +216,11 @@ void PasswordManagerGUI::refreshPlatformsList() {
     }
     
     try {
+        // Create a fresh CredentialsManager instance for this operation
+        auto tempCredManager = std::make_unique<CredentialsManager>(g_data_path);
+        
         // Get platforms data
-        std::vector<std::string> platforms = credManager->getAllPlatforms();
+        std::vector<std::string> platforms = tempCredManager->getAllPlatforms();
         
         // Format and display platforms
         std::stringstream ss;
@@ -269,7 +272,10 @@ void PasswordManagerGUI::addCredential(const std::string& platform,
                                      const std::string& password) {
     if (!isLoggedIn) return;
     
-    if (credManager->addCredentials(platform, username, password)) {
+    // Create a fresh CredentialsManager instance for this operation
+    auto tempCredManager = std::make_unique<CredentialsManager>(g_data_path);
+    
+    if (tempCredManager->addCredentials(platform, username, password)) {
         fl_message_title("Success");
         fl_message("Credentials added successfully!");
         refreshPlatformsList();
@@ -282,8 +288,11 @@ void PasswordManagerGUI::addCredential(const std::string& platform,
 void PasswordManagerGUI::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
     
+    // Create a fresh CredentialsManager instance for this operation
+    auto tempCredManager = std::make_unique<CredentialsManager>(g_data_path);
+    
     // Get credentials for the platform
-    std::vector<std::string> credentials = credManager->getCredentials(platform);
+    std::vector<std::string> credentials = tempCredManager->getCredentials(platform);
     
     if (credentials.empty() || credentials.size() < 2) {
         fl_message_title("Error");
@@ -341,7 +350,10 @@ void PasswordManagerGUI::deleteCredential(const std::string& platform) {
     
     std::string message = "Are you sure you want to delete credentials for " + platform + "?";
     if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
-        if (credManager->deleteCredentials(platform)) {
+        // Create a fresh CredentialsManager instance for this operation
+        auto tempCredManager = std::make_unique<CredentialsManager>(g_data_path);
+        
+        if (tempCredManager->deleteCredentials(platform)) {
             fl_message_title("Success");
             fl_message("Credentials deleted successfully!");
             refreshPlatformsList();

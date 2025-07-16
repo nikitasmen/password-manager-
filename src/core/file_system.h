@@ -7,7 +7,6 @@
 #include <vector> 
 #include <string>
 #include <stdexcept>
-#include "../data/data.h"
 
 /**
  * @class DatabaseError
@@ -103,4 +102,4 @@ public:
     std::vector<std::string> getCredentials(const std::string& platformName);
 }; 
 
-#endif // DB_H 
+#endif // DB_H

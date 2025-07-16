@@ -23,6 +23,10 @@ class CredentialsManager {
         std::string dataPath;               // Path where data files are stored
         Encryption* encryptor;              // Encryption engine for securing credentials - dynamically allocated
         JsonStorage* storage;               // Storage engine for credentials - dynamically allocated
+        
+        // Disable copy constructor and assignment operator to prevent issues
+        CredentialsManager(const CredentialsManager&) = delete;
+        CredentialsManager& operator=(const CredentialsManager&) = delete;
 
     public: 
         /**

@@ -36,9 +36,7 @@ set(CORE_SOURCES
 )
 
 set(CLI_SOURCES
-    src/cli/cli_api.cpp
     src/cli/cli_ui.cpp
-    src/cli_main.cpp
 )
 
 set(UI_SOURCES src/tui_main.cpp)
@@ -47,8 +45,6 @@ set(GUI_SOURCES
     src/gui/gui.cpp
     src/gui_main.cpp
 )
-
-set(DATA_SOURCES src/data/data.cpp)
 
 # --- Filesystem library ---
 if(UNIX AND NOT APPLE)
@@ -64,16 +60,12 @@ function(link_common target)
     endif()
 endfunction()
 
-# --- CLI executable ---
-add_executable(cli_api ${CORE_SOURCES} ${CLI_SOURCES} ${DATA_SOURCES})
-link_common(cli_api)
-
 # --- Interactive UI executable ---
-add_executable(password_manager ${CORE_SOURCES} ${UI_SOURCES} ${DATA_SOURCES} src/cli/cli_ui.cpp)
+add_executable(password_manager ${CORE_SOURCES} ${UI_SOURCES} ${CLI_SOURCES})
 link_common(password_manager)
 
 # --- GUI executable ---
-add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} ${DATA_SOURCES})
+add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES})
 target_link_libraries(password_manager_gui ${FLTK_LIBRARIES})
 link_common(password_manager_gui)
 
@@ -90,7 +82,7 @@ link_common(base64_test)
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     message(STATUS "Skipping install step for faster local builds")
 else()
-    install(TARGETS cli_api password_manager password_manager_gui
+    install(TARGETS password_manager password_manager_gui
         RUNTIME DESTINATION bin
     )
 endif()
