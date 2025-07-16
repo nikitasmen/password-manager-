@@ -49,7 +49,36 @@ PasswordManagerGUI::~PasswordManagerGUI() {
         credentialDisplay->buffer(nullptr);
     }
     
-    // Smart pointers will handle the rest of the cleanup
+    // Reset all components in a controlled order
+    closeViewButton.reset();
+    credentialBuffer.reset();
+    credentialDisplay.reset();
+    
+    // Clean up windows
+    if (viewCredentialWindow) {
+        viewCredentialWindow->hide();
+        viewCredentialWindow.reset();
+    }
+    
+    if (addCredentialWindow) {
+        addCredentialWindow->hide();
+        addCredentialWindow.reset();
+    }
+    
+    // Clean up main window components
+    platformsBuffer.reset();
+    platformsDisplay.reset();
+    menuBar.reset();
+    actionButtons.clear();
+    
+    // Clean up credential manager
+    credManager.reset();
+    
+    // Finally, destroy the main window
+    if (mainWindow) {
+        mainWindow->hide();
+        mainWindow.reset();
+    }
 }
 
 void PasswordManagerGUI::show() {
@@ -303,21 +332,23 @@ void PasswordManagerGUI::viewCredential(const std::string& platform) {
     // Clean up existing window if it exists
     if (viewCredentialWindow) {
         // Disconnect buffer before destroying to avoid callback errors
-        if (credentialDisplay && credentialBuffer) {
+        if (credentialDisplay) {
             credentialDisplay->buffer(nullptr);
         }
         
+        // Reset everything in reverse order of creation
+        closeViewButton.reset();
+        credentialBuffer.reset();
+        credentialDisplay.reset();
         viewCredentialWindow->hide();
         viewCredentialWindow.reset();
-        credentialDisplay.reset();
-        credentialBuffer.reset();
-        closeViewButton.reset();
     }
     
     // Create a window to display credentials
     viewCredentialWindow = std::make_unique<Fl_Window>(400, 200, ("Credentials for " + platform).c_str());
     viewCredentialWindow->begin();
     
+    // Create buffer first, then display
     credentialBuffer = std::make_unique<Fl_Text_Buffer>();
     credentialDisplay = std::make_unique<Fl_Text_Display>(20, 20, 360, 120);
     credentialDisplay->buffer(credentialBuffer.get());
@@ -337,7 +368,12 @@ void PasswordManagerGUI::viewCredential(const std::string& platform) {
             if (gui->credentialDisplay) {
                 gui->credentialDisplay->buffer(nullptr);
             }
+            // Reset components in proper order
+            gui->closeViewButton.reset();
+            gui->credentialBuffer.reset();
+            gui->credentialDisplay.reset();
             gui->viewCredentialWindow->hide();
+            gui->viewCredentialWindow.reset();
         }
     }, this);
     
@@ -365,31 +401,46 @@ void PasswordManagerGUI::deleteCredential(const std::string& platform) {
 }
 
 void PasswordManagerGUI::clearCurrentScreen() {
-    // Clean up text displays first by disconnecting buffers
+    // Clean up add credential window if open
+    if (addCredentialWindow) {
+        addCredentialWindow->hide();
+        addCredentialWindow.reset();
+    }
+    
+    // Clean up view credential window if open
+    if (viewCredentialWindow) {
+        // Disconnect buffer first to avoid callback errors
+        if (credentialDisplay) {
+            credentialDisplay->buffer(nullptr);
+        }
+        
+        // Reset components in reverse order
+        closeViewButton.reset();
+        credentialBuffer.reset();
+        credentialDisplay.reset();
+        viewCredentialWindow->hide();
+        viewCredentialWindow.reset();
+    }
+    
+    // Clear main window elements
+    if (mainWindow) {
+        mainWindow->clear();
+    }
+    
+    // Reset login screen components
+    masterPasswordInput.reset();
+    loginButton.reset();
+    
+    // Reset setup screen components
+    newPasswordInput.reset();
+    confirmPasswordInput.reset();
+    createPasswordButton.reset();
+    
+    // Reset main view components
+    menuBar.reset();
     if (platformsDisplay && platformsBuffer) {
         platformsDisplay->buffer(nullptr);
     }
-    
-    if (credentialDisplay && credentialBuffer) {
-        credentialDisplay->buffer(nullptr);
-    }
-    
-    // Hide and destroy any existing windows
-    if (mainWindow) {
-        mainWindow->hide();
-    }
-    
-    if (addCredentialWindow) {
-        addCredentialWindow->hide();
-    }
-    
-    if (viewCredentialWindow) {
-        viewCredentialWindow->hide();
-    }
-    
-    // Reset pointers to clear memory
-    mainWindow.reset();
-    menuBar.reset();
     platformsDisplay.reset();
     platformsBuffer.reset();
     actionButtons.clear();
