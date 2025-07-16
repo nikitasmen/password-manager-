@@ -31,7 +31,7 @@ set(CORE_SOURCES
     src/core/encryption.cpp
     src/core/file_system.cpp
     src/core/json_storage.cpp
-    src/core/ui.cpp
+    src/core/terminal_ui.cpp
     src/config/GlobalConfig.cpp
 )
 
@@ -41,7 +41,7 @@ set(CLI_SOURCES
     src/cli_main.cpp
 )
 
-set(UI_SOURCES src/terminal_main.cpp)
+set(UI_SOURCES src/tui_main.cpp)
 
 set(GUI_SOURCES
     src/gui/gui.cpp
