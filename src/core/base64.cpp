@@ -55,32 +55,47 @@ std::string Base64::decode(const std::string& encoded_data) {
     unsigned char char_array_4[4], char_array_3[3];
     std::string ret;
 
-    while (in_len-- && (encoded_data[in_] != '=') && 
-           (isalnum(encoded_data[in_]) || encoded_data[in_] == '+' || encoded_data[in_] == '/')) {
-        char_array_4[i++] = encoded_data[in_]; in_++;
-        if (i == 4) {
-            for (i = 0; i < 4; i++)
-                char_array_4[i] = static_cast<unsigned char>(base64_chars.find(char_array_4[i]));
+    while (in_len-- && encoded_data[in_] != '=') {
+        // Check if character is a valid Base64 character
+        if (base64_chars.find(encoded_data[in_]) != std::string::npos) {
+            char_array_4[i++] = encoded_data[in_]; 
+            in_++;
+            if (i == 4) {
+                for (i = 0; i < 4; i++)
+                    char_array_4[i] = static_cast<unsigned char>(base64_chars.find(char_array_4[i]));
 
-            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+                char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+                char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+                char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
 
-            for (i = 0; i < 3; i++)
-                ret += char_array_3[i];
-            i = 0;
+                for (i = 0; i < 3; i++)
+                    ret += char_array_3[i];
+                i = 0;
+            }
+        } else {
+            // Skip invalid characters
+            in_++;
         }
     }
 
     if (i) {
-        for (j = 0; j < i; j++)
+        // Handle any remaining characters
+        for (j = i; j < 4; j++) {
+            char_array_4[j] = 0;
+        }
+        
+        for (j = 0; j < i; j++) {
             char_array_4[j] = static_cast<unsigned char>(base64_chars.find(char_array_4[j]));
+        }
 
         char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
         char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
 
-        for (j = 0; j < i - 1; j++)
+        // Only add the actual decoded bytes based on how many input chars we had
+        for (j = 0; j < i - 1; j++) {
             ret += char_array_3[j];
+        }
     }
 
     return ret;
