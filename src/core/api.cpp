@@ -198,7 +198,7 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
         } else {
             std::cerr << "Failed to retrieve credentials for platform: " << platform << "\n";
         }
-        
+
         return decryptedCredentials;
     } catch (const std::exception& e) {
         std::cerr << "Exception while getting credentials: " << e.what() << std::endl;

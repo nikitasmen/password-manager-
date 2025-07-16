@@ -25,13 +25,14 @@ class Encryption {
 private:
     std::vector<int> taps;          // Feedback taps for the LFSR
     std::vector<int> state;         // Current state of the LFSR
+    std::vector<int> initial_state; // Saved initial state for reset operations
     std::mt19937 rng;               // Mersenne Twister random number generator
     
     // Update the LFSR state and return the output bit
     int getNextBit();
     
     // Reset the LFSR to its initial state for a new encryption/decryption
-    void resetState(const std::vector<int>& init_state);
+    void resetState();
     
     // Helper function to generate a random salt string
     std::string generateSalt(size_t length = 8);

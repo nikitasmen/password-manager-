@@ -14,7 +14,8 @@ Encryption::Encryption(const std::vector<int>& taps, const std::vector<int>& ini
     
     // Initialize the encryption parameters
     this->taps = taps;
-    resetState(init_state);
+    this->initial_state.assign(init_state.begin(), init_state.end());
+    this->state.assign(init_state.begin(), init_state.end());
     
     // Seed the random number generator with current time
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
@@ -48,10 +49,10 @@ int Encryption::getNextBit() {
     }
 }
 
-void Encryption::resetState(const std::vector<int>& init_state) {
-    // Create a deep copy of the initial state to ensure isolation
+void Encryption::resetState() {
+    // Reset to the saved initial state
     this->state.clear();
-    this->state.assign(init_state.begin(), init_state.end());
+    this->state.assign(initial_state.begin(), initial_state.end());
 }
 
 std::string Encryption::generateSalt(size_t length) {
@@ -70,12 +71,6 @@ std::string Encryption::generateSalt(size_t length) {
 
 std::string Encryption::encrypt(const std::string& plaintext) {
     try {
-        // Get a copy of the original init_state for a fresh start
-        std::vector<int> original_state = {1, 0, 1}; // Using the known initial state from GlobalConfig
-        
-        // Reset state before each encryption for consistency
-        resetState(original_state);
-        
         std::string encrypted;
         encrypted.reserve(plaintext.size()); // Pre-allocate memory
         
@@ -102,15 +97,6 @@ std::string Encryption::encrypt(const std::string& plaintext) {
 
 std::string Encryption::decrypt(const std::string& encrypted_text) {
     try {
-        // For stream ciphers, use the exact same process as encryption
-        // but ensure we're starting with a clean state each time
-        
-        // Get a copy of the original init_state for a fresh start
-        std::vector<int> original_state = {1, 0, 1}; // Using the known initial state from GlobalConfig
-        
-        // Reset state before each decryption for consistency
-        resetState(original_state);
-        
         std::string decrypted;
         decrypted.reserve(encrypted_text.size()); // Pre-allocate memory
         
@@ -140,7 +126,10 @@ std::string Encryption::encryptWithSalt(const std::string& plaintext) {
         // Generate a random salt
         std::string salt = generateSalt(8);
         
-        // Encrypt the plaintext directly (encrypt method will reset state)
+        // Reset state to initial state that was provided during construction
+        resetState();
+        
+        // Encrypt the plaintext
         std::string encrypted = encrypt(plaintext);
         
         // Return salt + encrypted data
@@ -163,7 +152,10 @@ std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
         // Extract salt (first 8 characters) - we don't actually use it for decryption now
         std::string salt = encrypted_text.substr(0, 8);
         
-        // Extract and decrypt the rest (decrypt method will reset state)
+        // Reset state to initial state that was provided during construction
+        resetState();
+        
+        // Extract and decrypt the rest
         std::string encryptedData = encrypted_text.substr(8);
         std::string plaintext = decrypt(encryptedData);
         
