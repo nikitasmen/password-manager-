@@ -1,6 +1,6 @@
 #include "../core/terminal_ui.h"
 #include "../core/api.h"
-#include "./cli_ui.h"
+#include "./cli_UI.h"
 #include "../config/GlobalConfig.h"
 #include <iostream>
 
