@@ -1,5 +1,6 @@
 #include "TerminalUIManager.h"
 #include "../core/api.h"
+#include "../config/GlobalConfig.h"
 #include <iostream>
 
 TerminalUIManager::TerminalUIManager(const std::string& dataPath)
@@ -38,9 +39,8 @@ int TerminalUIManager::show() {
             // Login flow
             std::string password;
             int attempts = 0;
-            const int MAX_ATTEMPTS = 3;
             
-            while (attempts < MAX_ATTEMPTS) {
+            while (attempts < MAX_LOGIN_ATTEMPTS) {
                 password = TerminalUI::get_password_input("Enter master password: ");
                 if (login(password)) {
                     return runMenuLoop();
@@ -49,7 +49,7 @@ int TerminalUIManager::show() {
                 TerminalUI::display_message("Invalid password! Try again.", true);
                 attempts++;
                 
-                if (attempts == MAX_ATTEMPTS) {
+                if (attempts == MAX_LOGIN_ATTEMPTS) {
                     TerminalUI::display_message("Too many failed attempts. Exiting...", true);
                     return 1;
                 }

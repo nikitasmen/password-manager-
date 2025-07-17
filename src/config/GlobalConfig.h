@@ -4,6 +4,10 @@
 #include <string>
 #include <vector> 
 
+// Global configuration constants
+const int MAX_LOGIN_ATTEMPTS = 3;  // Maximum allowed login attempts before exiting
+
+// Global variables
 extern std::string g_data_path;  // Declare the global variable
 extern std::vector<int> taps;          // Taps for a 3-bit LFSR (x^3 + x^1 + 1)
 extern std::vector<int> init_state; // Initial state [1, 0, 1]
