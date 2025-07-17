@@ -4,6 +4,9 @@
 #include <iostream>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/kdf.h>
+#include <openssl/kdf.h>
+#include <openssl/sha.h>
 
 Encryption::Encryption(EncryptionType algorithm, const std::vector<int>& taps, const std::vector<int>& init_state, const std::string& password) {
     if (init_state.empty()) {
@@ -67,20 +70,6 @@ void Encryption::resetState() {
     this->state = initial_state; // Using assignment instead of clear+assign
 }
 
-std::string Encryption::generateSalt(size_t length) {
-    static const char charset[] = 
-        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    
-    std::string salt;
-    salt.reserve(length);
-    
-    for (size_t i = 0; i < length; ++i) {
-        salt.push_back(charset[rng() % (sizeof(charset) - 1)]);
-    }
-    
-    return salt;
-}
-
 std::string Encryption::encrypt(const std::string& plaintext) {
     try {
         // Choose encryption algorithm based on current setting
@@ -98,10 +87,10 @@ std::string Encryption::encrypt(const std::string& plaintext) {
     }
 }
 
-std::string Encryption::decrypt(const std::string& encrypted_text, std::optional<EncryptionType> forcedAlgorithm) {
+std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionType* forcedAlgorithm) {
     try {
         // Use the specified algorithm or default to the current one
-        EncryptionType actualAlgorithm = forcedAlgorithm.value_or(algorithm);
+        EncryptionType actualAlgorithm = forcedAlgorithm ? *forcedAlgorithm : algorithm;
         
         // Choose decryption algorithm
         if (actualAlgorithm == EncryptionType::AES) {
@@ -126,15 +115,18 @@ std::string Encryption::decrypt(const std::string& encrypted_text, std::optional
 
 std::string Encryption::encryptWithSalt(const std::string& plaintext) {
     try {
-        // Generate a random salt
-        std::string salt = generateSalt(8);
-        
         if (algorithm == EncryptionType::AES) {
-            // For AES, use the master password for encryption
-            std::string encryptedData = aesEncrypt(plaintext, masterPassword);
-            return salt + encryptedData;
+            // For AES, use the master password for encryption (salt is handled internally)
+            return aesEncrypt(plaintext, masterPassword);
         }
         else { // LFSR algorithm
+            // Generate a simple 8-byte salt for LFSR
+            std::string salt;
+            salt.resize(8);
+            if (RAND_bytes(reinterpret_cast<unsigned char*>(&salt[0]), 8) != 1) {
+                throw EncryptionError("Failed to generate salt for LFSR");
+            }
+            
             // Return salt + encrypted data
             return salt + lfsrProcess(plaintext);
         }
@@ -147,20 +139,19 @@ std::string Encryption::encryptWithSalt(const std::string& plaintext) {
 
 std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
     try {
-        // Check if encrypted text is long enough to contain salt
-        if (encrypted_text.size() <= 8) {
-            throw EncryptionError("Encrypted text too short to contain salt");
-        }
-        
-        // Extract salt (first 8 characters) - we don't actually use it for decryption
-        std::string salt = encrypted_text.substr(0, 8);
-        std::string encryptedData = encrypted_text.substr(8);
-        
         if (algorithm == EncryptionType::AES) {
-            // For AES, use the master password to decrypt
-            return aesDecrypt(encryptedData, masterPassword);
+            // For AES, the salt and IV are embedded in the encrypted data
+            // Pass the full encrypted_text to aesDecrypt
+            return aesDecrypt(encrypted_text, masterPassword);
         }
         else { // LFSR algorithm
+            // Check if encrypted text is long enough to contain salt
+            if (encrypted_text.size() <= 8) {
+                throw EncryptionError("Encrypted text too short to contain salt");
+            }
+            
+            // Extract salt (first 8 characters) and encrypted data for LFSR
+            std::string encryptedData = encrypted_text.substr(8);
             return lfsrProcess(encryptedData);
         }
     } catch (const EncryptionError& e) {
@@ -213,8 +204,11 @@ std::string Encryption::lfsrProcess(const std::string& input) {
 
 std::string Encryption::aesEncrypt(const std::string& plaintext, const std::string& key) {
     try {
-        // Derive a proper key from the password
-        auto deriveKeyResult = deriveKey(key);
+        // Generate a random salt for this encryption
+        auto salt = generateSalt();
+        
+        // Derive a proper key from the password using PBKDF2
+        auto deriveKeyResult = deriveKey(key, salt);
         
         // Initialize context
         EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
@@ -259,9 +253,10 @@ std::string Encryption::aesEncrypt(const std::string& plaintext, const std::stri
         // Cleanup
         EVP_CIPHER_CTX_free(ctx);
         
-        // Combine IV and ciphertext for result
+        // Combine salt, IV and ciphertext for result (salt + IV + ciphertext)
         std::string result;
-        result.reserve(AES_IV_SIZE + ciphertext_len);
+        result.reserve(PBKDF2_SALT_SIZE + AES_IV_SIZE + ciphertext_len);
+        result.append(reinterpret_cast<char*>(salt.data()), PBKDF2_SALT_SIZE);
         result.append(reinterpret_cast<char*>(iv), AES_IV_SIZE);
         result.append(reinterpret_cast<char*>(ciphertext.data()), ciphertext_len);
         
@@ -275,18 +270,22 @@ std::string Encryption::aesEncrypt(const std::string& plaintext, const std::stri
 
 std::string Encryption::aesDecrypt(const std::string& ciphertext, const std::string& key) {
     try {
-        // Ensure ciphertext is large enough to contain IV
-        if (ciphertext.size() <= AES_IV_SIZE) {
+        // Ensure ciphertext is large enough to contain salt + IV
+        if (ciphertext.size() <= PBKDF2_SALT_SIZE + AES_IV_SIZE) {
             throw EncryptionError("Ciphertext too short");
         }
         
-        // Derive key from password
-        auto deriveKeyResult = deriveKey(key);
+        // Extract salt from the beginning of ciphertext
+        std::array<unsigned char, PBKDF2_SALT_SIZE> salt;
+        std::copy(ciphertext.begin(), ciphertext.begin() + PBKDF2_SALT_SIZE, salt.begin());
         
-        // Extract IV from ciphertext
-        const unsigned char* iv = reinterpret_cast<const unsigned char*>(ciphertext.data());
+        // Derive key from password using extracted salt
+        auto deriveKeyResult = deriveKey(key, salt);
+        
+        // Extract IV from ciphertext (after salt)
+        const unsigned char* iv = reinterpret_cast<const unsigned char*>(ciphertext.data() + PBKDF2_SALT_SIZE);
         const unsigned char* encrypted_data = iv + AES_IV_SIZE;
-        int encrypted_len = ciphertext.size() - AES_IV_SIZE;
+        int encrypted_len = ciphertext.size() - PBKDF2_SALT_SIZE - AES_IV_SIZE;
         
         // Initialize context
         EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
@@ -331,18 +330,32 @@ std::string Encryption::aesDecrypt(const std::string& ciphertext, const std::str
     }
 }
 
-std::array<unsigned char, AES_KEY_SIZE> Encryption::deriveKey(const std::string& password) {
+std::array<unsigned char, PBKDF2_SALT_SIZE> Encryption::generateSalt() {
+    std::array<unsigned char, PBKDF2_SALT_SIZE> salt;
+    
+    if (RAND_bytes(salt.data(), PBKDF2_SALT_SIZE) != 1) {
+        throw EncryptionError("Failed to generate cryptographically secure salt");
+    }
+    
+    return salt;
+}
+
+std::array<unsigned char, AES_KEY_SIZE> Encryption::deriveKey(const std::string& password, const std::array<unsigned char, PBKDF2_SALT_SIZE>& salt) {
     std::array<unsigned char, AES_KEY_SIZE> key;
     
-    // In a real implementation, you would use a proper KDF like PBKDF2, Argon2, etc.
-    // For this example, we'll use a simple approach (not recommended for production)
-    
-    // Fill with zeros first
-    std::fill(key.begin(), key.end(), 0);
-    
-    // Copy password bytes or hash them into the key
-    size_t copy_len = std::min(password.size(), key.size());
-    std::copy(password.begin(), password.begin() + copy_len, key.begin());
+    // Use PBKDF2 with SHA-256 for proper key derivation
+    if (PKCS5_PBKDF2_HMAC(
+        password.c_str(),           // Password
+        password.length(),          // Password length
+        salt.data(),               // Salt
+        PBKDF2_SALT_SIZE,          // Salt length
+        PBKDF2_ITERATIONS,         // Iteration count
+        EVP_sha256(),              // Hash function (SHA-256)
+        AES_KEY_SIZE,              // Key length
+        key.data()                 // Output key
+    ) != 1) {
+        throw EncryptionError("PBKDF2 key derivation failed");
+    }
     
     return key;
 }

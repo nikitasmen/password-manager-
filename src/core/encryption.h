@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <mutex>
 #include <array>
+#include <optional>
 #include "../config/GlobalConfig.h"
 
 // Exception class for encryption errors
@@ -21,6 +22,10 @@ public:
 constexpr size_t AES_BLOCK_SIZE = 16;  // AES uses 128-bit (16-byte) blocks
 constexpr size_t AES_KEY_SIZE = 32;    // Using AES-256 (32-byte key)
 constexpr size_t AES_IV_SIZE = 16;     // Initialization vector size
+
+// Constants for PBKDF2 key derivation
+constexpr size_t PBKDF2_SALT_SIZE = 16;    // 128-bit salt (sufficient for security)
+constexpr int PBKDF2_ITERATIONS = 100000;  // Number of PBKDF2 iterations (NIST recommended minimum)
 
 /**
  * @class Encryption
@@ -47,13 +52,11 @@ private:
     // AES methods
     std::string aesEncrypt(const std::string& plaintext, const std::string& key);
     std::string aesDecrypt(const std::string& ciphertext, const std::string& key);
-    std::array<unsigned char, AES_KEY_SIZE> deriveKey(const std::string& password);
+    std::array<unsigned char, AES_KEY_SIZE> deriveKey(const std::string& password, const std::array<unsigned char, PBKDF2_SALT_SIZE>& salt);
+    std::array<unsigned char, PBKDF2_SALT_SIZE> generateSalt();
     
     // Mutex for thread safety
     mutable std::mutex state_mutex;
-    
-    // Helper function to generate a random salt string
-    std::string generateSalt(size_t length = 16);
 
 public:
     /**
@@ -102,7 +105,7 @@ public:
      * @param forcedAlgorithm Force a specific algorithm (useful for legacy data)
      * @return std::string The decrypted plaintext
      */
-    std::string decrypt(const std::string& encrypted_text, std::optional<EncryptionType> forcedAlgorithm = std::nullopt);
+    std::string decrypt(const std::string& encrypted_text, EncryptionType* forcedAlgorithm = nullptr);
     
     /**
      * @brief Encrypt plaintext with added salt for improved security
