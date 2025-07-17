@@ -16,8 +16,8 @@ void TerminalUIManager::initialize() {
         TerminalUI::display_message("Welcome to Password Manager!");
         TerminalUI::display_message("Please create a master password to get started.");
         
-        std::string newPassword = TerminalUI::get_password("Enter new master password: ");
-        std::string confirmPassword = TerminalUI::get_password("Confirm master password: ");
+        std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
+        std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
         
         setupPassword(newPassword, confirmPassword);
     } else {
@@ -41,7 +41,7 @@ int TerminalUIManager::show() {
             const int MAX_ATTEMPTS = 3;
             
             while (attempts < MAX_ATTEMPTS) {
-                password = TerminalUI::get_password("Enter master password: ");
+                password = TerminalUI::get_password_input("Enter master password: ");
                 if (login(password)) {
                     return runMenuLoop();
                 }
@@ -151,7 +151,7 @@ bool TerminalUIManager::deleteCredential(const std::string& platform) {
     if (!isLoggedIn) return false;
     
     try {
-        std::string confirmation = TerminalUI::get_input("Are you sure you want to delete credentials for " + 
+        std::string confirmation = TerminalUI::get_text_input("Are you sure you want to delete credentials for " + 
                                                         platform + "? (y/n): ");
         
         if (confirmation == "y" || confirmation == "Y") {
@@ -190,8 +190,8 @@ int TerminalUIManager::runMenuLoop() {
         switch (menu_choice) {
         case 1: {
             // Update password
-            std::string newPassword = TerminalUI::get_password("Enter new master password: ");
-            std::string confirmPassword = TerminalUI::get_password("Confirm new master password: ");
+            std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
+            std::string confirmPassword = TerminalUI::get_password_input("Confirm new master password: ");
             setupPassword(newPassword, confirmPassword);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
@@ -199,9 +199,9 @@ int TerminalUIManager::runMenuLoop() {
         }
         case 2: {
             // Add credentials
-            std::string platform = TerminalUI::get_input("Enter platform name: ");
-            std::string username = TerminalUI::get_input("Enter username: ");
-            std::string password = TerminalUI::get_password("Enter password: ");
+            std::string platform = TerminalUI::get_text_input("Enter platform name: ");
+            std::string username = TerminalUI::get_text_input("Enter username: ");
+            std::string password = TerminalUI::get_password_input("Enter password: ");
             addCredential(platform, username, password);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
@@ -209,7 +209,7 @@ int TerminalUIManager::runMenuLoop() {
         }
         case 3: {
             // View credentials
-            std::string platform = TerminalUI::get_input("Enter platform name to view: ");
+            std::string platform = TerminalUI::get_text_input("Enter platform name to view: ");
             viewCredential(platform);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
@@ -217,7 +217,7 @@ int TerminalUIManager::runMenuLoop() {
         }
         case 4: {
             // Delete credentials
-            std::string platform = TerminalUI::get_input("Enter platform name to delete: ");
+            std::string platform = TerminalUI::get_text_input("Enter platform name to delete: ");
             deleteCredential(platform);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();

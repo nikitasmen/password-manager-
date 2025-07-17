@@ -1,5 +1,5 @@
-#include "../core/UIManagerFactory.h"
-#include "../config/GlobalConfig.h"
+#include "core/UIManagerFactory.h"
+#include "config/GlobalConfig.h"
 #include <iostream>
 #include <exception>
 
