@@ -1,38 +1,15 @@
-#include "GuiManager.h"
+#include "GuiUIManager.h"
 #include "../core/api.h"
 #include "../config/GlobalConfig.h"
 #include <sstream>
-
-#if __has_include(<filesystem>)
 #include <filesystem>
-namespace fs = std::filesystem;
-#else
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
-#endif
 
-GuiManager::GuiManager(const std::string& dataPath)
-    : isLoggedIn(false), dataPath(dataPath),
+GuiUIManager::GuiUIManager(const std::string& dataPath)
+    : UIManager(dataPath),
       loginForm(nullptr), passwordSetup(nullptr), platformsDisplay(nullptr), credentialInputs(nullptr) {
-    
-    try {
-        // Initialize the credential manager with data path
-        credManager = std::make_unique<CredentialsManager>(dataPath);
-        
-        // Ensure data directory exists
-        fs::path dir(dataPath);
-        if (!fs::exists(dir)) {
-            fs::create_directories(dir);
-        }
-        
-        initialize();
-    } catch (const std::exception& e) {
-        std::cerr << "Error in GuiManager constructor: " << e.what() << std::endl;
-        exit(1);
-    }
 }
 
-GuiManager::~GuiManager() {
+GuiUIManager::~GuiUIManager() {
     // Clean up all dialog windows first
     cleanupAddCredentialDialog();
     cleanupViewCredentialDialog();
@@ -49,9 +26,6 @@ GuiManager::~GuiManager() {
     platformsDisplay = nullptr;
     credentialInputs = nullptr;
     
-    // Clean up credential manager
-    credManager.reset();
-    
     // Finally, destroy the main window
     if (mainWindow) {
         mainWindow->hide();
@@ -59,7 +33,7 @@ GuiManager::~GuiManager() {
     }
 }
 
-void GuiManager::initialize() {
+void GuiUIManager::initialize() {
     // Check if this is first time setup or regular login by checking for master password
     bool hasMasterPassword = credManager->hasMasterPassword();
     
@@ -71,13 +45,162 @@ void GuiManager::initialize() {
     }
 }
 
-void GuiManager::show() {
+int GuiUIManager::show() {
     if (mainWindow) {
         mainWindow->show();
     }
+    
+    // Return value will be set by the FLTK event loop in the main function
+    return 0;
 }
 
-void GuiManager::createLoginScreen() {
+bool GuiUIManager::login(const std::string& password) {
+    try {
+        if (!credManager) {
+            std::cerr << "Error: credential manager not initialized!" << std::endl;
+            showMessage("Error", "Internal error: credential manager not initialized!", true);
+            return false;
+        }
+        
+        std::cout << "Attempting to login with password: [length: " << password.length() << "]" << std::endl;
+        
+        // Try to login using the credentials manager
+        if (credManager->login(password)) {
+            std::cout << "Login successful!" << std::endl;
+            isLoggedIn = true;
+            masterPassword = password;
+            createMainScreen();
+            return true;
+        } else {
+            std::cerr << "Login failed: Invalid password" << std::endl;
+            showMessage("Error", "Invalid master password!", true);
+            return false;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in login: " << e.what() << std::endl;
+        showMessage("Error", "An error occurred during login", true);
+        return false;
+    }
+}
+
+bool GuiUIManager::setupPassword(const std::string& newPassword, const std::string& confirmPassword) {
+    try {
+        if (newPassword.empty()) {
+            std::cerr << "Error: Empty password provided" << std::endl;
+            showMessage("Error", "Please enter a password!", true);
+            return false;
+        }
+        
+        if (newPassword != confirmPassword) {
+            std::cerr << "Error: Passwords do not match" << std::endl;
+            showMessage("Error", "Passwords do not match!", true);
+            return false;
+        }
+        
+        std::cout << "Attempting to create master password with length: " << newPassword.length() << std::endl;
+        
+        // Create the new master password
+        if (credManager->updatePassword(newPassword)) {
+            std::cout << "Password created successfully!" << std::endl;
+            showMessage("Success", "Master password created successfully!");
+            isLoggedIn = true;
+            masterPassword = newPassword;
+            createMainScreen();
+            return true;
+        } else {
+            std::cerr << "Failed to create master password" << std::endl;
+            showMessage("Error", "Failed to create master password!", true);
+            return false;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in setupPassword: " << e.what() << std::endl;
+        showMessage("Error", "An error occurred during password setup", true);
+        return false;
+    }
+}
+
+bool GuiUIManager::addCredential(const std::string& platform, 
+                              const std::string& username, 
+                              const std::string& password) {
+    if (!isLoggedIn) return false;
+    
+    try {
+        // Get fresh credentials manager
+        auto tempCredManager = getFreshCredManager();
+        
+        if (tempCredManager->addCredentials(platform, username, password)) {
+            showMessage("Success", "Credentials added successfully!");
+            refreshPlatformsList();
+            return true;
+        } else {
+            showMessage("Error", "Failed to add credentials!", true);
+            return false;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in addCredential: " << e.what() << std::endl;
+        showMessage("Error", "An error occurred while adding credentials", true);
+        return false;
+    }
+}
+
+void GuiUIManager::viewCredential(const std::string& platform) {
+    if (!isLoggedIn) return;
+    
+    try {
+        // Get fresh credentials manager
+        auto tempCredManager = getFreshCredManager();
+        
+        // Get credentials for the platform
+        std::vector<std::string> credentials = tempCredManager->getCredentials(platform);
+        
+        if (credentials.empty() || credentials.size() < 2) {
+            showMessage("Error", "No valid credentials found for this platform!", true);
+            return;
+        }
+        
+        // Create and show the view credential dialog
+        createViewCredentialDialog(platform, credentials);
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in viewCredential: " << e.what() << std::endl;
+        showMessage("Error", "An error occurred while retrieving credentials", true);
+    }
+}
+
+bool GuiUIManager::deleteCredential(const std::string& platform) {
+    if (!isLoggedIn) return false;
+    
+    try {
+        std::string message = "Are you sure you want to delete credentials for " + platform + "?";
+        if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
+            // Get fresh credentials manager
+            auto tempCredManager = getFreshCredManager();
+            
+            if (tempCredManager->deleteCredentials(platform)) {
+                showMessage("Success", "Credentials deleted successfully!");
+                refreshPlatformsList();
+                return true;
+            } else {
+                showMessage("Error", "Failed to delete credentials!", true);
+                return false;
+            }
+        }
+        return false;
+    } catch (const std::exception& e) {
+        std::cerr << "Exception in deleteCredential: " << e.what() << std::endl;
+        showMessage("Error", "An error occurred while deleting credentials", true);
+        return false;
+    }
+}
+
+void GuiUIManager::showMessage(const std::string& title, const std::string& message, bool isError) {
+    fl_message_title(title.c_str());
+    fl_message("%s", message.c_str());
+    if (isError) {
+        std::cerr << title << ": " << message << std::endl;
+    }
+}
+
+void GuiUIManager::createLoginScreen() {
     try {
         // Create main window
         mainWindow = std::make_unique<Fl_Window>(400, 200, "Password Manager - Login");
@@ -113,7 +236,7 @@ void GuiManager::createLoginScreen() {
     }
 }
 
-void GuiManager::createSetupScreen() {
+void GuiUIManager::createSetupScreen() {
     try {
         // Create main window for first-time setup
         mainWindow = std::make_unique<Fl_Window>(450, 250, "Password Manager - First Time Setup");
@@ -155,7 +278,7 @@ void GuiManager::createSetupScreen() {
     }
 }
 
-void GuiManager::createMainScreen() {
+void GuiUIManager::createMainScreen() {
     try {
         // If there's an existing window, properly clean it up
         if (mainWindow) {
@@ -231,7 +354,7 @@ void GuiManager::createMainScreen() {
     }
 }
 
-void GuiManager::createAddCredentialDialog() {
+void GuiUIManager::createAddCredentialDialog() {
     // Clean up existing dialog if it exists
     cleanupAddCredentialDialog();
     
@@ -285,7 +408,7 @@ void GuiManager::createAddCredentialDialog() {
     }
 }
 
-void GuiManager::createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials) {
+void GuiUIManager::createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials) {
     // Clean up existing dialog if it exists
     cleanupViewCredentialDialog();
     
@@ -332,132 +455,38 @@ void GuiManager::createViewCredentialDialog(const std::string& platform, const s
     }
 }
 
-void GuiManager::login(const std::string& password) {
-    try {
-        if (!credManager) {
-            std::cerr << "Error: credential manager not initialized!" << std::endl;
-            showMessage("Error", "Internal error: credential manager not initialized!", true);
-            return;
-        }
-        
-        std::cout << "Attempting to login with password: [length: " << password.length() << "]" << std::endl;
-        
-        // Try to login using the credentials manager
-        if (credManager->login(password)) {
-            std::cout << "Login successful!" << std::endl;
-            isLoggedIn = true;
-            masterPassword = password;
-            createMainScreen();
-        } else {
-            std::cerr << "Login failed: Invalid password" << std::endl;
-            showMessage("Error", "Invalid master password!", true);
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in login: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred during login", true);
+void GuiUIManager::cleanupAddCredentialDialog() {
+    if (addCredentialRoot) {
+        // First cleanup all the components
+        addCredentialRoot->cleanup();
+        addCredentialRoot.reset();
     }
-}
-
-void GuiManager::setupPassword(const std::string& newPassword, const std::string& confirmPassword) {
-    try {
-        if (newPassword.empty()) {
-            std::cerr << "Error: Empty password provided" << std::endl;
-            showMessage("Error", "Please enter a password!", true);
-            return;
-        }
-        
-        if (newPassword != confirmPassword) {
-            std::cerr << "Error: Passwords do not match" << std::endl;
-            showMessage("Error", "Passwords do not match!", true);
-            return;
-        }
-        
-        std::cout << "Attempting to create master password with length: " << newPassword.length() << std::endl;
-        
-        // Create the new master password
-        if (credManager->updatePassword(newPassword)) {
-            std::cout << "Password created successfully!" << std::endl;
-            showMessage("Success", "Master password created successfully!");
-            isLoggedIn = true;
-            masterPassword = newPassword;
-            createMainScreen();
-        } else {
-            std::cerr << "Failed to create master password" << std::endl;
-            showMessage("Error", "Failed to create master password!", true);
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in setupPassword: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred during password setup", true);
-    }
-}
-
-void GuiManager::addCredential(const std::string& platform, 
-                              const std::string& username, 
-                              const std::string& password) {
-    if (!isLoggedIn) return;
     
-    try {
-        // Get fresh credentials manager
-        auto tempCredManager = getFreshCredManager();
-        
-        if (tempCredManager->addCredentials(platform, username, password)) {
-            showMessage("Success", "Credentials added successfully!");
-            refreshPlatformsList();
-        } else {
-            showMessage("Error", "Failed to add credentials!", true);
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in addCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while adding credentials", true);
+    if (addCredentialWindow) {
+        // Then hide and destroy the window
+        addCredentialWindow->hide();
+        addCredentialWindow.reset();
     }
-}
-
-void GuiManager::viewCredential(const std::string& platform) {
-    if (!isLoggedIn) return;
     
-    try {
-        // Get fresh credentials manager
-        auto tempCredManager = getFreshCredManager();
-        
-        // Get credentials for the platform
-        std::vector<std::string> credentials = tempCredManager->getCredentials(platform);
-        
-        if (credentials.empty() || credentials.size() < 2) {
-            showMessage("Error", "No valid credentials found for this platform!", true);
-            return;
-        }
-        
-        // Create and show the view credential dialog
-        createViewCredentialDialog(platform, credentials);
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in viewCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while retrieving credentials", true);
-    }
+    // Reset component reference
+    credentialInputs = nullptr;
 }
 
-void GuiManager::deleteCredential(const std::string& platform) {
-    if (!isLoggedIn) return;
+void GuiUIManager::cleanupViewCredentialDialog() {
+    if (viewCredentialRoot) {
+        // First cleanup all the components
+        viewCredentialRoot->cleanup();
+        viewCredentialRoot.reset();
+    }
     
-    try {
-        std::string message = "Are you sure you want to delete credentials for " + platform + "?";
-        if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
-            // Get fresh credentials manager
-            auto tempCredManager = getFreshCredManager();
-            
-            if (tempCredManager->deleteCredentials(platform)) {
-                showMessage("Success", "Credentials deleted successfully!");
-                refreshPlatformsList();
-            } else {
-                showMessage("Error", "Failed to delete credentials!", true);
-            }
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in deleteCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while deleting credentials", true);
+    if (viewCredentialWindow) {
+        // Then hide and destroy the window
+        viewCredentialWindow->hide();
+        viewCredentialWindow.reset();
     }
 }
 
-void GuiManager::refreshPlatformsList() {
+void GuiUIManager::refreshPlatformsList() {
     if (!isLoggedIn || !mainWindow || !platformsDisplay) {
         return;
     }
@@ -482,46 +511,7 @@ void GuiManager::refreshPlatformsList() {
     }
 }
 
-void GuiManager::cleanupAddCredentialDialog() {
-    if (addCredentialRoot) {
-        // First cleanup all the components
-        addCredentialRoot->cleanup();
-        addCredentialRoot.reset();
-    }
-    
-    if (addCredentialWindow) {
-        // Then hide and destroy the window
-        addCredentialWindow->hide();
-        addCredentialWindow.reset();
-    }
-    
-    // Reset component reference
-    credentialInputs = nullptr;
-}
-
-void GuiManager::cleanupViewCredentialDialog() {
-    if (viewCredentialRoot) {
-        // First cleanup all the components
-        viewCredentialRoot->cleanup();
-        viewCredentialRoot.reset();
-    }
-    
-    if (viewCredentialWindow) {
-        // Then hide and destroy the window
-        viewCredentialWindow->hide();
-        viewCredentialWindow.reset();
-    }
-}
-
-void GuiManager::showMessage(const std::string& title, const std::string& message, bool isError) {
-    fl_message_title(title.c_str());
-    fl_message("%s", message.c_str());
-    if (isError) {
-        std::cerr << title << ": " << message << std::endl;
-    }
-}
-
-void GuiManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
+void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
     if (!window) return;
     
     window->callback([](Fl_Widget* w, void* data) { 
@@ -534,12 +524,4 @@ void GuiManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
             }
         }
     }, reinterpret_cast<void*>(static_cast<uintptr_t>(exitOnClose)));
-}
-
-std::unique_ptr<CredentialsManager> GuiManager::getFreshCredManager() {
-    auto manager = std::make_unique<CredentialsManager>(dataPath);
-    if (isLoggedIn) {
-        manager->login(masterPassword);
-    }
-    return manager;
 }
