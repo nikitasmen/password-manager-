@@ -103,16 +103,18 @@ public:
     bool updateMasterPassword(const std::string& password);
     
     /**
-     * @brief Add new platform credentials
+     * @brief Add new credentials for a platform
      * 
-     * @param platformName Name of the platform/service
+     * @param platformName Name of the platform
      * @param userName Username for the platform
      * @param password Password for the platform
+     * @param encryptionType The type of encryption used (0=LFSR, 1=AES)
      * @return bool True if credentials were added successfully
      */
     bool addCredentials(const std::string& platformName, 
                        const std::string& userName, 
-                       const std::string& password);
+                       const std::string& password,
+                       int encryptionType);
     
     /**
      * @brief Delete stored credentials for a platform
@@ -133,7 +135,8 @@ public:
      * @brief Get credentials for a specific platform
      * 
      * @param platformName Name of the platform
-     * @return std::vector<std::string> Vector containing [username, password]
+     * @return std::vector<std::string> Vector containing [username, password, encryption_type]
+     *         where encryption_type is "0" for LFSR or "1" for AES
      */
     std::vector<std::string> getCredentials(const std::string& platformName);
 };

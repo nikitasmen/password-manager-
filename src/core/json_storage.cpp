@@ -289,7 +289,8 @@ bool JsonStorage::updateMasterPassword(const std::string& password) {
 
 bool JsonStorage::addCredentials(const std::string& platformName, 
                                const std::string& userName, 
-                               const std::string& password) {
+                               const std::string& password,
+                               int encryptionType) {
     try {
         // Input validation
         if (platformName.empty() || userName.empty() || password.empty()) {
@@ -320,7 +321,8 @@ bool JsonStorage::addCredentials(const std::string& platformName,
         // Create platform entry with username and password
         nlohmann::json platform = {
             {"username", encodedUsername},
-            {"password", encodedPassword}
+            {"password", encodedPassword},
+            {"encryption_type", encryptionType}
         };
         
         // Add to credentials data
@@ -444,6 +446,12 @@ std::vector<std::string> JsonStorage::getCredentials(const std::string& platform
                 std::string encodedUsername = platform["username"];
                 std::string encodedPassword = platform["password"];
                 
+                // Get encryption type if available (default to 0 = LFSR for backward compatibility)
+                std::string encType = "0";  // Default to LFSR
+                if (platform.contains("encryption_type")) {
+                    encType = std::to_string(platform["encryption_type"].get<int>());
+                }
+                
                 // Try to decode Base64-encoded data
                 try {
                     // Check if the stored values appear to be Base64 encoded
@@ -458,12 +466,16 @@ std::vector<std::string> JsonStorage::getCredentials(const std::string& platform
                     } else {
                         credentials.push_back(encodedPassword); // Use as-is for backward compatibility
                     }
+                    
+                    // Add encryption type as third element
+                    credentials.push_back(encType);
                 } catch (const std::exception& e) {
                     std::cerr << "Error decoding credentials: " << e.what() << std::endl;
                     // Fall back to raw values
                     credentials.clear();
                     credentials.push_back(encodedUsername);
                     credentials.push_back(encodedPassword);
+                    credentials.push_back(encType);
                 }
             }
         }
