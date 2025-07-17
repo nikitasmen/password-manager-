@@ -43,6 +43,7 @@ set(UI_SOURCES src/tui_main.cpp)
 
 set(GUI_SOURCES
     src/gui/gui.cpp
+    src/gui/GuiManager.cpp
     src/gui_main.cpp
 )
 
@@ -64,7 +65,7 @@ endfunction()
 add_executable(password_manager ${CORE_SOURCES} ${UI_SOURCES} ${CLI_SOURCES})
 link_common(password_manager)
 
-# --- GUI executable ---
+# --- GUI executable (component-based architecture) ---
 add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES})
 target_link_libraries(password_manager_gui ${FLTK_LIBRARIES})
 link_common(password_manager_gui)
