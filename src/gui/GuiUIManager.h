@@ -46,6 +46,7 @@ private:
     void createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials);
     void cleanupAddCredentialDialog();
     void cleanupViewCredentialDialog();
+    void cleanupMainWindow();
     void refreshPlatformsList();
     void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false);
 

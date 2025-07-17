@@ -14,7 +14,12 @@ GuiUIManager::~GuiUIManager() {
     cleanupAddCredentialDialog();
     cleanupViewCredentialDialog();
     
-    // Then clean up the root component
+    // Then clean up the main window and its components
+    cleanupMainWindow();
+}
+
+void GuiUIManager::cleanupMainWindow() {
+    // Clean up the root component
     if (rootComponent) {
         rootComponent->cleanup();
         rootComponent.reset();
@@ -202,6 +207,9 @@ void GuiUIManager::showMessage(const std::string& title, const std::string& mess
 
 void GuiUIManager::createLoginScreen() {
     try {
+        // Clean up any existing window and components
+        cleanupMainWindow();
+        
         // Create main window
         mainWindow = std::make_unique<Fl_Window>(400, 200, "Password Manager - Login");
         mainWindow->begin();
@@ -238,6 +246,9 @@ void GuiUIManager::createLoginScreen() {
 
 void GuiUIManager::createSetupScreen() {
     try {
+        // Clean up any existing window and components
+        cleanupMainWindow();
+        
         // Create main window for first-time setup
         mainWindow = std::make_unique<Fl_Window>(450, 250, "Password Manager - First Time Setup");
         mainWindow->begin();
@@ -280,14 +291,8 @@ void GuiUIManager::createSetupScreen() {
 
 void GuiUIManager::createMainScreen() {
     try {
-        // If there's an existing window, properly clean it up
-        if (mainWindow) {
-            if (rootComponent) {
-                rootComponent->cleanup();
-                rootComponent.reset();
-            }
-            mainWindow->hide();
-        }
+        // Clean up any existing window and components
+        cleanupMainWindow();
         
         // Create main application window
         mainWindow = std::make_unique<Fl_Window>(600, 400, "Password Manager");
