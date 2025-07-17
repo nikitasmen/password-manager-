@@ -60,11 +60,15 @@ function(link_common target)
 endfunction()
 
 # --- Main executables with UI abstraction ---
-add_executable(password_manager_cli ${CORE_SOURCES} ${CLI_SOURCES} ${GUI_SOURCES} src/tui_main.cpp)
-link_common(password_manager_cli)
-target_link_libraries(password_manager_cli ${FLTK_LIBRARIES})
 
-add_executable(password_manager_gui ${CORE_SOURCES} ${CLI_SOURCES} ${GUI_SOURCES} src/gui_main.cpp)
+# CLI application
+add_executable(password_manager_cli ${CORE_SOURCES} ${CLI_SOURCES} src/tui_main.cpp)
+link_common(password_manager_cli)
+target_compile_definitions(password_manager_cli PRIVATE ENABLE_CLI)
+
+# GUI application
+add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} src/gui_main.cpp)
+target_compile_definitions(password_manager_gui PRIVATE ENABLE_GUI)
 target_link_libraries(password_manager_gui ${FLTK_LIBRARIES})
 link_common(password_manager_gui)
 
