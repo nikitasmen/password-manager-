@@ -454,24 +454,29 @@ std::vector<std::string> JsonStorage::getCredentials(const std::string& platform
                 
                 // Try to decode Base64-encoded data
                 try {
-                    // Check if the stored values appear to be Base64 encoded
+                    // Decode username (Base64 or raw)
+                    std::string decodedUsername;
                     if (encodedUsername.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == 0) {
-                        credentials.push_back(Base64::decode(encodedUsername));
+                        decodedUsername = Base64::decode(encodedUsername);
                     } else {
-                        credentials.push_back(encodedUsername); // Use as-is for backward compatibility
+                        decodedUsername = encodedUsername; // Use as-is for backward compatibility
                     }
                     
+                    // Decode password (Base64 or raw)
+                    std::string decodedPassword;
                     if (encodedPassword.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == 0) {
-                        credentials.push_back(Base64::decode(encodedPassword));
+                        decodedPassword = Base64::decode(encodedPassword);
                     } else {
-                        credentials.push_back(encodedPassword); // Use as-is for backward compatibility
+                        decodedPassword = encodedPassword; // Use as-is for backward compatibility
                     }
                     
-                    // Add encryption type as third element
+                    // Add credentials in correct order: [username, password, encryption_type]
+                    credentials.push_back(decodedUsername);
+                    credentials.push_back(decodedPassword);
                     credentials.push_back(encType);
                 } catch (const std::exception& e) {
                     std::cerr << "Error decoding credentials: " << e.what() << std::endl;
-                    // Fall back to raw values
+                    // Fall back to raw values - maintain [username, password, encryption_type] order
                     credentials.clear();
                     credentials.push_back(encodedUsername);
                     credentials.push_back(encodedPassword);

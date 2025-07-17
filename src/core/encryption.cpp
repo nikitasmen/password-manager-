@@ -5,7 +5,6 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/kdf.h>
-#include <openssl/kdf.h>
 #include <openssl/sha.h>
 
 // Implementation of CipherContextRAII
