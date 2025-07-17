@@ -311,7 +311,7 @@ public:
         passwordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 2 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Password:");
     }
     
-    // Get values from inputs
+    // Methods to retrieve credential input values
     struct CredentialData {
         std::string platform;
         std::string username;
