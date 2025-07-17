@@ -64,15 +64,22 @@ public:
     static void display_list(const std::vector<std::string>& items, const std::string& header);
     
     /**
-     * @brief Show a confirmation prompt and get yes/no response
+     * @brief Display a confirmation prompt and get user response
      * 
-     * @param message The confirmation message
-     * @return bool True if user confirms, false otherwise
+     * @param message The confirmation message to display
+     * @return bool True if user confirmed, false otherwise
      */
     static bool confirm(const std::string& message);
     
     /**
-     * @brief Handle login procedure
+     * @brief Present encryption algorithm options and get user selection
+     * 
+     * @return EncryptionType The selected encryption algorithm
+     */
+    static EncryptionType selectEncryptionAlgorithm();
+    
+    /**
+     * @brief Handle the login flow
      * 
      * @param maxAttempts Maximum number of login attempts
      * @return bool True if login successful, false otherwise

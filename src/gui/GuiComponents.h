@@ -9,8 +9,10 @@
 #include <FL/Fl_Text_Display.H>
 #include <FL/Fl_Text_Buffer.H>
 #include <FL/Fl_Menu_Bar.H>
+#include <FL/Fl_Choice.H>
 #include <sstream>
 #include <memory>
+#include "../config/GlobalConfig.h"
 
 // Base class for text display components
 class TextComponentBase : public GuiComponent {
@@ -106,6 +108,7 @@ private:
     PasswordCallback onSetup;
     Fl_Secret_Input* newPasswordInput;
     Fl_Secret_Input* confirmPasswordInput;
+    Fl_Choice* encryptionChoice;
     Fl_Button* createButton;
     
     static constexpr int INPUT_WIDTH = 200;
@@ -114,17 +117,32 @@ private:
 public:
     PasswordSetupComponent(Fl_Group* parent, int x, int y, int w, int h, PasswordCallback onSetup)
         : FormComponentBase(parent, x, y, w, h), onSetup(onSetup),
-          newPasswordInput(nullptr), confirmPasswordInput(nullptr), createButton(nullptr) {}
+          newPasswordInput(nullptr), confirmPasswordInput(nullptr), encryptionChoice(nullptr), createButton(nullptr) {}
     
     void create() override {
         // Create password inputs
         newPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "New Master Password:");
         confirmPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
         
+        // Create encryption choice dropdown
+        encryptionChoice = createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "Encryption Algorithm:");
+        
+        // Populate dropdown with all available encryption types
+        auto availableTypes = EncryptionUtils::getAllTypes();
+        for (const auto& type : availableTypes) {
+            encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+        }
+        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault())); // Default encryption
+        
         // Create button
-        createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 100, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
+        createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 150, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
         CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
-            comp->onSetup(comp->newPasswordInput->value(), comp->confirmPasswordInput->value());
+            // Get the selected encryption type using helper function
+            EncryptionType encType = EncryptionUtils::fromDropdownIndex(comp->encryptionChoice->value());
+            
+            comp->onSetup(comp->newPasswordInput->value(), 
+                         comp->confirmPasswordInput->value(),
+                         encType);
         });
     }
     
@@ -299,16 +317,25 @@ private:
     Fl_Input* platformInput;
     Fl_Input* usernameInput;
     Fl_Secret_Input* passwordInput;
+    Fl_Choice* encryptionChoice;
 
 public:
     CredentialInputsComponent(Fl_Group* parent, int x, int y, int w, int h)
         : FormComponentBase(parent, x, y, w, h),
-          platformInput(nullptr), usernameInput(nullptr), passwordInput(nullptr) {}
+          platformInput(nullptr), usernameInput(nullptr), passwordInput(nullptr), encryptionChoice(nullptr) {}
     
     void create() override {
         platformInput = createWidget<Fl_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "Platform:");
         usernameInput = createWidget<Fl_Input>(x + LABEL_WIDTH, y + VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Username:");
         passwordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 2 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Password:");
+        encryptionChoice = createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
+        
+        // Add encryption options using helper functions
+        auto availableTypes = EncryptionUtils::getAllTypes();
+        for (const auto& type : availableTypes) {
+            encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+        }
+        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault())); // Default encryption
     }
     
     // Methods to retrieve credential input values
@@ -316,23 +343,29 @@ public:
         std::string platform;
         std::string username;
         std::string password;
+        EncryptionType encryptionType;
     };
     
     CredentialData getCredentialData() const {
         return {
             platformInput ? platformInput->value() : "",
             usernameInput ? usernameInput->value() : "",
-            passwordInput ? passwordInput->value() : ""
+            passwordInput ? passwordInput->value() : "",
+            encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault()
         };
     }
     
     std::string getPlatform() const { return platformInput ? platformInput->value() : ""; }
     std::string getUsername() const { return usernameInput ? usernameInput->value() : ""; }
     std::string getPassword() const { return passwordInput ? passwordInput->value() : ""; }
+    EncryptionType getEncryptionType() const { 
+        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault(); 
+    }
     
     Fl_Input* getPlatformInput() const { return platformInput; }
     Fl_Input* getUsernameInput() const { return usernameInput; }
     Fl_Secret_Input* getPasswordInput() const { return passwordInput; }
+    Fl_Choice* getEncryptionChoice() const { return encryptionChoice; }
 };
 
 // Dialog button layout configurations

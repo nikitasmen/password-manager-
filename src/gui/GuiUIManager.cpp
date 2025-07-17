@@ -88,7 +88,9 @@ bool GuiUIManager::login(const std::string& password) {
     }
 }
 
-bool GuiUIManager::setupPassword(const std::string& newPassword, const std::string& confirmPassword) {
+bool GuiUIManager::setupPassword(const std::string& newPassword, 
+                               const std::string& confirmPassword,
+                               EncryptionType encryptionType) {
     try {
         if (newPassword.empty()) {
             std::cerr << "Error: Empty password provided" << std::endl;
@@ -103,6 +105,10 @@ bool GuiUIManager::setupPassword(const std::string& newPassword, const std::stri
         }
         
         std::cout << "Attempting to create master password with length: " << newPassword.length() << std::endl;
+        std::cout << "Using encryption algorithm: " << (encryptionType == EncryptionType::AES ? "AES-256" : "LFSR") << std::endl;
+        
+        // Set the encryption algorithm
+        credManager->setEncryptionType(encryptionType);
         
         // Create the new master password
         if (credManager->updatePassword(newPassword)) {
@@ -126,14 +132,15 @@ bool GuiUIManager::setupPassword(const std::string& newPassword, const std::stri
 
 bool GuiUIManager::addCredential(const std::string& platform, 
                               const std::string& username, 
-                              const std::string& password) {
+                              const std::string& password,
+                              std::optional<EncryptionType> encryptionType) {
     if (!isLoggedIn) return false;
     
     try {
         // Get fresh credentials manager
         auto tempCredManager = getFreshCredManager();
         
-        if (tempCredManager->addCredentials(platform, username, password)) {
+        if (tempCredManager->addCredentials(platform, username, password, encryptionType)) {
             showMessage("Success", "Credentials added successfully!");
             refreshPlatformsList();
             return true;
@@ -267,9 +274,9 @@ void GuiUIManager::createSetupScreen() {
         
         // Add password setup component
         passwordSetup = rootComponent->addChild<PasswordSetupComponent>(
-            mainWindow.get(), 0, 100, 450, 150,
-            [this](const std::string& newPassword, const std::string& confirmPassword) {
-                setupPassword(newPassword, confirmPassword);
+            mainWindow.get(), 0, 100, 450, 200,
+            [this](const std::string& newPassword, const std::string& confirmPassword, EncryptionType encType) {
+                setupPassword(newPassword, confirmPassword, encType);
             }
         );
         
@@ -364,26 +371,27 @@ void GuiUIManager::createAddCredentialDialog() {
     cleanupAddCredentialDialog();
     
     try {
-        // Create the dialog window
-        addCredentialWindow = std::make_unique<Fl_Window>(400, 250, "Add New Credentials");
+        // Create the dialog window with more height to accommodate the encryption dropdown
+        addCredentialWindow = std::make_unique<Fl_Window>(400, 300, "Add New Credentials");
         addCredentialWindow->begin();
         
         // Create root component for the dialog
-        addCredentialRoot = std::make_unique<ContainerComponent>(addCredentialWindow.get(), 0, 0, 400, 250);
+        addCredentialRoot = std::make_unique<ContainerComponent>(addCredentialWindow.get(), 0, 0, 400, 300);
         
-        // Add credential inputs component
+        // Add credential inputs component with more height for encryption dropdown
         credentialInputs = addCredentialRoot->addChild<CredentialInputsComponent>(
-            addCredentialWindow.get(), 0, 30, 400, 170
+            addCredentialWindow.get(), 0, 30, 400, 220
         );
         
-        // Add dialog buttons component
+        // Add dialog buttons component positioned lower for the larger dialog
         addCredentialRoot->addChild<CredentialDialogButtonsComponent>(
-            addCredentialWindow.get(), 100, 200, 200, 30,
+            addCredentialWindow.get(), 100, 250, 200, 30,
             [this]() {
                 // Get inputs
                 std::string platform = credentialInputs->getPlatform();
                 std::string username = credentialInputs->getUsername();
                 std::string password = credentialInputs->getPassword();
+                EncryptionType encryptionType = credentialInputs->getEncryptionType();
                 
                 // Validate inputs
                 if (platform.empty() || username.empty() || password.empty()) {
@@ -391,8 +399,8 @@ void GuiUIManager::createAddCredentialDialog() {
                     return;
                 }
                 
-                // Add credential
-                addCredential(platform, username, password);
+                // Add credential with the selected encryption type
+                addCredential(platform, username, password, encryptionType);
                 cleanupAddCredentialDialog();
             },
             [this]() {
@@ -435,6 +443,12 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         ss << "Platform: " << platform << "\n";
         ss << "Username: " << credentials[0] << "\n";
         ss << "Password: " << credentials[1] << "\n";
+        
+        // Add encryption type if available
+        if (credentials.size() >= 3) {
+            std::string encType = credentials[2] == "0" ? "LFSR (Basic)" : "AES-256 (Strong)";
+            ss << "Encryption: " << encType << "\n";
+        }
         
         // Add close button component
         viewCredentialRoot->addChild<CloseButtonComponent>(

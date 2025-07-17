@@ -24,6 +24,10 @@ include_directories(${JSON_INCLUDE_DIR})
 find_package(FLTK REQUIRED)
 include_directories(${FLTK_INCLUDE_DIR})
 
+# --- Find OpenSSL for AES encryption ---
+find_package(OpenSSL REQUIRED)
+include_directories(${OPENSSL_INCLUDE_DIR})
+
 # --- Source files ---
 set(CORE_SOURCES
     src/core/api.cpp
@@ -57,6 +61,8 @@ function(link_common target)
     if(FILESYSTEM_LIB)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()
+    # Link OpenSSL
+    target_link_libraries(${target} PRIVATE ${OPENSSL_LIBRARIES})
 endfunction()
 
 # --- Main executables with UI abstraction ---
@@ -69,7 +75,7 @@ target_compile_definitions(password_manager_cli PRIVATE ENABLE_CLI)
 # GUI application
 add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} src/gui_main.cpp)
 target_compile_definitions(password_manager_gui PRIVATE ENABLE_GUI)
-target_link_libraries(password_manager_gui ${FLTK_LIBRARIES})
+target_link_libraries(password_manager_gui PRIVATE ${FLTK_LIBRARIES})
 link_common(password_manager_gui)
 
 # --- Create data directory (only once per build) ---

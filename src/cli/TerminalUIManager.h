@@ -45,20 +45,25 @@ public:
      * @brief Set up a new master password through terminal
      * @param newPassword New master password
      * @param confirmPassword Password confirmation
+     * @param encryptionType The encryption algorithm to use
      * @return True if password setup was successful
      */
-    bool setupPassword(const std::string& newPassword, const std::string& confirmPassword) override;
+    bool setupPassword(const std::string& newPassword, 
+                      const std::string& confirmPassword,
+                      EncryptionType encryptionType = EncryptionType::LFSR) override;
     
     /**
      * @brief Add a new credential through terminal
      * @param platform Platform name
      * @param username Username
      * @param password Password
+     * @param encryptionType The encryption algorithm to use (optional)
      * @return True if credential was added successfully
      */
     bool addCredential(const std::string& platform, 
                       const std::string& username, 
-                      const std::string& password) override;
+                      const std::string& password,
+                      std::optional<EncryptionType> encryptionType = std::nullopt) override;
     
     /**
      * @brief View credentials for a platform in terminal

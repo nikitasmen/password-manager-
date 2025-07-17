@@ -153,6 +153,41 @@ bool TerminalUI::confirm(const std::string& message) {
     return (input == "y" || input == "Y" || input == "yes" || input == "Yes");
 }
 
+EncryptionType TerminalUI::selectEncryptionAlgorithm() {
+    int choice;
+    std::cout << "\n+---------------------------------------+\n";
+    std::cout << "|      SELECT ENCRYPTION ALGORITHM       |\n";
+    std::cout << "+---------------------------------------+\n";
+    std::cout << "| 1) LFSR (Linear Feedback Shift Reg.)   |\n";
+    std::cout << "|    - Basic stream cipher               |\n";
+    std::cout << "|    - Faster but less secure            |\n";
+    std::cout << "+---------------------------------------+\n";
+    std::cout << "| 2) AES-256 (Advanced Encryption)       |\n";
+    std::cout << "|    - Industry-standard algorithm       |\n";
+    std::cout << "|    - More secure but slightly slower   |\n";
+    std::cout << "+---------------------------------------+\n";
+    std::cout << "Enter your choice (1-2): ";
+    
+    if (!(std::cin >> choice)) {
+        std::cin.clear(); // Clear the error flag
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
+        display_message("Invalid input. Defaulting to AES-256.", true);
+        return EncryptionType::AES;
+    }
+    
+    // Consume the newline
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    
+    if (choice == 1) {
+        return EncryptionType::LFSR;
+    } else if (choice == 2) {
+        return EncryptionType::AES;
+    } else {
+        display_message("Invalid choice. Defaulting to AES-256.", true);
+        return EncryptionType::AES;
+    }
+}
+
 bool TerminalUI::login(int maxAttempts) {
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         clear_screen();

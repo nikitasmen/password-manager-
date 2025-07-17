@@ -17,10 +17,14 @@ void TerminalUIManager::initialize() {
         TerminalUI::display_message("Welcome to Password Manager!");
         TerminalUI::display_message("Please create a master password to get started.");
         
+        // Select encryption algorithm
+        TerminalUI::display_message("\nFirst, select your preferred encryption algorithm:");
+        EncryptionType encType = TerminalUI::selectEncryptionAlgorithm();
+        
         std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
         
-        setupPassword(newPassword, confirmPassword);
+        setupPassword(newPassword, confirmPassword, encType);
     } else {
         // Regular login
         TerminalUI::display_message("Welcome to Password Manager!");
@@ -77,7 +81,9 @@ bool TerminalUIManager::login(const std::string& password) {
     }
 }
 
-bool TerminalUIManager::setupPassword(const std::string& newPassword, const std::string& confirmPassword) {
+bool TerminalUIManager::setupPassword(const std::string& newPassword, 
+                                const std::string& confirmPassword,
+                                EncryptionType encryptionType) {
     try {
         if (newPassword.empty()) {
             showMessage("Error", "Password cannot be empty!", true);
@@ -88,6 +94,9 @@ bool TerminalUIManager::setupPassword(const std::string& newPassword, const std:
             showMessage("Error", "Passwords do not match!", true);
             return false;
         }
+        
+        // Set encryption algorithm
+        credManager->setEncryptionType(encryptionType);
         
         if (credManager->updatePassword(newPassword)) {
             showMessage("Success", "Master password created successfully!");
@@ -106,13 +115,23 @@ bool TerminalUIManager::setupPassword(const std::string& newPassword, const std:
 
 bool TerminalUIManager::addCredential(const std::string& platform, 
                                    const std::string& username, 
-                                   const std::string& password) {
+                                   const std::string& password,
+                                   std::optional<EncryptionType> encryptionType) {
     if (!isLoggedIn) return false;
     
     try {
         auto tempCredManager = getFreshCredManager();
         
-        if (tempCredManager->addCredentials(platform, username, password)) {
+        // If encryption type is not specified, prompt the user to select one
+        EncryptionType selectedEncryption;
+        if (!encryptionType.has_value()) {
+            TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
+            selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
+        } else {
+            selectedEncryption = encryptionType.value();
+        }
+        
+        if (tempCredManager->addCredentials(platform, username, password, selectedEncryption)) {
             showMessage("Success", "Credentials added successfully!");
             return true;
         }
@@ -142,6 +161,12 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
         TerminalUI::display_message("Credentials for " + platform + ":");
         TerminalUI::display_message("Username: " + credentials[0]);
         TerminalUI::display_message("Password: " + credentials[1]);
+        
+        // Display encryption type if available
+        if (credentials.size() >= 3) {
+            std::string encType = credentials[2] == "0" ? "LFSR (Basic)" : "AES-256 (Strong)";
+            TerminalUI::display_message("Encryption: " + encType);
+        }
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);
     }
