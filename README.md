@@ -1,176 +1,209 @@
-# Enhanced Password Manager
+# Password Manager
 
-A secure, lightweight password management tool written in C++ with advanced security features.
+A secure, modular password management tool written in C++17 with multiple user interface options.
 
 ## Features
 
-- **Local Storage**: All passwords are stored locally on your machine in a secure JSON format
-- **Enhanced Encryption**:
-  - LFSR (Linear Feedback Shift Register) based encryption
-  - Salt-based security for improved resistance to attacks
-  - Enhanced error handling and recovery mechanisms
-- **JSON-based Storage**:
-  - Single file storage for better organization
-  - Backup system with timestamped file copies
-  - Improved data structure and management
-- **Multiple Interfaces**:  
-  - Command-line interface (CLI) for scripting and automation
-  - Interactive terminal UI for console-based interaction
-  - Graphical user interface (GUI) for user-friendly desktop experience
-- **Password Management**:
-  - Store credentials (username/password) for different platforms
-  - Retrieve and copy credentials to clipboard
-  - Delete credentials when no longer needed
-  - List all platforms with stored credentials
-- **Enhanced Security Features**:
-  - Path sanitization to prevent traversal attacks
-  - Automatic backup of credential files
-  - Robust exception handling
-  - Secure credential storage with salt-based encryption
+- **Secure Local Storage**: All credentials are stored locally in an encrypted JSON format
+- **Advanced Encryption**:
+  - LFSR (Linear Feedback Shift Register) stream cipher
+  - Salt-based encryption for stronger security
+  - Base64 encoding for safe storage of binary data
+- **Robust JSON Storage System**:
+  - Automatic file backups with timestamps
+  - RAII-based file handling for resource safety
+  - Atomic operations with proper transaction management
+  - Optimized file access patterns (open-use-close pattern)
+- **Multiple User Interfaces**:
+  - Text-based UI (TUI) for terminal environments
+  - Modern graphical UI (GUI) using FLTK
+  - Shared core API for consistent functionality
+- **User-Friendly Features**:
+  - Store platform-specific credentials (username/password)
+  - View, add, and delete credentials easily
+  - Master password protection for all stored data
+- **Well-Architected Codebase**:
+  - DRY (Don't Repeat Yourself) design principles
+  - RAII for resource management
+  - Comprehensive error handling
+  - Modular component design
+  - Helper methods for common operations
+  - Standardized dialog management
 
 ## Architecture
 
-The project is organized into three main components:
+The project follows a modular architecture with these key components:
 
-- **Core**: Provides the fundamental functionality
-  - Secure encryption/decryption with salt-based protection
-  - File system operations with path security
-  - JSON-based credential storage for better organization
-  - Credential management with error handling
-  - User interface abstractions
-- **UI**:  
-  - Terminal-based interactive user interface
-  - Graphical user interface using FLTK
-  - Improved error reporting and user feedback
-- **CLI**: Command-line interface for scripting and automation
-  - Enhanced command parsing
-  - Better error handling and status reporting
-  - Support for batch operations
+- **Core**: Core functionality shared across all interfaces
+  - `api.cpp/h`: Main credentials management API
+  - `encryption.cpp/h`: LFSR-based encryption with salt support
+  - `json_storage.cpp/h`: JSON-based secure storage system
+  - `base64.cpp/h`: Base64 encoding/decoding utilities
+  - `file_system.cpp/h`: File system operations
+
+- **Terminal UI**: Text-based interface
+  - `tui_main.cpp`: Entry point for terminal application
+  - `terminal_ui.cpp/h`: Terminal UI components
+  - `cli_ui.cpp/h`: Command handling and application controllers
+
+- **Graphical UI**: FLTK-based interface
+  - `gui_main.cpp`: Entry point for graphical application
+  - `gui.cpp/h`: GUI components and event handlers
+
+- **Configuration**:
+  - `GlobalConfig.cpp/h`: Shared configuration settings
 
 ## Project Structure
 
 ```plaintext
 password-manager-/
-├── GlobalConfig.cpp       # Global configuration variables
-├── GlobalConfig.h         # Header for global configuration
-├── passman.cpp            # Main application entry point
+├── build.sh              # Build script for all components
+├── CMakeLists.txt        # CMake configuration
 ├── src/
-│   ├── mainApi.cpp        # API main function
-│   ├── mainUi.cpp         # UI main function
-│   ├── cli/               # Command Line Interface
-│   │   ├── cli_api.cpp    # CLI API implementation
-│   │   ├── cli_api.h      # CLI API header
-│   │   ├── cli_ui.cpp     # CLI UI implementation
-│   │   └── cli_ui.h       # CLI UI header
-│   ├── core/              # Core functionality
-│   │   ├── api.cpp        # Core API implementation
-│   │   ├── api.h          # Core API header
-│   │   ├── encryption.cpp # Encryption functionality
-│   │   ├── encryption.h   # Encryption header
-│   │   ├── fileSys.cpp    # File system operations
-│   │   ├── fileSys.h      # File system header
-│   │   ├── ui.cpp         # Core UI implementation
-│   │   └── ui.h           # Core UI header
-│   └── data/              # Data management
-│       ├── credentials    # Credentials storage
-│       ├── data.cpp       # Data handling implementation
-│       └── loginPassword  # Master password storage
+│   ├── config/           # Configuration settings
+│   │   ├── GlobalConfig.cpp
+│   │   └── GlobalConfig.h
+│   ├── core/             # Core functionality
+│   │   ├── api.cpp
+│   │   ├── api.h
+│   │   ├── base64.cpp
+│   │   ├── base64.h
+│   │   ├── encryption.cpp
+│   │   ├── encryption.h
+│   │   ├── file_system.cpp
+│   │   ├── file_system.h
+│   │   ├── json_storage.cpp
+│   │   ├── json_storage.h
+│   │   ├── terminal_ui.cpp
+│   │   └── terminal_ui.h
+│   ├── cli/              # Command-line interface
+│   │   ├── cli_ui.cpp
+│   │   └── cli_UI.h
+│   ├── gui/              # Graphical user interface
+│   │   ├── gui.cpp
+│   │   └── gui.h
+│   ├── gui_main.cpp      # GUI application entry point
+│   └── tui_main.cpp      # Terminal UI application entry point
+├── tests/                # Test files
+│   └── base64_test.cpp
+├── build/                # Build directory (created during build)
+│   ├── password_manager      # Terminal UI executable
+│   ├── password_manager_gui  # GUI executable
+│   └── data/                 # Data storage directory
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
 
+
+
+### Security Enhancements
+
 ## Usage
 
-### Graphical User Interface
+### Graphical User Interface (GUI)
 
-For a more user-friendly experience, run the GUI version:
+For a user-friendly desktop experience, run the GUI version:
 
 ```bash
-./password_manager_gui
+./build/password_manager_gui
 ```
 
 The GUI provides:
 
-- Login dialog for master password
+- Login dialog for master password protection
 - List view of all stored platforms
-- Forms for adding/viewing credentials
-- Ability to delete credentials
+- Add/view credential forms with secure input
+- Credential deletion with confirmation
+- Clean and modern FLTK-based interface
 
-### Interactive Terminal UI
+### Terminal User Interface (TUI)
 
-Run the terminal UI version without arguments:
+For a text-based interactive experience, run:
 
 ```bash
-./password_manager
+./build/password_manager
 ```
 
-### Command-line Interface
+This provides a menu-driven interface with these options:
+
+1. Change Master Password
+2. Add New Platform Credentials
+3. Retrieve Platform Credentials
+4. Delete Platform Credentials
+5. Show All Stored Platforms
+
+### Command Line Interface
+
+The TUI-based application can be used for various credential operations:
 
 ```bash
-./cli_api <option> <userPassword> [values...]
-```
-
-Available options:
-
-- `-h`, `--help` - Show help message and available commands
-- `-a`, `--add <password> <platform> <username> <platform_password>` - Add new credentials
-- `-s`, `--show <password>` - List all stored platforms
-- `-g`, `--get <password> <platform>` - Show credentials for specified platform
-- `-d`, `--delete <password> <platform>` - Delete credentials for specified platform
-- `-p`, `--password <old_password> <new_password>` - Change master password
-
-### Security Enhancements
-
-This improved version includes several security enhancements:
-
-1. **Salt-Based Encryption**: Adds random data to each encrypted value, making dictionary attacks significantly harder
-2. **Path Sanitization**: Prevents path traversal attacks by sanitizing platform names used in file paths
-3. **File System Security**: Better handling of file system operations with proper error checking
-4. **Backup System**: Automatically creates backups of credential files before modifying them
-5. **Error Handling**: Comprehensive exception handling throughout the codebase
-6. **Memory Management**: Improved memory handling to prevent leaks and buffer overflows
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-- `-c <platform>` - Return and copy record for the specified platform
-
-### Examples
-
-```bash
-# Display help information
-./cli_api myMasterPassword -h
-
 # Add new credentials
-./cli_api myMasterPassword -a github johndoe password123
+./build/password_manager_gui  # Then use the Add Credential menu option
 
 # Show all stored platforms
-./cli_api myMasterPassword -s
+./build/password_manager      # Then choose option 5
 
-# Retrieve credentials for a specific platform
-./cli_api myMasterPassword -c github
+# Retrieve or delete credentials for specific platforms
+# Use the appropriate menu options in either interface
 ```
 
-## 🔧 Build Instructions
+## Build Instructions
 
-### Using the Unified Build Script
+### Using the Build Script
 
-The easiest way to build all versions:
+The easiest way to build the project:
 
 ```bash
 ./build.sh
 ```
 
-This will create all three executables in the `build` directory.
-
-You can customize your build with various options:
+This builds all components. You can customize the build:
 
 ```bash
 # Build only the GUI version
-./build.sh --gui
+./build.sh -g
 
-# Build without CMake (direct compilation)
+# Build only the terminal UI version
+./build.sh -t
+
+# Clean and rebuild everything
+./build.sh --clean
+
+# Build with debug symbols
+./build.sh --debug
+```
+
+Run `./build.sh --help` for all available options.
+
+### Using CMake Directly
+
+```bash
+mkdir -p build
+cd build
+cmake ..
+make
+```
+
+## Security Features
+
+This password manager implements several security measures:
+
+1. **LFSR Stream Cipher**: Custom encryption using Linear Feedback Shift Register
+2. **Salt-Based Security**: Random salt added to encrypted values to prevent rainbow table attacks
+3. **Base64 Encoding**: Safe storage of binary data in JSON format
+4. **Automatic Backups**: Timestamped backups created before data modifications
+5. **Secure File Handling**: Proper file resource management with immediate closing after operations
+6. **Memory Management**: Smart pointers to prevent memory leaks
+7. **Error Handling**: Comprehensive exception handling throughout the codebase
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+### Build Script Options
+
+```bash
 ./build.sh --direct
 
 # Clean and rebuild everything
@@ -186,58 +219,31 @@ For all available options, run:
 ./build.sh --help
 ```
 
-### Option 1: Simple Compile
-
-```bash
-# Compile the main UI version
-g++ passman.cpp GlobalConfig.cpp src/core/*.cpp src/data/data.cpp -o password-manager -std=c++17
-
-# Compile the CLI version
-g++ src/cli/cli_api.cpp src/core/*.cpp GlobalConfig.cpp -o cli_api -std=c++17
-```
-
-### Option 2: Using CMake
-
-```bash
-mkdir build
-cd build
-cmake ..
-make
-```
-
-## 🔒 Security Notes
-
-- Passwords are encrypted using an LFSR-based algorithm
-- All data is stored locally - no internet connection required
-- The master password is used for encryption/decryption
-- For actual production use, consider implementing additional security measures
-
 ## Dependencies
 
 - C++17 or later
 - CMake 3.10+ (for building)
 - FLTK 1.3+ (for the GUI version)
-- For clipboard functionality on Linux: xclip or xsel
 
-## 📌 Future Improvements
+## Recent Improvements
 
-- Enhanced encryption algorithms
-- Improved user authentication
-- Better error handling and input validation
-- Graphical user interface
+The codebase has undergone significant improvements:
+
+- **Optimized File Handling**: Every data operation now properly opens and closes files
+- **Enhanced Error Recovery**: Better error handling during file operations
+- **Code Refactoring**: Applied DRY principles with helper methods
+- **GUI Stability**: Fixed crashes when viewing credentials multiple times
+- **Resource Management**: Proper cleanup of FLTK widgets and buffers
+- **Standardized Dialogs**: Consistent patterns for all user interactions
+
+## Future Enhancements
+
+Potential future improvements to consider:
+
 - Password strength checker
 - Auto-generation of strong passwords
-
-## 🤝 Contributing
-
-Pull requests are welcome. Here's how to contribute:
-
-1. Fork the repo
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -m "Add feature"`
-4. Push to your fork: `git push origin feature/my-feature`
-5. Open a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+- Import/export functionality
+- Configurable encryption options
+- Search functionality for large credential sets
+- Credential expiration notifications
+- Password history tracking
