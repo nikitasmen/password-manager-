@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include "api.h" // Include complete CredentialsManager definition
+#include "../config/GlobalConfig.h"
 
 /**
  * @class UIManager
@@ -56,20 +57,25 @@ public:
      * @brief Set up a new master password
      * @param newPassword New master password
      * @param confirmPassword Password confirmation
+     * @param encryptionType The encryption algorithm to use
      * @return True if password setup was successful
      */
-    virtual bool setupPassword(const std::string& newPassword, const std::string& confirmPassword) = 0;
+    virtual bool setupPassword(const std::string& newPassword, 
+                              const std::string& confirmPassword,
+                              EncryptionType encryptionType = EncryptionType::LFSR) = 0;
     
     /**
      * @brief Add a new credential
      * @param platform Platform name
      * @param username Username
      * @param password Password
+     * @param encryptionType The encryption algorithm to use (default: user selection)
      * @return True if credential was added successfully
      */
     virtual bool addCredential(const std::string& platform, 
                               const std::string& username, 
-                              const std::string& password) = 0;
+                              const std::string& password,
+                              std::optional<EncryptionType> encryptionType = std::nullopt) = 0;
     
     /**
      * @brief View credentials for a platform

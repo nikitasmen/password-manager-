@@ -15,7 +15,7 @@ class GuiComponent;
 // Type aliases to make callback creation more readable
 using ButtonCallback = std::function<void()>;
 using TextCallback = std::function<void(const std::string&)>;
-using PasswordCallback = std::function<void(const std::string&, const std::string&)>;
+using PasswordCallback = std::function<void(const std::string&, const std::string&, EncryptionType)>;
 
 // Base class for callback data to enable type erasure
 struct CallbackDataBase {
