@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include "../config/GlobalConfig.h"
 
 /**
  * @class TerminalUI
@@ -76,7 +77,7 @@ public:
      * @param maxAttempts Maximum number of login attempts
      * @return bool True if login successful, false otherwise
      */
-    static bool login(int maxAttempts = 3);
+    static bool login(int maxAttempts = MAX_LOGIN_ATTEMPTS);
 };
 
 #endif // UI_H

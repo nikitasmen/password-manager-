@@ -32,18 +32,17 @@ set(CORE_SOURCES
     src/core/file_system.cpp
     src/core/json_storage.cpp
     src/core/terminal_ui.cpp
+    src/core/UIManager.cpp
+    src/core/UIManagerFactory.cpp
     src/config/GlobalConfig.cpp
 )
 
 set(CLI_SOURCES
-    src/cli/cli_ui.cpp
+    src/cli/TerminalUIManager.cpp
 )
 
-set(UI_SOURCES src/tui_main.cpp)
-
 set(GUI_SOURCES
-    src/gui/gui.cpp
-    src/gui_main.cpp
+    src/gui/GuiUIManager.cpp
 )
 
 # --- Filesystem library ---
@@ -60,12 +59,16 @@ function(link_common target)
     endif()
 endfunction()
 
-# --- Interactive UI executable ---
-add_executable(password_manager ${CORE_SOURCES} ${UI_SOURCES} ${CLI_SOURCES})
-link_common(password_manager)
+# --- Main executables with UI abstraction ---
 
-# --- GUI executable ---
-add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES})
+# CLI application
+add_executable(password_manager_cli ${CORE_SOURCES} ${CLI_SOURCES} src/tui_main.cpp)
+link_common(password_manager_cli)
+target_compile_definitions(password_manager_cli PRIVATE ENABLE_CLI)
+
+# GUI application
+add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} src/gui_main.cpp)
+target_compile_definitions(password_manager_gui PRIVATE ENABLE_GUI)
 target_link_libraries(password_manager_gui ${FLTK_LIBRARIES})
 link_common(password_manager_gui)
 
@@ -82,7 +85,7 @@ link_common(base64_test)
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     message(STATUS "Skipping install step for faster local builds")
 else()
-    install(TARGETS password_manager password_manager_gui
+    install(TARGETS password_manager_cli password_manager_gui
         RUNTIME DESTINATION bin
     )
 endif()
