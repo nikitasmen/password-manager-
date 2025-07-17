@@ -1,8 +1,9 @@
-#include "gui/GuiManager.h"
+#include "core/UIManagerFactory.h"
 #include <iostream>
 #include "config/GlobalConfig.h"
 #include <exception>
 #include <filesystem>
+#include <FL/Fl.H>
 
 int main(int argc, char** argv) {
     try {
@@ -16,9 +17,12 @@ int main(int argc, char** argv) {
         Fl::scheme("gtk+");
         Fl::visual(FL_DOUBLE | FL_RGB);
         
-        // Create our component-based GUI application
-        GuiManager app(g_data_path);
-        app.show();
+        // Create UI manager for graphical interface
+        auto uiManager = UIManagerFactory::createUIManager(UIType::GUI, g_data_path);
+        
+        // Initialize and show the UI
+        uiManager->initialize();
+        uiManager->show();
         
         // Enter FLTK event loop
         return Fl::run();
