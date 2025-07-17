@@ -126,16 +126,19 @@ public:
         
         // Create encryption choice dropdown
         encryptionChoice = createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "Encryption Algorithm:");
-        encryptionChoice->add("LFSR (Basic)");
-        encryptionChoice->add("AES-256 (Strong)");
-        encryptionChoice->value(1); // Default to AES
+        
+        // Populate dropdown with all available encryption types
+        auto availableTypes = EncryptionUtils::getAllTypes();
+        for (const auto& type : availableTypes) {
+            encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+        }
+        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault())); // Default encryption
         
         // Create button
         createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 150, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
         CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
-            // Get the selected encryption type
-            EncryptionType encType = (comp->encryptionChoice->value() == 0) ? 
-                                     EncryptionType::LFSR : EncryptionType::AES;
+            // Get the selected encryption type using helper function
+            EncryptionType encType = EncryptionUtils::fromDropdownIndex(comp->encryptionChoice->value());
             
             comp->onSetup(comp->newPasswordInput->value(), 
                          comp->confirmPasswordInput->value(),
@@ -327,10 +330,12 @@ public:
         passwordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 2 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Password:");
         encryptionChoice = createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
         
-        // Add encryption options
-        encryptionChoice->add("LFSR (Basic)");
-        encryptionChoice->add("AES-256 (Strong)");
-        encryptionChoice->value(1); // Default to AES
+        // Add encryption options using helper functions
+        auto availableTypes = EncryptionUtils::getAllTypes();
+        for (const auto& type : availableTypes) {
+            encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+        }
+        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault())); // Default encryption
     }
     
     // Methods to retrieve credential input values
@@ -346,7 +351,7 @@ public:
             platformInput ? platformInput->value() : "",
             usernameInput ? usernameInput->value() : "",
             passwordInput ? passwordInput->value() : "",
-            (encryptionChoice && encryptionChoice->value() == 0) ? EncryptionType::LFSR : EncryptionType::AES
+            encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault()
         };
     }
     
@@ -354,7 +359,7 @@ public:
     std::string getUsername() const { return usernameInput ? usernameInput->value() : ""; }
     std::string getPassword() const { return passwordInput ? passwordInput->value() : ""; }
     EncryptionType getEncryptionType() const { 
-        return (encryptionChoice && encryptionChoice->value() == 0) ? EncryptionType::LFSR : EncryptionType::AES; 
+        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault(); 
     }
     
     Fl_Input* getPlatformInput() const { return platformInput; }
