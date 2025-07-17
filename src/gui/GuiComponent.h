@@ -4,7 +4,7 @@
 #include <FL/Fl.H>
 #include <FL/Fl_Widget.H>
 #include <FL/Fl_Group.H>
-#include "ComponentBase.h"
+#include "ComponentBase.h" // Include first to get CallbackDataBase definition
 #include <memory>
 #include <vector>
 #include <string>
@@ -15,6 +15,7 @@ protected:
     int x, y, w, h;
     std::vector<std::unique_ptr<GuiComponent>> children;
     std::vector<Fl_Widget*> widgets;
+    std::vector<void*> callbackData; // To track and free callback data
 
 public:
     GuiComponent(Fl_Group* parent, int x, int y, int w, int h)
@@ -42,6 +43,13 @@ public:
         return widget;
     }
     
+    // Register callback data for cleanup
+    void registerCallbackData(void* data) {
+        if (data) {
+            callbackData.push_back(data);
+        }
+    }
+    
     // Clean up all widgets
     virtual void cleanup() {
         // First clean up all children
@@ -55,6 +63,14 @@ public:
             delete widget;
         }
         widgets.clear();
+        
+        // Finally, clean up callback data
+        for (void* data : callbackData) {
+            if (data) {
+                delete static_cast<CallbackDataBase*>(data);
+            }
+        }
+        callbackData.clear();
     }
     
     // Getters
@@ -66,3 +82,6 @@ public:
 };
 
 #endif // GUI_COMPONENT_H
+
+// Include the callback implementation after GuiComponent is fully defined
+#include "CallbackImpl.h"

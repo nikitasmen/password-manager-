@@ -9,27 +9,32 @@
 #include <functional>
 #include <string>
 
+// Forward declaration of GuiComponent for use in CallbackHelper
+class GuiComponent;
+
 // Type aliases to make callback creation more readable
 using ButtonCallback = std::function<void()>;
 using TextCallback = std::function<void(const std::string&)>;
 using PasswordCallback = std::function<void(const std::string&, const std::string&)>;
 
+// Base class for callback data to enable type erasure
+struct CallbackDataBase {
+    virtual ~CallbackDataBase() = default;
+};
+
 // Helper class to manage common callback patterns
-// NOTE: This class creates heap-allocated objects that will leak memory unless
-// the component is explicitly cleaned up when no longer needed.
-// The GuiComponent cleanup() method does not automatically free these resources.
 class CallbackHelper {
 public:
     template<typename T, typename Func>
-    static void setCallback(Fl_Button* button, T* instance, Func callback) {
+    static void* setCallback(Fl_Button* button, T* instance, Func callback) {
         // Create a copy of the callback function and store it with the button
-        struct CallbackData {
+        struct CallbackData : public CallbackDataBase {
             T* instance;
             Func func;
             CallbackData(T* i, Func f) : instance(i), func(f) {}
         };
         
-        // Allocate the data on the heap - FLTK will not delete it
+        // Allocate the data on the heap
         auto* data = new CallbackData(instance, callback);
         
         // Set up the callback with the combined data
@@ -39,7 +44,15 @@ public:
                 data->func(data->instance);
             }
         }, data);
+        
+        // Return the data pointer so it can be tracked for cleanup
+        return static_cast<void*>(data);
     }
+    
+    // Declaration of convenience method to set callback and register it with a component
+    template<typename T, typename Func>
+    static void setCallbackWithCleanup(GuiComponent* component, Fl_Button* button, T* instance, Func callback);
+    // The implementation will be provided after GuiComponent is fully defined
 };
 
 #endif // COMPONENT_BASE_H
