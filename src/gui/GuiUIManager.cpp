@@ -14,7 +14,7 @@ GuiUIManager::~GuiUIManager() {
     cleanupAddCredentialDialog();
     cleanupViewCredentialDialog();
     
-    // Then clean up the main component
+    // Then clean up the root component
     if (rootComponent) {
         rootComponent->cleanup();
         rootComponent.reset();
