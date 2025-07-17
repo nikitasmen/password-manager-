@@ -9,13 +9,42 @@
 #include <mutex>
 #include <array>
 #include <optional>
+#include <memory>
 #include "../config/GlobalConfig.h"
+
+// Forward declaration for OpenSSL context
+struct evp_cipher_ctx_st;
+typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
 
 // Exception class for encryption errors
 class EncryptionError : public std::runtime_error {
 public:
     explicit EncryptionError(const std::string& message) 
         : std::runtime_error("Encryption Error: " + message) {}
+};
+
+// RAII wrapper for OpenSSL EVP_CIPHER_CTX to ensure proper resource management
+class CipherContextRAII {
+public:
+    CipherContextRAII();
+    ~CipherContextRAII();
+    
+    // Delete copy constructor and assignment operator to prevent resource issues
+    CipherContextRAII(const CipherContextRAII&) = delete;
+    CipherContextRAII& operator=(const CipherContextRAII&) = delete;
+    
+    // Allow move semantics
+    CipherContextRAII(CipherContextRAII&& other) noexcept;
+    CipherContextRAII& operator=(CipherContextRAII&& other) noexcept;
+    
+    // Get the raw context pointer for OpenSSL operations
+    EVP_CIPHER_CTX* get() const noexcept { return ctx_; }
+    
+    // Check if context is valid
+    bool is_valid() const noexcept { return ctx_ != nullptr; }
+
+private:
+    EVP_CIPHER_CTX* ctx_;
 };
 
 // Constants for AES implementation

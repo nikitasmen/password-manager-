@@ -8,6 +8,34 @@
 #include <openssl/kdf.h>
 #include <openssl/sha.h>
 
+// Implementation of CipherContextRAII
+CipherContextRAII::CipherContextRAII() : ctx_(EVP_CIPHER_CTX_new()) {
+    if (!ctx_) {
+        throw EncryptionError("Failed to create OpenSSL cipher context");
+    }
+}
+
+CipherContextRAII::~CipherContextRAII() {
+    if (ctx_) {
+        EVP_CIPHER_CTX_free(ctx_);
+    }
+}
+
+CipherContextRAII::CipherContextRAII(CipherContextRAII&& other) noexcept : ctx_(other.ctx_) {
+    other.ctx_ = nullptr;
+}
+
+CipherContextRAII& CipherContextRAII::operator=(CipherContextRAII&& other) noexcept {
+    if (this != &other) {
+        if (ctx_) {
+            EVP_CIPHER_CTX_free(ctx_);
+        }
+        ctx_ = other.ctx_;
+        other.ctx_ = nullptr;
+    }
+    return *this;
+}
+
 Encryption::Encryption(EncryptionType algorithm, const std::vector<int>& taps, const std::vector<int>& init_state, const std::string& password) {
     if (init_state.empty()) {
         throw EncryptionError("Initial state cannot be empty");
@@ -210,23 +238,18 @@ std::string Encryption::aesEncrypt(const std::string& plaintext, const std::stri
         // Derive a proper key from the password using PBKDF2
         auto deriveKeyResult = deriveKey(key, salt);
         
-        // Initialize context
-        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-        if (!ctx) {
-            throw EncryptionError("Failed to create OpenSSL cipher context");
-        }
+        // Initialize context using RAII wrapper (automatically freed on scope exit)
+        CipherContextRAII ctx;
         
         // Generate random IV
         unsigned char iv[AES_IV_SIZE];
         if (RAND_bytes(iv, AES_IV_SIZE) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
             throw EncryptionError("Failed to generate random IV");
         }
         
         // Initialize encryption operation
-        if (EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, 
+        if (EVP_EncryptInit_ex(ctx.get(), EVP_aes_256_cbc(), nullptr, 
                               deriveKeyResult.data(), iv) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
             throw EncryptionError("Failed to initialize AES encryption");
         }
         
@@ -235,23 +258,20 @@ std::string Encryption::aesEncrypt(const std::string& plaintext, const std::stri
         int len = 0, ciphertext_len = 0;
         
         // Encrypt data
-        if (EVP_EncryptUpdate(ctx, ciphertext.data(), &len, 
+        if (EVP_EncryptUpdate(ctx.get(), ciphertext.data(), &len, 
                              reinterpret_cast<const unsigned char*>(plaintext.data()), 
                              plaintext.size()) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
             throw EncryptionError("Failed during AES encryption");
         }
         ciphertext_len = len;
         
         // Finalize encryption
-        if (EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
+        if (EVP_EncryptFinal_ex(ctx.get(), ciphertext.data() + len, &len) != 1) {
             throw EncryptionError("Failed to finalize AES encryption");
         }
         ciphertext_len += len;
         
-        // Cleanup
-        EVP_CIPHER_CTX_free(ctx);
+        // Note: ctx is automatically freed by RAII destructor here
         
         // Combine salt, IV and ciphertext for result (salt + IV + ciphertext)
         std::string result;
@@ -287,16 +307,12 @@ std::string Encryption::aesDecrypt(const std::string& ciphertext, const std::str
         const unsigned char* encrypted_data = iv + AES_IV_SIZE;
         int encrypted_len = ciphertext.size() - PBKDF2_SALT_SIZE - AES_IV_SIZE;
         
-        // Initialize context
-        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-        if (!ctx) {
-            throw EncryptionError("Failed to create OpenSSL cipher context");
-        }
+        // Initialize context using RAII wrapper (automatically freed on scope exit)
+        CipherContextRAII ctx;
         
         // Initialize decryption operation
-        if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, 
+        if (EVP_DecryptInit_ex(ctx.get(), EVP_aes_256_cbc(), nullptr, 
                               deriveKeyResult.data(), iv) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
             throw EncryptionError("Failed to initialize AES decryption");
         }
         
@@ -305,22 +321,19 @@ std::string Encryption::aesDecrypt(const std::string& ciphertext, const std::str
         int len = 0, plaintext_len = 0;
         
         // Decrypt data
-        if (EVP_DecryptUpdate(ctx, plaintext.data(), &len, 
+        if (EVP_DecryptUpdate(ctx.get(), plaintext.data(), &len, 
                              encrypted_data, encrypted_len) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
             throw EncryptionError("Failed during AES decryption");
         }
         plaintext_len = len;
         
         // Finalize decryption
-        if (EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
+        if (EVP_DecryptFinal_ex(ctx.get(), plaintext.data() + len, &len) != 1) {
             throw EncryptionError("Failed to finalize AES decryption");
         }
         plaintext_len += len;
         
-        // Cleanup
-        EVP_CIPHER_CTX_free(ctx);
+        // Note: ctx is automatically freed by RAII destructor here
         
         return std::string(reinterpret_cast<char*>(plaintext.data()), plaintext_len);
     } catch (const EncryptionError& e) {
