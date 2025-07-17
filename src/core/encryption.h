@@ -42,6 +42,7 @@ private:
     // LFSR methods
     int getNextBit();
     void resetState();
+    std::string lfsrProcess(const std::string& input); // Helper for LFSR encryption/decryption
     
     // AES methods
     std::string aesEncrypt(const std::string& plaintext, const std::string& key);

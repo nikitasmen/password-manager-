@@ -85,51 +85,11 @@ std::string Encryption::encrypt(const std::string& plaintext) {
     try {
         // Choose encryption algorithm based on current setting
         if (algorithm == EncryptionType::AES) {
-            // For simplicity, using an empty key for this example - real implementation would use a password
-            std::string key = "default_password"; // This should be properly implemented
-            return aesEncrypt(plaintext, key);
+            // Use the master password for AES encryption
+            return aesEncrypt(plaintext, masterPassword);
         }
         else { // LFSR algorithm
-            // Create a local copy of the state
-            std::vector<int> local_state;
-            
-            {
-                // Lock only while copying the state
-                std::lock_guard<std::mutex> lock(state_mutex);
-                local_state = initial_state;
-            }
-            
-            std::string encrypted;
-            encrypted.reserve(plaintext.size()); // Pre-allocate memory
-            
-            for (char c : plaintext) {
-                // For each character, generate 8 bits from the LFSR
-                char encrypted_char = 0;
-                for (int i = 0; i < 8; i++) {
-                    // Get the output bit from local state
-                    int output_bit = local_state[0];
-                    
-                    // Calculate feedback bit using the specified taps
-                    int feedback_bit = 0;
-                    for (int tap : taps) {
-                        if (tap < local_state.size()) {
-                            feedback_bit ^= local_state[tap];
-                        }
-                    }
-                    
-                    // Update the local state
-                    local_state.pop_back();
-                    local_state.insert(local_state.begin(), feedback_bit);
-                    
-                    encrypted_char |= (output_bit << i); // Build up the byte
-                }
-                
-                // XOR with the plaintext character
-                encrypted_char ^= c;
-                encrypted.push_back(encrypted_char);
-            }
-            
-            return encrypted;
+            return lfsrProcess(plaintext);
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
@@ -151,51 +111,11 @@ std::string Encryption::decrypt(const std::string& encrypted_text, std::optional
                 throw EncryptionError("Encrypted data too short for AES");
             }
             
-            // For simplicity, using an empty key for this example - real implementation would use a password
-            std::string key = "default_password"; // This should be properly implemented
-            return aesDecrypt(encrypted_text, key);
+            // Use the master password for AES decryption
+            return aesDecrypt(encrypted_text, masterPassword);
         } 
         else { // LFSR algorithm
-            // Create a local copy of the state
-            std::vector<int> local_state;
-            
-            {
-                // Lock only while copying the state
-                std::lock_guard<std::mutex> lock(state_mutex);
-                local_state = initial_state;
-            }
-            
-            std::string decrypted;
-            decrypted.reserve(encrypted_text.size()); // Pre-allocate memory
-            
-            for (char c : encrypted_text) {
-                // For each character, generate 8 bits from the LFSR
-                char decrypted_char = 0;
-                for (int i = 0; i < 8; i++) {
-                    // Get the output bit from local state
-                    int output_bit = local_state[0];
-                    
-                    // Calculate feedback bit using the specified taps
-                    int feedback_bit = 0;
-                    for (int tap : taps) {
-                        if (tap < local_state.size()) {
-                            feedback_bit ^= local_state[tap];
-                        }
-                    }
-                    
-                    // Update the local state
-                    local_state.pop_back();
-                    local_state.insert(local_state.begin(), feedback_bit);
-                    
-                    decrypted_char |= (output_bit << i); // Build up the byte
-                }
-                
-                // XOR with the encrypted character
-                decrypted_char ^= c;
-                decrypted.push_back(decrypted_char);
-            }
-            
-            return decrypted;
+            return lfsrProcess(encrypted_text);
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
@@ -215,35 +135,8 @@ std::string Encryption::encryptWithSalt(const std::string& plaintext) {
             return salt + encryptedData;
         }
         else { // LFSR algorithm
-            // Use a fresh encryption for each call - no state sharing between operations
-            std::vector<int> local_state = initial_state;
-            
-            std::string encrypted;
-            encrypted.reserve(plaintext.size());
-            
-            for (char c : plaintext) {
-                char encrypted_char = 0;
-                for (int i = 0; i < 8; i++) {
-                    int output_bit = local_state[0];
-                    
-                    int feedback_bit = 0;
-                    for (int tap : taps) {
-                        if (tap < local_state.size()) {
-                            feedback_bit ^= local_state[tap];
-                        }
-                    }
-                    
-                    local_state.pop_back();
-                    local_state.insert(local_state.begin(), feedback_bit);
-                    
-                    encrypted_char |= (output_bit << i);
-                }
-                encrypted_char ^= c;
-                encrypted.push_back(encrypted_char);
-            }
-            
             // Return salt + encrypted data
-            return salt + encrypted;
+            return salt + lfsrProcess(plaintext);
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
@@ -268,34 +161,7 @@ std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
             return aesDecrypt(encryptedData, masterPassword);
         }
         else { // LFSR algorithm
-            // Use a fresh decryption for each call - no state sharing between operations
-            std::vector<int> local_state = initial_state;
-            
-            std::string plaintext;
-            plaintext.reserve(encryptedData.size());
-            
-            for (char c : encryptedData) {
-                char decrypted_char = 0;
-                for (int i = 0; i < 8; i++) {
-                    int output_bit = local_state[0];
-                    
-                    int feedback_bit = 0;
-                    for (int tap : taps) {
-                        if (tap < local_state.size()) {
-                            feedback_bit ^= local_state[tap];
-                        }
-                    }
-                    
-                    local_state.pop_back();
-                    local_state.insert(local_state.begin(), feedback_bit);
-                    
-                    decrypted_char |= (output_bit << i);
-                }
-                decrypted_char ^= c;
-                plaintext.push_back(decrypted_char);
-            }
-            
-            return plaintext;
+            return lfsrProcess(encryptedData);
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
@@ -312,6 +178,37 @@ void Encryption::setAlgorithm(EncryptionType newAlgorithm) {
 void Encryption::setMasterPassword(const std::string& password) {
     std::lock_guard<std::mutex> lock(state_mutex);
     masterPassword = password;
+}
+
+std::string Encryption::lfsrProcess(const std::string& input) {
+    // Use a fresh state for each call - no state sharing between operations
+    std::vector<int> local_state = initial_state;
+    
+    std::string output;
+    output.reserve(input.size());
+    
+    for (char c : input) {
+        char processed_char = 0;
+        for (int i = 0; i < 8; i++) {
+            int output_bit = local_state[0];
+            
+            int feedback_bit = 0;
+            for (int tap : taps) {
+                if (tap < local_state.size()) {
+                    feedback_bit ^= local_state[tap];
+                }
+            }
+            
+            local_state.pop_back();
+            local_state.insert(local_state.begin(), feedback_bit);
+            
+            processed_char |= (output_bit << i);
+        }
+        processed_char ^= c;
+        output.push_back(processed_char);
+    }
+    
+    return output;
 }
 
 std::string Encryption::aesEncrypt(const std::string& plaintext, const std::string& key) {
