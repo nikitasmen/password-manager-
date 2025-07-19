@@ -123,9 +123,14 @@ bool TerminalUIManager::addCredential(const std::string& platform,
     try {
         auto tempCredManager = getFreshCredManager();
         
-        if (tempCredManager->addCredentials(platform, username, password, encryptionType.value())) {
-            showMessage("Success", "Credentials added successfully!");
-            return true;
+        if (encryptionType.has_value()) {
+            if (tempCredManager->addCredentials(platform, username, password, encryptionType.value())) {
+                showMessage("Success", "Credentials added successfully!");
+                return true;
+            }
+        } else {
+            showMessage("Error", "Encryption type not specified!", true);
+            return false;
         }
         
         showMessage("Error", "Failed to add credentials!", true);
