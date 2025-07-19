@@ -21,7 +21,7 @@ void TerminalUIManager::initialize() {
         
         // Use dual AES+LFSR encryption (strongest security)
         TerminalUI::display_message("\nUsing AES-256 with LFSR encryption (strongest security) for secure password storage.");
-        EncryptionType encType = EncryptionType::AES_LFSR;
+        EncryptionType encType = EncryptionUtils::getDefault();
         
         std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
@@ -160,14 +160,6 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
         TerminalUI::display_message("Username: " + credentials[0]);
         TerminalUI::display_message("Password: " + credentials[1]);
         
-        // Copy password to clipboard
-        try {
-            ClipboardManager::getInstance().copyToClipboard(credentials[1]);
-            TerminalUI::display_message("✓ Password copied to clipboard!");
-        } catch (const ClipboardError& e) {
-            TerminalUI::display_message("⚠ Failed to copy password to clipboard: " + std::string(e.what()));
-        }
-        
         // Display encryption type if available
         if (credentials.size() >= 3) {
             try {
@@ -181,19 +173,23 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
         }
         
         // Copy password to clipboard
-        try {
-            if (ClipboardManager::getInstance().isAvailable()) {
-                ClipboardManager::getInstance().copyToClipboard(credentials[1]);
-                TerminalUI::display_message("\nPassword copied to clipboard!");
-            } else {
-                TerminalUI::display_message("\n️Clipboard functionality not available on this system.");
-            }
-        } catch (const ClipboardError& e) {
-            TerminalUI::display_message("\nFailed to copy password to clipboard: " + std::string(e.what()));
-        }
+        copyPasswordToClipboard(credentials[1]);
         
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);
+    }
+}
+
+void TerminalUIManager::copyPasswordToClipboard(const std::string& password) {
+    try {
+        if (ClipboardManager::getInstance().isAvailable()) {
+            ClipboardManager::getInstance().copyToClipboard(password);
+            TerminalUI::display_message("\n✓ Password copied to clipboard!");
+        } else {
+            TerminalUI::display_message("\n⚠ Clipboard functionality not available on this system.");
+        }
+    } catch (const ClipboardError& e) {
+        TerminalUI::display_message("\n⚠ Failed to copy password to clipboard: " + std::string(e.what()));
     }
 }
 
@@ -242,7 +238,7 @@ int TerminalUIManager::runMenuLoop() {
             // Update password
             std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
             std::string confirmPassword = TerminalUI::get_password_input("Confirm new master password: ");
-            setupPassword(newPassword, confirmPassword, EncryptionType::AES_LFSR);
+            setupPassword(newPassword, confirmPassword, EncryptionUtils::getDefault());
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
             break;
