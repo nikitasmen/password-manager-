@@ -233,7 +233,7 @@ int TerminalUIManager::runMenuLoop() {
             TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
             EncryptionType selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
       
-            addCredential(platform, username, password, selectedEncryption);            
+            addCredential(platform, username, password, selectedEncryption);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
             break;
