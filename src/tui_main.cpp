@@ -5,8 +5,14 @@
 
 int main(int argc, char** argv) {
     try {
-        // Create UI manager for terminal interface
-        auto uiManager = UIManagerFactory::createUIManager(UIType::TERMINAL, g_data_path);
+        // Load configuration from file
+        ConfigManager& configManager = ConfigManager::getInstance();
+        if (!configManager.loadConfig(".config")) {
+            std::cout << "Warning: Could not load configuration file. Using defaults.\n";
+        }
+        
+        // Create UI manager for terminal interface using configured data path
+        auto uiManager = UIManagerFactory::createUIManager(UIType::TERMINAL, configManager.getDataPath());
         
         // Initialize and show the UI
         uiManager->initialize();
