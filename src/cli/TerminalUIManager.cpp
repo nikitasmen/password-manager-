@@ -2,6 +2,7 @@
 #include "../core/api.h"
 #include "../config/GlobalConfig.h"
 #include <iostream>
+#include <optional>
 
 TerminalUIManager::TerminalUIManager(const std::string& dataPath)
     : UIManager(dataPath) {
@@ -17,9 +18,9 @@ void TerminalUIManager::initialize() {
         TerminalUI::display_message("Welcome to Password Manager!");
         TerminalUI::display_message("Please create a master password to get started.");
         
-        // Select encryption algorithm
-        TerminalUI::display_message("\nFirst, select your preferred encryption algorithm:");
-        EncryptionType encType = TerminalUI::selectEncryptionAlgorithm();
+        // Use dual AES+LFSR encryption (strongest security)
+        TerminalUI::display_message("\nUsing AES-256 with LFSR encryption (strongest security) for secure password storage.");
+        EncryptionType encType = EncryptionType::AES_LFSR;
         
         std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
@@ -122,18 +123,14 @@ bool TerminalUIManager::addCredential(const std::string& platform,
     try {
         auto tempCredManager = getFreshCredManager();
         
-        // If encryption type is not specified, prompt the user to select one
-        EncryptionType selectedEncryption;
-        if (!encryptionType.has_value()) {
-            TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
-            selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
+        if (encryptionType.has_value()) {
+            if (tempCredManager->addCredentials(platform, username, password, encryptionType.value())) {
+                showMessage("Success", "Credentials added successfully!");
+                return true;
+            }
         } else {
-            selectedEncryption = encryptionType.value();
-        }
-        
-        if (tempCredManager->addCredentials(platform, username, password, selectedEncryption)) {
-            showMessage("Success", "Credentials added successfully!");
-            return true;
+            showMessage("Error", "Encryption type not specified!", true);
+            return false;
         }
         
         showMessage("Error", "Failed to add credentials!", true);
@@ -164,8 +161,14 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
         
         // Display encryption type if available
         if (credentials.size() >= 3) {
-            std::string encType = credentials[2] == "0" ? "LFSR (Basic)" : "AES-256 (Strong)";
-            TerminalUI::display_message("Encryption: " + encType);
+            try {
+                int encTypeInt = std::stoi(credentials[2]);
+                EncryptionType encType = static_cast<EncryptionType>(encTypeInt);
+                std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
+                TerminalUI::display_message("Encryption: " + encTypeStr);
+            } catch (const std::exception& e) {
+                TerminalUI::display_message("Encryption: Unknown");
+            }
         }
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);
@@ -217,7 +220,7 @@ int TerminalUIManager::runMenuLoop() {
             // Update password
             std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
             std::string confirmPassword = TerminalUI::get_password_input("Confirm new master password: ");
-            setupPassword(newPassword, confirmPassword);
+            setupPassword(newPassword, confirmPassword, EncryptionType::AES_LFSR);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
             break;
@@ -227,7 +230,10 @@ int TerminalUIManager::runMenuLoop() {
             std::string platform = TerminalUI::get_text_input("Enter platform name: ");
             std::string username = TerminalUI::get_text_input("Enter username: ");
             std::string password = TerminalUI::get_password_input("Enter password: ");
-            addCredential(platform, username, password);
+            TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
+            EncryptionType selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
+      
+            addCredential(platform, username, password, selectedEncryption);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
             break;

@@ -1,5 +1,6 @@
 #include "GlobalConfig.h"
 #include <vector>
+#include <map>
 
 // Updated to use data directory inside the build folder
 std::string g_data_path = "./data";  // Data stored in build/data when executables run from build directory
@@ -16,6 +17,8 @@ namespace EncryptionUtils {
                 return "LFSR (Basic)";
             case EncryptionType::AES:
                 return "AES-256 (Strong)";
+            case EncryptionType::AES_LFSR:
+                return "AES-256 with LFSR (Strongest)";
             default:
                 return "Unknown";
         }
@@ -41,6 +44,20 @@ namespace EncryptionUtils {
     }
     
     EncryptionType getDefault() {
-        return EncryptionType::AES; // Default to AES for new users
+        return EncryptionType::AES_LFSR; // Default to strongest encryption for new users
+    }
+    
+    const std::map<int, EncryptionType>& getChoiceMapping() {
+        static std::map<int, EncryptionType> choiceMap;
+        
+        // Build the map dynamically if it's empty
+        if (choiceMap.empty()) {
+            int choice = 1; // Start menu choices from 1
+            for (int i = 0; i < static_cast<int>(EncryptionType::COUNT); ++i) {
+                choiceMap[choice++] = static_cast<EncryptionType>(i);
+            }
+        }
+        
+        return choiceMap;
     }
 }

@@ -103,10 +103,7 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
             showMessage("Error", "Passwords do not match!", true);
             return false;
         }
-        
-        std::cout << "Attempting to create master password with length: " << newPassword.length() << std::endl;
-        std::cout << "Using encryption algorithm: " << (encryptionType == EncryptionType::AES ? "AES-256" : "LFSR") << std::endl;
-        
+       
         // Set the encryption algorithm
         credManager->setEncryptionType(encryptionType);
         
@@ -257,11 +254,11 @@ void GuiUIManager::createSetupScreen() {
         cleanupMainWindow();
         
         // Create main window for first-time setup
-        mainWindow = std::make_unique<Fl_Window>(450, 250, "Password Manager - First Time Setup");
+        mainWindow = std::make_unique<Fl_Window>(450, 280, "Password Manager - First Time Setup");
         mainWindow->begin();
         
         // Create root component
-        rootComponent = std::make_unique<ContainerComponent>(mainWindow.get(), 0, 0, 450, 250);
+        rootComponent = std::make_unique<ContainerComponent>(mainWindow.get(), 0, 0, 450, 280);
         
         // Add title component
         rootComponent->addChild<TitleComponent>(mainWindow.get(), 10, 10, 430, 30, "Password Manager Setup");
@@ -274,7 +271,7 @@ void GuiUIManager::createSetupScreen() {
         
         // Add password setup component
         passwordSetup = rootComponent->addChild<PasswordSetupComponent>(
-            mainWindow.get(), 0, 100, 450, 200,
+            mainWindow.get(), 0, 100, 450, 180,
             [this](const std::string& newPassword, const std::string& confirmPassword, EncryptionType encType) {
                 setupPassword(newPassword, confirmPassword, encType);
             }
@@ -446,8 +443,14 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         
         // Add encryption type if available
         if (credentials.size() >= 3) {
-            std::string encType = credentials[2] == "0" ? "LFSR (Basic)" : "AES-256 (Strong)";
-            ss << "Encryption: " << encType << "\n";
+            try {
+                int encTypeInt = std::stoi(credentials[2]);
+                EncryptionType encType = static_cast<EncryptionType>(encTypeInt);
+                std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
+                ss << "Encryption: " << encTypeStr << "\n";
+            } catch (const std::exception& e) {
+                ss << "Encryption: Unknown\n";
+            }
         }
         
         // Add close button component

@@ -108,7 +108,6 @@ private:
     PasswordCallback onSetup;
     Fl_Secret_Input* newPasswordInput;
     Fl_Secret_Input* confirmPasswordInput;
-    Fl_Choice* encryptionChoice;
     Fl_Button* createButton;
     
     static constexpr int INPUT_WIDTH = 200;
@@ -117,28 +116,21 @@ private:
 public:
     PasswordSetupComponent(Fl_Group* parent, int x, int y, int w, int h, PasswordCallback onSetup)
         : FormComponentBase(parent, x, y, w, h), onSetup(onSetup),
-          newPasswordInput(nullptr), confirmPasswordInput(nullptr), encryptionChoice(nullptr), createButton(nullptr) {}
+          newPasswordInput(nullptr), confirmPasswordInput(nullptr), createButton(nullptr) {}
     
     void create() override {
         // Create password inputs
         newPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "New Master Password:");
         confirmPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
         
-        // Create encryption choice dropdown
-        encryptionChoice = createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "Encryption Algorithm:");
+        // Add information about encryption (no user choice)
+        createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "Encryption: AES-256 with LFSR (Strongest)");
         
-        // Populate dropdown with all available encryption types
-        auto availableTypes = EncryptionUtils::getAllTypes();
-        for (const auto& type : availableTypes) {
-            encryptionChoice->add(EncryptionUtils::getDisplayName(type));
-        }
-        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault())); // Default encryption
-        
-        // Create button
-        createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 150, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
+        // Create button (moved up since we removed the dropdown)
+        createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 130, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
         CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
-            // Get the selected encryption type using helper function
-            EncryptionType encType = EncryptionUtils::fromDropdownIndex(comp->encryptionChoice->value());
+            // Always use dual AES+LFSR encryption (strongest security)
+            EncryptionType encType = EncryptionType::AES_LFSR;
             
             comp->onSetup(comp->newPasswordInput->value(), 
                          comp->confirmPasswordInput->value(),
@@ -359,7 +351,7 @@ public:
     std::string getUsername() const { return usernameInput ? usernameInput->value() : ""; }
     std::string getPassword() const { return passwordInput ? passwordInput->value() : ""; }
     EncryptionType getEncryptionType() const { 
-        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault(); 
+        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault();
     }
     
     Fl_Input* getPlatformInput() const { return platformInput; }
