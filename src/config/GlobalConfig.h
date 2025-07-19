@@ -2,7 +2,8 @@
 #define GLOBALCONFIG_H
 
 #include <string>
-#include <vector> 
+#include <vector>
+#include <map>
 
 // Global configuration constants
 const int MAX_LOGIN_ATTEMPTS = 3;  // Maximum allowed login attempts before exiting
@@ -33,6 +34,9 @@ namespace EncryptionUtils {
     
     // Get default encryption type
     EncryptionType getDefault();
+    
+    // Get encryption type mapping for menu choices
+    const std::map<int, EncryptionType>& getChoiceMapping();
 }
 
 // Global variables
