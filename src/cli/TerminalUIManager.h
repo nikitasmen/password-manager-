@@ -86,13 +86,6 @@ public:
      */
     void showMessage(const std::string& title, const std::string& message, bool isError = false) override;
     
-private:
-    /**
-     * @brief Copy password to clipboard with proper error handling
-     * @param password Password to copy to clipboard
-     */
-    void copyPasswordToClipboard(const std::string& password);
-    
     /**
      * @brief Run the main terminal menu loop
      * @return Exit code
