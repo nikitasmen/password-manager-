@@ -3,6 +3,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <memory>
+#include <cstring>  // For memcpy
 
 #ifdef _WIN32
 #include <windows.h>
@@ -79,7 +80,7 @@ void WindowsClipboardStrategy::copyToClipboard(const std::string& text) {
         throw ClipboardError("Failed to allocate memory for clipboard");
     }
     
-    // Copy text to global memory
+    // Copy text to global memory using safe memcpy
     char* pGlobal = static_cast<char*>(GlobalLock(hGlobal));
     if (!pGlobal) {
         GlobalFree(hGlobal);
@@ -87,7 +88,10 @@ void WindowsClipboardStrategy::copyToClipboard(const std::string& text) {
         throw ClipboardError("Failed to lock clipboard memory");
     }
     
-    strcpy_s(pGlobal, text.size() + 1, text.c_str());
+    // SECURITY FIX: Use memcpy instead of strcpy_s to avoid buffer overflow issues
+    // and properly handle passwords with special characters including null bytes
+    std::memcpy(pGlobal, text.c_str(), text.size());
+    pGlobal[text.size()] = '\0';  // Explicitly null-terminate
     GlobalUnlock(hGlobal);
     
     // Set clipboard data
