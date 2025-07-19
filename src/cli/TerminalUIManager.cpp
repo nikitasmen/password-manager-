@@ -1,5 +1,6 @@
 #include "TerminalUIManager.h"
 #include "../core/api.h"
+#include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
 #include <iostream>
 #include <optional>
@@ -159,6 +160,14 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
         TerminalUI::display_message("Username: " + credentials[0]);
         TerminalUI::display_message("Password: " + credentials[1]);
         
+        // Copy password to clipboard
+        try {
+            ClipboardManager::copyToClipboard(credentials[1]);
+            TerminalUI::display_message("✓ Password copied to clipboard!");
+        } catch (const ClipboardError& e) {
+            TerminalUI::display_message("⚠ Failed to copy password to clipboard: " + std::string(e.what()));
+        }
+        
         // Display encryption type if available
         if (credentials.size() >= 3) {
             try {
@@ -170,6 +179,19 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
                 TerminalUI::display_message("Encryption: Unknown");
             }
         }
+        
+        // Copy password to clipboard
+        try {
+            if (ClipboardManager::isAvailable()) {
+                ClipboardManager::copyToClipboard(credentials[1]);
+                TerminalUI::display_message("\n✅ Password copied to clipboard!");
+            } else {
+                TerminalUI::display_message("\n⚠️  Clipboard functionality not available on this system.");
+            }
+        } catch (const ClipboardError& e) {
+            TerminalUI::display_message("\n⚠️  Failed to copy password to clipboard: " + std::string(e.what()));
+        }
+        
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);
     }
