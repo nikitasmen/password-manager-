@@ -136,10 +136,18 @@ void WindowsClipboardStrategy::clearClipboard() {
 #ifdef __APPLE__
 // macOS implementation
 void MacOSClipboardStrategy::copyToClipboard(const std::string& text) {
-    // Use pbcopy command for simplicity
-    std::string command = "echo '" + text + "' | pbcopy";
-    if (!executeCommand(command)) {
-        throw ClipboardError("Failed to execute pbcopy command");
+    // SECURITY FIX: Use pipe to avoid command injection
+    FILE* pipe = popen("pbcopy", "w");
+    if (!pipe) {
+        throw ClipboardError("Failed to open pbcopy pipe on macOS");
+    }
+    
+    // Write directly to pipe without shell interpretation
+    size_t written = fwrite(text.c_str(), 1, text.length(), pipe);
+    int result = pclose(pipe);
+    
+    if (written != text.length() || result != 0) {
+        throw ClipboardError("Failed to write to clipboard on macOS");
     }
 }
 
@@ -152,7 +160,11 @@ bool MacOSClipboardStrategy::isAvailable() {
 }
 
 void MacOSClipboardStrategy::clearClipboard() {
-    copyToClipboard(""); // Clear by copying empty string
+    // SECURITY FIX: Use secure pipe method
+    FILE* pipe = popen("pbcopy", "w");
+    if (pipe) {
+        pclose(pipe); // Close without writing anything to clear clipboard
+    }
 }
 
 bool MacOSClipboardStrategy::executeCommand(const std::string& command) {
@@ -190,18 +202,28 @@ std::string MacOSClipboardStrategy::executeCommandWithOutput(const std::string& 
 #ifdef __linux__
 // Linux implementation
 void LinuxClipboardStrategy::copyToClipboard(const std::string& text) {
+    // SECURITY FIX: Use pipe to avoid command injection
+    FILE* pipe = nullptr;
+    
     // Try xclip first, then xsel as fallback
-    std::string command;
     if (system("which xclip >/dev/null 2>&1") == 0) {
-        command = "echo '" + text + "' | xclip -selection clipboard";
+        pipe = popen("xclip -selection clipboard", "w");
     } else if (system("which xsel >/dev/null 2>&1") == 0) {
-        command = "echo '" + text + "' | xsel --clipboard --input";
+        pipe = popen("xsel --clipboard --input", "w");
     } else {
         throw ClipboardError("Neither xclip nor xsel is available for clipboard operations");
     }
     
-    if (!executeCommand(command)) {
-        throw ClipboardError("Failed to execute clipboard command");
+    if (!pipe) {
+        throw ClipboardError("Failed to open clipboard pipe on Linux");
+    }
+    
+    // Write directly to pipe without shell interpretation
+    size_t written = fwrite(text.c_str(), 1, text.length(), pipe);
+    int result = pclose(pipe);
+    
+    if (written != text.length() || result != 0) {
+        throw ClipboardError("Failed to write to clipboard on Linux");
     }
 }
 
@@ -222,7 +244,18 @@ bool LinuxClipboardStrategy::isAvailable() {
 }
 
 void LinuxClipboardStrategy::clearClipboard() {
-    copyToClipboard(""); // Clear by copying empty string
+    // SECURITY FIX: Use secure pipe method
+    FILE* pipe = nullptr;
+    
+    if (system("which xclip >/dev/null 2>&1") == 0) {
+        pipe = popen("xclip -selection clipboard", "w");
+    } else if (system("which xsel >/dev/null 2>&1") == 0) {
+        pipe = popen("xsel --clipboard --input", "w");
+    }
+    
+    if (pipe) {
+        pclose(pipe); // Close without writing anything to clear clipboard
+    }
 }
 
 bool LinuxClipboardStrategy::executeCommand(const std::string& command) {
