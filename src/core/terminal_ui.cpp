@@ -166,7 +166,11 @@ EncryptionType TerminalUI::selectEncryptionAlgorithm() {
     std::cout << "|    - Industry-standard algorithm       |\n";
     std::cout << "|    - More secure but slightly slower   |\n";
     std::cout << "+---------------------------------------+\n";
-    std::cout << "Enter your choice (1-2): ";
+    std::cout << "| 3) AES + LFSR (Strongest)              |\n";
+    std::cout << "|    - Combines AES with LFSR            |\n";
+    std::cout << "|    - Best of both worlds                |\n";
+    std::cout << "+---------------------------------------+\n";
+    std::cout << "Please select an encryption algorithm (1-3): ";
     
     if (!(std::cin >> choice)) {
         std::cin.clear(); // Clear the error flag
@@ -178,13 +182,13 @@ EncryptionType TerminalUI::selectEncryptionAlgorithm() {
     // Consume the newline
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     
-    if (choice == 1) {
-        return EncryptionType::LFSR;
-    } else if (choice == 2) {
-        return EncryptionType::AES;
+    const auto& encryptionMap = EncryptionUtils::getChoiceMapping();
+    auto it = encryptionMap.find(choice);
+    if (it != encryptionMap.end()) {
+        return it->second;
     } else {
-        display_message("Invalid choice. Defaulting to AES-256.", true);
-        return EncryptionType::AES;
+        display_message("Invalid choice. Defaulting to AES + LFSR.", true);
+        return EncryptionUtils::getDefault();
     }
 }
 
