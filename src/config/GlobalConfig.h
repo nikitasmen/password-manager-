@@ -18,6 +18,69 @@ enum class EncryptionType {
     COUNT
 };
 
+// Configuration structure for file-based settings
+struct AppConfig {
+    // Core settings
+    std::string dataPath = "./data";
+    EncryptionType defaultEncryption = EncryptionType::AES_LFSR;
+    int maxLoginAttempts = 3;
+    
+    // Clipboard settings
+    int clipboardTimeoutSeconds = 30;
+    bool autoClipboardClear = true;
+    
+    // Security settings
+    bool requirePasswordConfirmation = true;
+    int minPasswordLength = 8;
+    
+    // LFSR settings
+    std::vector<int> lfsrTaps = {0, 2};
+    std::vector<int> lfsrInitState = {1, 0, 1};
+    
+    // UI settings
+    bool showEncryptionInCredentials = true;
+    std::string defaultUIMode = "auto";  // "cli", "gui", or "auto"
+};
+
+// Configuration manager class
+class ConfigManager {
+public:
+    static ConfigManager& getInstance();
+    
+    // Load configuration from file
+    bool loadConfig(const std::string& configPath = ".config");
+    
+    // Save configuration to file
+    bool saveConfig(const std::string& configPath = ".config");
+    
+    // Get current configuration
+    const AppConfig& getConfig() const { return config_; }
+    
+    // Update configuration
+    void updateConfig(const AppConfig& newConfig);
+    
+    // Get specific config values
+    std::string getDataPath() const { return config_.dataPath; }
+    EncryptionType getDefaultEncryption() const { return config_.defaultEncryption; }
+    int getClipboardTimeout() const { return config_.clipboardTimeoutSeconds; }
+    bool isAutoClipboardClearEnabled() const { return config_.autoClipboardClear; }
+    
+    // Set specific config values
+    void setDataPath(const std::string& path);
+    void setDefaultEncryption(EncryptionType type);
+    void setClipboardTimeout(int seconds);
+
+private:
+    ConfigManager() = default;
+    AppConfig config_;
+    
+    // Helper methods for parsing
+    EncryptionType parseEncryptionType(const std::string& value) const;
+    std::string encryptionTypeToString(EncryptionType type) const;
+    std::vector<int> parseIntArray(const std::string& value) const;
+    std::string intArrayToString(const std::vector<int>& array) const;
+};
+
 // Helper functions for encryption type management
 namespace EncryptionUtils {
     // Get human-readable name for an encryption type
@@ -39,9 +102,10 @@ namespace EncryptionUtils {
     const std::map<int, EncryptionType>& getChoiceMapping();
 }
 
-// Global variables
-extern std::string g_data_path;  // Declare the global variable
-extern std::vector<int> taps;    // Taps for a 3-bit LFSR (x^3 + x^1 + 1)
-extern std::vector<int> init_state; // Initial state [1, 0, 1]
-extern EncryptionType g_encryption_type; // Current encryption algorithm
+// Global variables (for backward compatibility)
+extern std::string g_data_path;
+extern std::vector<int> taps;
+extern std::vector<int> init_state;
+extern EncryptionType g_encryption_type;
+
 #endif // GLOBALCONFIG_H
