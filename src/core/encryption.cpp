@@ -104,6 +104,16 @@ std::string Encryption::encrypt(const std::string& plaintext) {
             // Use the master password for AES encryption
             return aesEncrypt(plaintext, masterPassword);
         }
+        else if (algorithm == EncryptionType::AES_LFSR) {
+            // Dual encryption: AES first, then LFSR
+            // Step 1: Encrypt with AES using master password
+            std::string aesEncrypted = aesEncrypt(plaintext, masterPassword);
+            
+            // Step 2: Encrypt the AES result with LFSR
+            std::string dualEncrypted = lfsrProcess(aesEncrypted);
+            
+            return dualEncrypted;
+        }
         else { // LFSR algorithm
             return lfsrProcess(plaintext);
         }
@@ -129,7 +139,17 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
             
             // Use the master password for AES decryption
             return aesDecrypt(encrypted_text, masterPassword);
-        } 
+        }
+        else if (actualAlgorithm == EncryptionType::AES_LFSR) {
+            // Dual decryption: LFSR first, then AES
+            // Step 1: Decrypt LFSR layer
+            std::string lfsrDecrypted = lfsrProcess(encrypted_text);
+            
+            // Step 2: Decrypt AES layer using master password
+            std::string finalDecrypted = aesDecrypt(lfsrDecrypted, masterPassword);
+            
+            return finalDecrypted;
+        }
         else { // LFSR algorithm
             return lfsrProcess(encrypted_text);
         }
