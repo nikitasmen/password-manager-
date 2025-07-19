@@ -16,6 +16,8 @@ namespace EncryptionUtils {
                 return "LFSR (Basic)";
             case EncryptionType::AES:
                 return "AES-256 (Strong)";
+            case EncryptionType::AES_LFSR:
+                return "AES-256 with LFSR (Strongest)";
             default:
                 return "Unknown";
         }
@@ -41,6 +43,6 @@ namespace EncryptionUtils {
     }
     
     EncryptionType getDefault() {
-        return EncryptionType::AES; // Default to AES for new users
+        return EncryptionType::AES_LFSR; // Default to strongest encryption for new users
     }
 }

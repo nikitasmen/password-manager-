@@ -9,8 +9,9 @@ const int MAX_LOGIN_ATTEMPTS = 3;  // Maximum allowed login attempts before exit
 
 // Encryption algorithm options
 enum class EncryptionType {
-    LFSR = 0,  // Linear Feedback Shift Register (basic)
-    AES = 1,   // Advanced Encryption Standard (stronger)
+    LFSR = 0,       // Linear Feedback Shift Register (basic)
+    AES = 1,        // Advanced Encryption Standard (stronger)
+    AES_LFSR = 2,   // AES followed by LFSR (strongest - dual layer)
     
     // Keep this as the last entry to track count
     COUNT
