@@ -457,7 +457,7 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         }
         
         // Add clipboard status
-        if (ClipboardManager::isAvailable()) {
+        if (ClipboardManager::getInstance().isAvailable()) {
             // Store password for clipboard operation
             std::string password = credentials[1];
             
@@ -466,8 +466,8 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
                 viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
                 [password]() {
                     try {
-                        if (ClipboardManager::isAvailable()) {
-                            ClipboardManager::copyToClipboard(password);
+                        if (ClipboardManager::getInstance().isAvailable()) {
+                            ClipboardManager::getInstance().copyToClipboard(password);
                             fl_message("Password copied to clipboard!");
                         } else {
                             fl_alert("Clipboard functionality not available on this system.");
