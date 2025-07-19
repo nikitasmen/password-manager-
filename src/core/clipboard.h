@@ -30,7 +30,6 @@ public:
      */
     virtual void copyToClipboard(const std::string& text) = 0;
     
-   
     /**
      * @brief Check if clipboard functionality is available
      * @return true if clipboard operations are supported, false otherwise
@@ -67,8 +66,6 @@ public:
     void copyToClipboard(const std::string& text) override;
     bool isAvailable() override;
     void clearClipboard() override;
-
-    // SECURITY FIX: Removed vulnerable executeCommand and executeCommandWithOutput methods
 };
 #endif
 
@@ -79,10 +76,21 @@ public:
 #ifdef __linux__
 class LinuxClipboardStrategy : public IClipboardStrategy {
 public:
+    LinuxClipboardStrategy();  // Constructor to initialize clipboard tool detection
     void copyToClipboard(const std::string& text) override;
     bool isAvailable() override;
     void clearClipboard() override;
 
+private:
+    enum class ClipboardTool {
+        NONE,
+        XCLIP,
+        XSEL
+    };
+    
+    ClipboardTool availableTool_;
+    void detectAvailableClipboardTool();
+    const char* getClipboardWriteCommand() const;
 };
 #endif
 

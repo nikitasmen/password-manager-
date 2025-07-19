@@ -139,20 +139,42 @@ void MacOSClipboardStrategy::clearClipboard() {
 #endif
 
 #ifdef __linux__
-// Linux implementation
+// Linux implementation with optimized clipboard tool detection
+LinuxClipboardStrategy::LinuxClipboardStrategy() {
+    detectAvailableClipboardTool();
+}
+
+void LinuxClipboardStrategy::detectAvailableClipboardTool() {
+    // PERFORMANCE FIX: Check for clipboard tools once during initialization
+    if (system("which xclip >/dev/null 2>&1") == 0) {
+        availableTool_ = ClipboardTool::XCLIP;
+    } else if (system("which xsel >/dev/null 2>&1") == 0) {
+        availableTool_ = ClipboardTool::XSEL;
+    } else {
+        availableTool_ = ClipboardTool::NONE;
+    }
+}
+
+const char* LinuxClipboardStrategy::getClipboardWriteCommand() const {
+    switch (availableTool_) {
+        case ClipboardTool::XCLIP:
+            return "xclip -selection clipboard";
+        case ClipboardTool::XSEL:
+            return "xsel --clipboard --input";
+        default:
+            return nullptr;
+    }
+}
+
 void LinuxClipboardStrategy::copyToClipboard(const std::string& text) {
     // SECURITY FIX: Use pipe to avoid command injection
-    FILE* pipe = nullptr;
-    
-    // Try xclip first, then xsel as fallback
-    if (system("which xclip >/dev/null 2>&1") == 0) {
-        pipe = popen("xclip -selection clipboard", "w");
-    } else if (system("which xsel >/dev/null 2>&1") == 0) {
-        pipe = popen("xsel --clipboard --input", "w");
-    } else {
+    // PERFORMANCE FIX: Use cached clipboard tool detection
+    const char* command = getClipboardWriteCommand();
+    if (!command) {
         throw ClipboardError("Neither xclip nor xsel is available for clipboard operations");
     }
     
+    FILE* pipe = popen(command, "w");
     if (!pipe) {
         throw ClipboardError("Failed to open clipboard pipe on Linux");
     }
@@ -166,28 +188,22 @@ void LinuxClipboardStrategy::copyToClipboard(const std::string& text) {
     }
 }
 
-
-
 bool LinuxClipboardStrategy::isAvailable() {
-    // Check if xclip or xsel is available
-    return (system("which xclip >/dev/null 2>&1") == 0) || 
-           (system("which xsel >/dev/null 2>&1") == 0);
+    // PERFORMANCE FIX: Use cached result instead of repeated system calls
+    return availableTool_ != ClipboardTool::NONE;
 }
 
 void LinuxClipboardStrategy::clearClipboard() {
     // SECURITY FIX: Use secure pipe method
-    FILE* pipe = nullptr;
-    
-    if (system("which xclip >/dev/null 2>&1") == 0) {
-        pipe = popen("xclip -selection clipboard", "w");
-    } else if (system("which xsel >/dev/null 2>&1") == 0) {
-        pipe = popen("xsel --clipboard --input", "w");
+    // PERFORMANCE FIX: Use cached clipboard tool detection
+    const char* command = getClipboardWriteCommand();
+    if (!command) {
+        return; // No clipboard tool available, nothing to clear
     }
     
+    FILE* pipe = popen(command, "w");
     if (pipe) {
         pclose(pipe); // Close without writing anything to clear clipboard
     }
 }
-
-
 #endif
