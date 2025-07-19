@@ -414,6 +414,24 @@ public:
     // Base class implementation already handles everything we need
 };
 
+// Component for a generic button with customizable text
+class ButtonComponent : public FormComponentBase {
+private:
+    ButtonCallback onClick;
+    std::string text;
+
+public:
+    ButtonComponent(Fl_Group* parent, int x, int y, int w, int h, const std::string& buttonText, ButtonCallback onClick)
+        : FormComponentBase(parent, x, y, w, h), onClick(onClick), text(buttonText) {}
+    
+    void create() override {
+        Fl_Button* button = createWidget<Fl_Button>(x, y, w, h, text.c_str());
+        CallbackHelper::setCallback(button, this, [this](ButtonComponent* comp) {
+            comp->onClick();
+        });
+    }
+};
+
 // Component for a close button
 class CloseButtonComponent : public FormComponentBase {
 private:

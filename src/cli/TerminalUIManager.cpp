@@ -1,5 +1,6 @@
 #include "TerminalUIManager.h"
 #include "../core/api.h"
+#include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
 #include <iostream>
 #include <optional>
@@ -20,12 +21,11 @@ void TerminalUIManager::initialize() {
         
         // Use dual AES+LFSR encryption (strongest security)
         TerminalUI::display_message("\nUsing AES-256 with LFSR encryption (strongest security) for secure password storage.");
-        EncryptionType encType = EncryptionType::AES_LFSR;
         
         std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
-        
-        setupPassword(newPassword, confirmPassword, encType);
+
+        setupPassword(newPassword, confirmPassword, EncryptionUtils::getDefault());
     } else {
         // Regular login
         TerminalUI::display_message("Welcome to Password Manager!");
@@ -170,6 +170,19 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
                 TerminalUI::display_message("Encryption: Unknown");
             }
         }
+        
+        // Copy password to clipboard
+        try {
+            if (ClipboardManager::getInstance().isAvailable()) {
+                ClipboardManager::getInstance().copyToClipboard(credentials[1]);
+                TerminalUI::display_message("\nPassword copied to clipboard!");
+            } else {
+                TerminalUI::display_message("\n️Clipboard functionality not available on this system.");
+            }
+        } catch (const ClipboardError& e) {
+            TerminalUI::display_message("\nFailed to copy password to clipboard: " + std::string(e.what()));
+        }
+        
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);
     }
@@ -220,7 +233,7 @@ int TerminalUIManager::runMenuLoop() {
             // Update password
             std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
             std::string confirmPassword = TerminalUI::get_password_input("Confirm new master password: ");
-            setupPassword(newPassword, confirmPassword, EncryptionType::AES_LFSR);
+            setupPassword(newPassword, confirmPassword, EncryptionUtils::getDefault());
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
             break;
