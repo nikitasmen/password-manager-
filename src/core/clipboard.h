@@ -3,6 +3,7 @@
 
 #include <string>
 #include <stdexcept>
+#include <memory>
 
 /**
  * @class ClipboardError
@@ -15,56 +16,138 @@ public:
 };
 
 /**
- * @class ClipboardManager
- * @brief Cross-platform clipboard management utility
- * 
- * This class provides a unified interface for clipboard operations across different platforms.
- * It supports Windows, macOS, and Linux systems with appropriate fallback mechanisms.
+ * @class IClipboardStrategy
+ * @brief Abstract base class for platform-specific clipboard implementations
  */
-class ClipboardManager {
+class IClipboardStrategy {
 public:
+    virtual ~IClipboardStrategy() = default;
+    
     /**
      * @brief Copy text to the system clipboard
      * @param text The text to copy to clipboard
      * @throws ClipboardError if the operation fails
      */
-    static void copyToClipboard(const std::string& text);
+    virtual void copyToClipboard(const std::string& text) = 0;
     
     /**
      * @brief Get text from the system clipboard
      * @return The text content from clipboard
      * @throws ClipboardError if the operation fails
      */
-    static std::string getFromClipboard();
+    virtual std::string getFromClipboard() = 0;
     
     /**
      * @brief Check if clipboard functionality is available
      * @return true if clipboard operations are supported, false otherwise
      */
-    static bool isAvailable();
+    virtual bool isAvailable() = 0;
     
     /**
      * @brief Clear the clipboard content
      * @throws ClipboardError if the operation fails
      */
-    static void clearClipboard();
+    virtual void clearClipboard() = 0;
+};
+
+/**
+ * @class WindowsClipboardStrategy
+ * @brief Windows-specific clipboard implementation
+ */
+#ifdef _WIN32
+class WindowsClipboardStrategy : public IClipboardStrategy {
+public:
+    void copyToClipboard(const std::string& text) override;
+    std::string getFromClipboard() override;
+    bool isAvailable() override;
+    void clearClipboard() override;
+};
+#endif
+
+/**
+ * @class MacOSClipboardStrategy
+ * @brief macOS-specific clipboard implementation
+ */
+#ifdef __APPLE__
+class MacOSClipboardStrategy : public IClipboardStrategy {
+public:
+    void copyToClipboard(const std::string& text) override;
+    std::string getFromClipboard() override;
+    bool isAvailable() override;
+    void clearClipboard() override;
 
 private:
-    // Platform-specific implementation methods
-    #ifdef _WIN32
-    static void copyToClipboardWindows(const std::string& text);
-    static std::string getFromClipboardWindows();
-    #elif defined(__APPLE__)
-    static void copyToClipboardMacOS(const std::string& text);
-    static std::string getFromClipboardMacOS();
-    #elif defined(__linux__)
-    static void copyToClipboardLinux(const std::string& text);
-    static std::string getFromClipboardLinux();
-    #endif
+    bool executeCommand(const std::string& command);
+    std::string executeCommandWithOutput(const std::string& command);
+};
+#endif
+
+/**
+ * @class LinuxClipboardStrategy
+ * @brief Linux-specific clipboard implementation
+ */
+#ifdef __linux__
+class LinuxClipboardStrategy : public IClipboardStrategy {
+public:
+    void copyToClipboard(const std::string& text) override;
+    std::string getFromClipboard() override;
+    bool isAvailable() override;
+    void clearClipboard() override;
+
+private:
+    bool executeCommand(const std::string& command);
+    std::string executeCommandWithOutput(const std::string& command);
+};
+#endif
+
+/**
+ * @class ClipboardManager
+ * @brief Cross-platform clipboard management utility using strategy pattern
+ * 
+ * This class provides a unified interface for clipboard operations across different platforms.
+ * It uses the strategy pattern to delegate platform-specific operations to appropriate implementations.
+ */
+class ClipboardManager {
+public:
+    /**
+     * @brief Get the singleton instance of ClipboardManager
+     * @return Reference to the ClipboardManager instance
+     */
+    static ClipboardManager& getInstance();
     
-    // Helper methods
-    static bool executeCommand(const std::string& command);
-    static std::string executeCommandWithOutput(const std::string& command);
+    /**
+     * @brief Copy text to the system clipboard
+     * @param text The text to copy to clipboard
+     * @throws ClipboardError if the operation fails
+     */
+    void copyToClipboard(const std::string& text);
+    
+    /**
+     * @brief Get text from the system clipboard
+     * @return The text content from clipboard
+     * @throws ClipboardError if the operation fails
+     */
+    std::string getFromClipboard();
+    
+    /**
+     * @brief Check if clipboard functionality is available
+     * @return true if clipboard operations are supported, false otherwise
+     */
+    bool isAvailable();
+    
+    /**
+     * @brief Clear the clipboard content
+     * @throws ClipboardError if the operation fails
+     */
+    void clearClipboard();
+
+private:
+    ClipboardManager();
+    std::unique_ptr<IClipboardStrategy> strategy_;
+    
+    // Singleton pattern - delete copy constructor and assignment operator
+    ClipboardManager(const ClipboardManager&) = delete;
+    ClipboardManager& operator=(const ClipboardManager&) = delete;
 };
 
 #endif // CLIPBOARD_H
