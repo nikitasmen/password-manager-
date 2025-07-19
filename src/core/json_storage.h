@@ -9,6 +9,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include "./base64.h"
+#include "../config/GlobalConfig.h"
 
 /**
  * @class JsonStorage
@@ -76,10 +77,10 @@ public:
     /**
      * @brief Construct a new JsonStorage object
      * 
-     * @param dataPath Path where data files will be stored
+     * @param dataPath Path where data files will be stored (defaults to global config)
      * @param filename Name of the JSON storage file
      */
-    JsonStorage(const std::string& dataPath = "data", 
+    JsonStorage(const std::string& dataPath = "", 
                const std::string& filename = "secure_storage.json");
     
     /**

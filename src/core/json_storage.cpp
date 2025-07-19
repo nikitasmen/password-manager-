@@ -1,4 +1,5 @@
 #include "json_storage.h"
+#include "encryption.h"
 #include <fstream>
 #include <chrono>
 #include <iomanip>
@@ -62,8 +63,8 @@ bool JsonStorage::SafeFileHandler::flush() {
 
 // Constructor implementation
 JsonStorage::JsonStorage(const std::string& dataPath, const std::string& filename)
-    : dataPath(dataPath), 
-      storageFile((fs::path(dataPath) / filename).string()),
+    : dataPath(dataPath.empty() ? g_data_path : dataPath), 
+      storageFile((fs::path(this->dataPath) / filename).string()),
       masterPasswordKey("master_password"),
       modified(false) 
 {
@@ -275,9 +276,28 @@ bool JsonStorage::updateMasterPassword(const std::string& password) {
             std::cerr << "Failed to load data before updating master password" << std::endl;
         }
         
-        // Encode the password in Base64 to ensure it's valid UTF-8 in JSON
-        std::string encodedPassword = Base64::encode(password);
-        credentialsData[masterPasswordKey] = encodedPassword;
+        // For extra security, encrypt the master password with both algorithms
+        // First encrypt with LFSR, then encrypt the result with AES
+        try {
+            // Create LFSR encryptor
+            Encryption lfsrEncryptor(EncryptionType::LFSR, {0, 2}, {1, 0, 1}, password);
+            std::string firstEncrypt = lfsrEncryptor.encrypt(password);
+            
+            // Create AES encryptor  
+            Encryption aesEncryptor(EncryptionType::AES, {0, 2}, {1, 0, 1}, password);
+            std::string doubleEncrypted = aesEncryptor.encrypt(firstEncrypt);
+            
+            // Store the double-encrypted password
+            credentialsData[masterPasswordKey] = doubleEncrypted;
+            
+            std::cout << "Master password encrypted with double encryption (LFSR + AES)" << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to encrypt master password: " << e.what() << std::endl;
+            // Fallback to Base64 encoding for backward compatibility
+            std::string encodedPassword = Base64::encode(password);
+            credentialsData[masterPasswordKey] = encodedPassword;
+            std::cout << "Master password stored with Base64 encoding (fallback)" << std::endl;
+        }
         
         modified = true;
         return saveData(); // Save immediately for password changes
