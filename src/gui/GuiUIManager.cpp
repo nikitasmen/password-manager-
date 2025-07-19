@@ -1,6 +1,9 @@
 #include "GuiUIManager.h"
 #include "../core/api.h"
+#include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
+#include <FL/fl_ask.H>
+#include <FL/Fl_Button.H>
 #include <sstream>
 #include <filesystem>
 
@@ -423,12 +426,12 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
     cleanupViewCredentialDialog();
     
     try {
-        // Create the dialog window
-        viewCredentialWindow = std::make_unique<Fl_Window>(400, 200, ("Credentials for " + platform).c_str());
+        // Create the dialog window (increased height for new button)
+        viewCredentialWindow = std::make_unique<Fl_Window>(400, 240, ("Credentials for " + platform).c_str());
         viewCredentialWindow->begin();
         
         // Create root component for the dialog
-        viewCredentialRoot = std::make_unique<ContainerComponent>(viewCredentialWindow.get(), 0, 0, 400, 200);
+        viewCredentialRoot = std::make_unique<ContainerComponent>(viewCredentialWindow.get(), 0, 0, 400, 240);
         
         // Add credential display component
         auto credDisplay = viewCredentialRoot->addChild<CredentialDisplayComponent>(
@@ -453,18 +456,45 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
             }
         }
         
+        // Add clipboard status
+        if (ClipboardManager::isAvailable()) {
+            // Store password for clipboard operation
+            std::string password = credentials[1];
+            
+            // Add Copy Password button component
+            auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
+                viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
+                [password]() {
+                    try {
+                        if (ClipboardManager::isAvailable()) {
+                            ClipboardManager::copyToClipboard(password);
+                            fl_message("✅ Password copied to clipboard!");
+                        } else {
+                            fl_alert("⚠️ Clipboard functionality not available on this system.");
+                        }
+                    } catch (const ClipboardError& e) {
+                        fl_alert("⚠️ Failed to copy password to clipboard: %s", e.what());
+                    }
+                }
+            );
+        } else {
+            ss << "\n⚠️  Clipboard functionality not available on this system";
+        }
+        
+       
+        
         // Add close button component
-        viewCredentialRoot->addChild<CloseButtonComponent>(
-            viewCredentialWindow.get(), 150, 160, 100, 30,
+        auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
+            viewCredentialWindow.get(), 210, 160, 100, 30, "Close",
             [this]() {
                 cleanupViewCredentialDialog();
             }
         );
         
-        // Create all components
+        // Create all components FIRST
         viewCredentialRoot->create();
         
-        // Set the text in the display
+        // THEN set the text in the display
         credDisplay->setText(ss.str());
         
         // Show the dialog
