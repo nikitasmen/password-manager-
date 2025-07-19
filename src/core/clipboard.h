@@ -30,13 +30,7 @@ public:
      */
     virtual void copyToClipboard(const std::string& text) = 0;
     
-    /**
-     * @brief Get text from the system clipboard
-     * @return The text content from clipboard
-     * @throws ClipboardError if the operation fails
-     */
-    virtual std::string getFromClipboard() = 0;
-    
+   
     /**
      * @brief Check if clipboard functionality is available
      * @return true if clipboard operations are supported, false otherwise
@@ -58,7 +52,6 @@ public:
 class WindowsClipboardStrategy : public IClipboardStrategy {
 public:
     void copyToClipboard(const std::string& text) override;
-    std::string getFromClipboard() override;
     bool isAvailable() override;
     void clearClipboard() override;
 };
@@ -72,13 +65,10 @@ public:
 class MacOSClipboardStrategy : public IClipboardStrategy {
 public:
     void copyToClipboard(const std::string& text) override;
-    std::string getFromClipboard() override;
     bool isAvailable() override;
     void clearClipboard() override;
 
-private:
-    bool executeCommand(const std::string& command);
-    std::string executeCommandWithOutput(const std::string& command);
+    // SECURITY FIX: Removed vulnerable executeCommand and executeCommandWithOutput methods
 };
 #endif
 
@@ -90,13 +80,9 @@ private:
 class LinuxClipboardStrategy : public IClipboardStrategy {
 public:
     void copyToClipboard(const std::string& text) override;
-    std::string getFromClipboard() override;
     bool isAvailable() override;
     void clearClipboard() override;
 
-private:
-    bool executeCommand(const std::string& command);
-    std::string executeCommandWithOutput(const std::string& command);
 };
 #endif
 
@@ -121,13 +107,6 @@ public:
      * @throws ClipboardError if the operation fails
      */
     void copyToClipboard(const std::string& text);
-    
-    /**
-     * @brief Get text from the system clipboard
-     * @return The text content from clipboard
-     * @throws ClipboardError if the operation fails
-     */
-    std::string getFromClipboard();
     
     /**
      * @brief Check if clipboard functionality is available

@@ -40,13 +40,6 @@ void ClipboardManager::copyToClipboard(const std::string& text) {
     strategy_->copyToClipboard(text);
 }
 
-std::string ClipboardManager::getFromClipboard() {
-    if (!strategy_) {
-        throw ClipboardError("Clipboard operations not supported on this platform");
-    }
-    return strategy_->getFromClipboard();
-}
-
 bool ClipboardManager::isAvailable() {
     if (!strategy_) {
         return false;
@@ -104,30 +97,6 @@ void WindowsClipboardStrategy::copyToClipboard(const std::string& text) {
     CloseClipboard();
 }
 
-std::string WindowsClipboardStrategy::getFromClipboard() {
-    if (!OpenClipboard(nullptr)) {
-        throw ClipboardError("Failed to open Windows clipboard");
-    }
-    
-    HANDLE hData = GetClipboardData(CF_TEXT);
-    if (!hData) {
-        CloseClipboard();
-        return ""; // No text data available
-    }
-    
-    char* pData = static_cast<char*>(GlobalLock(hData));
-    if (!pData) {
-        CloseClipboard();
-        throw ClipboardError("Failed to lock Windows clipboard data");
-    }
-    
-    std::string result(pData);
-    GlobalUnlock(hData);
-    CloseClipboard();
-    
-    return result;
-}
-
 bool WindowsClipboardStrategy::isAvailable() {
     return true; // Windows clipboard is always available
 }
@@ -155,10 +124,6 @@ void MacOSClipboardStrategy::copyToClipboard(const std::string& text) {
     }
 }
 
-std::string MacOSClipboardStrategy::getFromClipboard() {
-    return executeCommandWithOutput("pbpaste");
-}
-
 bool MacOSClipboardStrategy::isAvailable() {
     return true; // macOS clipboard is always available
 }
@@ -171,36 +136,6 @@ void MacOSClipboardStrategy::clearClipboard() {
     }
 }
 
-bool MacOSClipboardStrategy::executeCommand(const std::string& command) {
-    int result = system(command.c_str());
-    return result == 0;
-}
-
-std::string MacOSClipboardStrategy::executeCommandWithOutput(const std::string& command) {
-    std::string result;
-    FILE* pipe = popen(command.c_str(), "r");
-    
-    if (!pipe) {
-        throw ClipboardError("Failed to execute command: " + command);
-    }
-    
-    char buffer[128];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        result += buffer;
-    }
-    
-    int exitCode = pclose(pipe);
-    if (exitCode != 0) {
-        throw ClipboardError("Command failed with exit code: " + std::to_string(exitCode));
-    }
-    
-    // Remove trailing newline if present
-    if (!result.empty() && result.back() == '\n') {
-        result.pop_back();
-    }
-    
-    return result;
-}
 #endif
 
 #ifdef __linux__
@@ -231,15 +166,7 @@ void LinuxClipboardStrategy::copyToClipboard(const std::string& text) {
     }
 }
 
-std::string LinuxClipboardStrategy::getFromClipboard() {
-    if (system("which xclip >/dev/null 2>&1") == 0) {
-        return executeCommandWithOutput("xclip -selection clipboard -o");
-    } else if (system("which xsel >/dev/null 2>&1") == 0) {
-        return executeCommandWithOutput("xsel --clipboard --output");
-    } else {
-        throw ClipboardError("Neither xclip nor xsel is available for clipboard operations");
-    }
-}
+
 
 bool LinuxClipboardStrategy::isAvailable() {
     // Check if xclip or xsel is available
@@ -262,34 +189,5 @@ void LinuxClipboardStrategy::clearClipboard() {
     }
 }
 
-bool LinuxClipboardStrategy::executeCommand(const std::string& command) {
-    int result = system(command.c_str());
-    return result == 0;
-}
 
-std::string LinuxClipboardStrategy::executeCommandWithOutput(const std::string& command) {
-    std::string result;
-    FILE* pipe = popen(command.c_str(), "r");
-    
-    if (!pipe) {
-        throw ClipboardError("Failed to execute command: " + command);
-    }
-    
-    char buffer[128];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        result += buffer;
-    }
-    
-    int exitCode = pclose(pipe);
-    if (exitCode != 0) {
-        throw ClipboardError("Command failed with exit code: " + std::to_string(exitCode));
-    }
-    
-    // Remove trailing newline if present
-    if (!result.empty() && result.back() == '\n') {
-        result.pop_back();
-    }
-    
-    return result;
-}
 #endif
