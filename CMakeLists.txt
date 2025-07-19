@@ -38,6 +38,7 @@ set(CORE_SOURCES
     src/core/terminal_ui.cpp
     src/core/UIManager.cpp
     src/core/UIManagerFactory.cpp
+    src/core/clipboard.cpp
     src/config/GlobalConfig.cpp
 )
 
