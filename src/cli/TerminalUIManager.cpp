@@ -184,12 +184,12 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
         try {
             if (ClipboardManager::isAvailable()) {
                 ClipboardManager::copyToClipboard(credentials[1]);
-                TerminalUI::display_message("\n✅ Password copied to clipboard!");
+                TerminalUI::display_message("\nPassword copied to clipboard!");
             } else {
-                TerminalUI::display_message("\n⚠️  Clipboard functionality not available on this system.");
+                TerminalUI::display_message("\n️Clipboard functionality not available on this system.");
             }
         } catch (const ClipboardError& e) {
-            TerminalUI::display_message("\n⚠️  Failed to copy password to clipboard: " + std::string(e.what()));
+            TerminalUI::display_message("\nFailed to copy password to clipboard: " + std::string(e.what()));
         }
         
     } catch (const std::exception& e) {

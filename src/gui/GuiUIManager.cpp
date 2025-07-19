@@ -468,17 +468,17 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
                     try {
                         if (ClipboardManager::isAvailable()) {
                             ClipboardManager::copyToClipboard(password);
-                            fl_message("✅ Password copied to clipboard!");
+                            fl_message("Password copied to clipboard!");
                         } else {
-                            fl_alert("⚠️ Clipboard functionality not available on this system.");
+                            fl_alert("Clipboard functionality not available on this system.");
                         }
                     } catch (const ClipboardError& e) {
-                        fl_alert("⚠️ Failed to copy password to clipboard: %s", e.what());
+                        fl_alert("Failed to copy password to clipboard: %s", e.what());
                     }
                 }
             );
         } else {
-            ss << "\n⚠️  Clipboard functionality not available on this system";
+            ss << "\nClipboard functionality not available on this system";
         }
         
        
