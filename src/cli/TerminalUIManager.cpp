@@ -123,16 +123,7 @@ bool TerminalUIManager::addCredential(const std::string& platform,
     try {
         auto tempCredManager = getFreshCredManager();
         
-        // If encryption type is not specified, prompt the user to select one
-        EncryptionType selectedEncryption;
-        if (!encryptionType.has_value()) {
-            TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
-            selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
-        } else {
-            selectedEncryption = encryptionType.value();
-        }
-        
-        if (tempCredManager->addCredentials(platform, username, password, selectedEncryption)) {
+        if (tempCredManager->addCredentials(platform, username, password, encryptionType.value())) {
             showMessage("Success", "Credentials added successfully!");
             return true;
         }
@@ -224,7 +215,7 @@ int TerminalUIManager::runMenuLoop() {
             // Update password
             std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
             std::string confirmPassword = TerminalUI::get_password_input("Confirm new master password: ");
-            setupPassword(newPassword, confirmPassword);
+            setupPassword(newPassword, confirmPassword, EncryptionType::AES_LFSR);
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
             break;
@@ -234,7 +225,10 @@ int TerminalUIManager::runMenuLoop() {
             std::string platform = TerminalUI::get_text_input("Enter platform name: ");
             std::string username = TerminalUI::get_text_input("Enter username: ");
             std::string password = TerminalUI::get_password_input("Enter password: ");
-            addCredential(platform, username, password, {});
+            TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
+            EncryptionType selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
+      
+            addCredential(platform, username, password, selectedEncryption);            
             TerminalUI::pause_screen();
             TerminalUI::clear_screen();
             break;
