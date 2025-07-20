@@ -149,7 +149,9 @@ bool MigrationHelper::updateMasterPasswordWithNewLfsr(
             try {
                 // Try with salt first
                 decryptedPassword = oldLfsrEncryptor->decryptWithSalt(storedPassword);
-            } catch (const std::exception&) {
+            } catch (const std::exception& e) {
+                // Log the exception message
+                std::cerr << "Decryption with salt failed: " << e.what() << std::endl;
                 // Fallback to regular decryption
                 decryptedPassword = oldLfsrEncryptor->decrypt(storedPassword);
             }
