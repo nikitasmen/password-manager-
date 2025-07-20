@@ -138,6 +138,34 @@ void ConfigManager::setClipboardTimeout(int seconds) {
     config_.clipboardTimeoutSeconds = seconds;
 }
 
+void ConfigManager::setMaxLoginAttempts(int attempts) {
+    config_.maxLoginAttempts = attempts;
+}
+
+void ConfigManager::setClipboardTimeoutSeconds(int seconds) {
+    config_.clipboardTimeoutSeconds = seconds;
+}
+
+void ConfigManager::setAutoClipboardClear(bool enabled) {
+    config_.autoClipboardClear = enabled;
+}
+
+void ConfigManager::setRequirePasswordConfirmation(bool required) {
+    config_.requirePasswordConfirmation = required;
+}
+
+void ConfigManager::setMinPasswordLength(int length) {
+    config_.minPasswordLength = length;
+}
+
+void ConfigManager::setShowEncryptionInCredentials(bool show) {
+    config_.showEncryptionInCredentials = show;
+}
+
+void ConfigManager::setDefaultUIMode(const std::string& mode) {
+    config_.defaultUIMode = mode;
+}
+
 EncryptionType ConfigManager::parseEncryptionType(const std::string& value) const {
     if (value == "LFSR" || value == "0") {
         return EncryptionType::LFSR;

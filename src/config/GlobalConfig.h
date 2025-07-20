@@ -64,11 +64,25 @@ public:
     EncryptionType getDefaultEncryption() const { return config_.defaultEncryption; }
     int getClipboardTimeout() const { return config_.clipboardTimeoutSeconds; }
     bool isAutoClipboardClearEnabled() const { return config_.autoClipboardClear; }
+    int getMaxLoginAttempts() const { return config_.maxLoginAttempts; }
+    int getClipboardTimeoutSeconds() const { return config_.clipboardTimeoutSeconds; }
+    bool getAutoClipboardClear() const { return config_.autoClipboardClear; }
+    bool getRequirePasswordConfirmation() const { return config_.requirePasswordConfirmation; }
+    int getMinPasswordLength() const { return config_.minPasswordLength; }
+    bool getShowEncryptionInCredentials() const { return config_.showEncryptionInCredentials; }
+    std::string getDefaultUIMode() const { return config_.defaultUIMode; }
     
     // Set specific config values
     void setDataPath(const std::string& path);
     void setDefaultEncryption(EncryptionType type);
     void setClipboardTimeout(int seconds);
+    void setMaxLoginAttempts(int attempts);
+    void setClipboardTimeoutSeconds(int seconds);
+    void setAutoClipboardClear(bool enabled);
+    void setRequirePasswordConfirmation(bool required);
+    void setMinPasswordLength(int length);
+    void setShowEncryptionInCredentials(bool show);
+    void setDefaultUIMode(const std::string& mode);
 
 private:
     ConfigManager() = default;
