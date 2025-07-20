@@ -265,12 +265,12 @@ bool MigrationHelper::reencryptCredential(
         }
         
         // Save back with the same encryption type
-        int encType = static_cast<int>(getDefaultEncryptionType());
+        int encType = static_cast<int>(ConfigManager::getInstance().getDefaultEncryption());
         if (credentials.size() >= 3) {
             try {
                 encType = std::stoi(credentials[2]);
             } catch (...) {
-                // If not valid, keep LFSR
+                // If not valid, keep default encryption
             }
         }
         
