@@ -47,7 +47,7 @@ bool MigrationHelper::migrateCredentialsForLfsrChange(
             // Only re-encrypt credentials that use LFSR or AES_LFSR
             if (credentials.size() >= 3) {
                 // Check encryption type (if specified)
-                int encType = 0; // Default to LFSR
+                int encType = static_cast<int>(EncryptionType::LFSR); // Default to LFSR
                 try {
                     encType = std::stoi(credentials[2]);
                 } catch (...) {
