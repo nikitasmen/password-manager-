@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <algorithm> // For std::replace
+#include <optional>
 
 // Use the appropriate filesystem library
 #if __has_include(<filesystem>)
@@ -24,7 +25,16 @@ extern std::vector<int> init_state;
 CredentialsManager::CredentialsManager(const std::string& dataPath, EncryptionType encryptionType) 
     : dataPath(dataPath), encryptionType(encryptionType), currentMasterPassword("") {
     // Dynamically allocate memory for encryptor and storage
-    encryptor = new Encryption(encryptionType, taps, init_state, currentMasterPassword);
+    // Get LFSR settings from ConfigManager to ensure we're using the current settings
+    const auto& configTaps = ConfigManager::getInstance().getLfsrTaps();
+    const auto& configInitState = ConfigManager::getInstance().getLfsrInitState();
+    
+    // Update global variables to match config (in case they're out of sync)
+    taps = configTaps;
+    init_state = configInitState;
+    
+    // Use the settings from ConfigManager
+    encryptor = new Encryption(encryptionType, configTaps, configInitState, currentMasterPassword);
     storage = new JsonStorage(dataPath);
 }
 
@@ -47,31 +57,18 @@ bool CredentialsManager::login(const std::string& password) {
             std::cerr << "Error: Empty password provided\n";
             return false;
         }
-
-        // If no password exists, create one with the provided password
-        if (!hasMasterPassword()) {
-            return updatePassword(password);
-        }
         
         std::string storedPassword = storage->getMasterPassword();
-        
         bool passwordMatched = false;
-        
-        // Try the salt-based method only
+
+        // Try with current settings only
         try {
             std::string correct = encryptor->decryptWithSalt(storedPassword);
             if (correct == password) {
                 passwordMatched = true;
             }
         } catch (const std::exception& e) {
-            // If salt decryption fails, check if it's a legacy plaintext password
-            // This is for backward compatibility during the transition period
-            if (storedPassword == password) {
-                passwordMatched = true;
-                
-                // Upgrade the plaintext password to salt-encrypted
-                updatePassword(password);
-            }
+            std::cerr << "Login with current settings failed: " << e.what() << std::endl;
         }
         
         if (!passwordMatched) {
@@ -95,20 +92,9 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
             std::cerr << "Error: Empty password provided\n";
             return false;
         }
-
-        // Store the master password and update the encryptor first
-        currentMasterPassword = newPassword;
-        encryptor->setMasterPassword(currentMasterPassword);
-
         // Always use salt encryption
         std::string passwordToStore = encryptor->encryptWithSalt(newPassword);
-        
-        bool result = storage->updateMasterPassword(passwordToStore);
-        
-        // Skip verification to avoid circular dependency with login
-        // We've already tested that salt encryption/decryption works
-        
-        return result;
+        return storage->updateMasterPassword(passwordToStore);
     } catch (const EncryptionError& e) {
         std::cerr << "Encryption error during password update: " << e.what() << std::endl;
         return false;
@@ -119,10 +105,10 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
 }
 
 bool CredentialsManager::addCredentials(const std::string& platform, const std::string& user, const std::string& pass,
-                               std::optional<EncryptionType> encryptionTypeParam) {
+                               std::optional<EncryptionType> encryptionType) {
     try {
         // Use specified encryption algorithm or fall back to the current global setting
-        EncryptionType actualEncryptionType = encryptionTypeParam.value_or(encryptionType);
+        EncryptionType actualEncryptionType = encryptionType.value_or(this->encryptionType);
         
         // Create a temporary encryptor with the desired algorithm if needed
         Encryption* currentEncryptor = encryptor;

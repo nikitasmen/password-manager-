@@ -165,20 +165,15 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
 
 std::string Encryption::encryptWithSalt(const std::string& plaintext) {
     try {
-        if (algorithm == EncryptionType::AES) {
-            // For AES, use the master password for encryption (salt is handled internally)
-            return aesEncrypt(plaintext, masterPassword);
-        }
-        else { // LFSR algorithm
-            // Generate a simple 8-byte salt for LFSR
-            std::string salt;
-            salt.resize(8);
-            if (RAND_bytes(reinterpret_cast<unsigned char*>(&salt[0]), 8) != 1) {
-                throw EncryptionError("Failed to generate salt for LFSR");
-            }
-            
-            // Return salt + encrypted data
-            return salt + lfsrProcess(plaintext);
+        if (algorithm == EncryptionType::AES || algorithm == EncryptionType::AES_LFSR  ) {
+            std::cout << "Using AES or AES_LFSR algorithm, no salt needed." << std::endl;
+            // For AES AES-LFSR
+            return encrypt(plaintext);
+        } else {
+            // Prepend salt as string to plaintext, then encrypt
+            auto salt = generateSalt();
+            std::string saltStr(reinterpret_cast<const char*>(salt.data()), PBKDF2_SALT_SIZE);
+            return lfsrProcess(saltStr + plaintext);
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
@@ -189,23 +184,17 @@ std::string Encryption::encryptWithSalt(const std::string& plaintext) {
 
 std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
     try {
-        if (algorithm == EncryptionType::AES) {
-            // For AES, the salt and IV are embedded in the encrypted data
-            // Pass the full encrypted_text to aesDecrypt
-            return aesDecrypt(encrypted_text, masterPassword);
-        }
-        else if (algorithm == EncryptionType::AES_LFSR) {
+        if (algorithm == EncryptionType::AES || algorithm == EncryptionType::AES_LFSR) {
             return decrypt(encrypted_text);
         }
-        else { // LFSR algorithm
+        else { 
             // Check if encrypted text is long enough to contain salt
             if (encrypted_text.size() <= 8) {
                 throw EncryptionError("Encrypted text too short to contain salt");
             }
-            
             // Extract salt (first 8 characters) and encrypted data for LFSR
-            std::string encryptedData = encrypted_text.substr(8);
-            return lfsrProcess(encryptedData);
+            std::string saltedData = lfsrProcess(encrypted_text); 
+            return saltedData.substr(8); 
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
