@@ -588,21 +588,21 @@ void GuiUIManager::createSettingsDialog() {
     // Clean up any existing dialog
     cleanupSettingsDialog();
     
-    // Create new settings window with larger size
-    settingsWindow = std::make_unique<Fl_Window>(500, 500, "Application Settings");
+    // Create new settings window with larger size to accommodate scrollable content
+    settingsWindow = std::make_unique<Fl_Window>(550, 600, "Application Settings");
     settingsWindow->begin();
     
     // Create root container that fills the entire window
-    settingsRoot = std::make_unique<ContainerComponent>(settingsWindow.get(), 0, 0, 500, 500);
+    settingsRoot = std::make_unique<ContainerComponent>(settingsWindow.get(), 0, 0, 550, 600);
     
     // Add a simple test to see if the window is working
     auto testLabel = settingsRoot->addChild<TitleComponent>(
-        settingsWindow.get(), 10, 10, 480, 30, "Settings", 16
+        settingsWindow.get(), 10, 10, 530, 30, "Settings", 16
     );
     
-    // Add settings form component
+    // Add settings form component with more space
     auto settingsForm = settingsRoot->addChild<SettingsDialogComponent>(
-        settingsWindow.get(), 10, 50, 480, 400,
+        settingsWindow.get(), 10, 50, 530, 500,
         [this]() {
             // On save callback
             cleanupSettingsDialog();
