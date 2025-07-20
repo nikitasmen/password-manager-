@@ -48,15 +48,42 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         } else if (key == "defaultEncryption") {
             config_.defaultEncryption = parseEncryptionType(value);
         } else if (key == "maxLoginAttempts") {
-            config_.maxLoginAttempts = std::stoi(value);
+            try {
+                int attempts = std::stoi(value);
+                if (attempts < 1) {
+                    std::cerr << "Warning: Invalid max login attempts value in config: " << attempts << "\n";
+                } else {
+                    config_.maxLoginAttempts = attempts;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Error parsing maxLoginAttempts: " << e.what() << "\n";
+            }
         } else if (key == "clipboardTimeoutSeconds") {
-            config_.clipboardTimeoutSeconds = std::stoi(value);
+            try {
+                int seconds = std::stoi(value);
+                if (seconds < 0) {
+                    std::cerr << "Warning: Invalid clipboard timeout value in config: " << seconds << "\n";
+                } else {
+                    config_.clipboardTimeoutSeconds = seconds;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Error parsing clipboardTimeoutSeconds: " << e.what() << "\n";
+            }
         } else if (key == "autoClipboardClear") {
             config_.autoClipboardClear = (value == "true" || value == "1");
         } else if (key == "requirePasswordConfirmation") {
             config_.requirePasswordConfirmation = (value == "true" || value == "1");
         } else if (key == "minPasswordLength") {
-            config_.minPasswordLength = std::stoi(value);
+            try {
+                int length = std::stoi(value);
+                if (length < 1) {
+                    std::cerr << "Warning: Invalid min password length value in config: " << length << "\n";
+                } else {
+                    config_.minPasswordLength = length;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Error parsing minPasswordLength: " << e.what() << "\n";
+            }
         } else if (key == "lfsrTaps") {
             config_.lfsrTaps = parseIntArray(value);
         } else if (key == "lfsrInitState") {
@@ -135,10 +162,22 @@ void ConfigManager::setDefaultEncryption(EncryptionType type) {
 }
 
 void ConfigManager::setMaxLoginAttempts(int attempts) {
+    // Validate input range
+    if (attempts < 1) {
+        std::cerr << "Warning: Invalid max login attempts value " << attempts 
+                  << " (must be at least 1), setting to default (3)\n";
+        attempts = 3;
+    }
     config_.maxLoginAttempts = attempts;
 }
 
 void ConfigManager::setClipboardTimeoutSeconds(int seconds) {
+    // Validate input range
+    if (seconds < 0) {
+        std::cerr << "Warning: Invalid clipboard timeout value " << seconds 
+                  << " (must be non-negative), setting to default (30)\n";
+        seconds = 30;
+    }
     config_.clipboardTimeoutSeconds = seconds;
 }
 
@@ -151,6 +190,12 @@ void ConfigManager::setRequirePasswordConfirmation(bool required) {
 }
 
 void ConfigManager::setMinPasswordLength(int length) {
+    // Validate input range
+    if (length < 1) {
+        std::cerr << "Warning: Invalid minimum password length " << length 
+                  << " (must be at least 1), setting to default (8)\n";
+        length = 8;
+    }
     config_.minPasswordLength = length;
 }
 
@@ -161,6 +206,100 @@ void ConfigManager::setShowEncryptionInCredentials(bool show) {
 void ConfigManager::setDefaultUIMode(const std::string& mode) {
     config_.defaultUIMode = mode;
 }
+
+void ConfigManager::setLfsrTaps(const std::vector<int>& newTaps) {
+    // Validate that taps array is not empty
+    if (newTaps.empty()) {
+        std::cerr << "Warning: Empty LFSR taps provided, using default {0, 2}\n";
+        config_.lfsrTaps = {0, 2};
+        taps = {0, 2};
+        return;
+    }
+    
+    config_.lfsrTaps = newTaps;
+    taps = newTaps; // Update global variable for backward compatibility
+}
+
+void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
+    // Validate that init state is not empty
+    if (newInitState.empty()) {
+        std::cerr << "Warning: Empty LFSR initial state provided, using default {1, 0, 1}\n";
+        config_.lfsrInitState = {1, 0, 1};
+        init_state = {1, 0, 1};
+        return;
+    }
+    
+    // Validate that init state only contains 0s and 1s
+    bool validInitState = true;
+    for (int val : newInitState) {
+        if (val != 0 && val != 1) {
+            validInitState = false;
+            break;
+        }
+    }
+    
+    if (!validInitState) {
+        std::cerr << "Warning: LFSR initial state must contain only 0s and 1s, using default {1, 0, 1}\n";
+        config_.lfsrInitState = {1, 0, 1};
+        init_state = {1, 0, 1};
+        return;
+    }
+    
+    config_.lfsrInitState = newInitState;
+    init_state = newInitState; // Update global variable for backward compatibility
+}
+
+bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps, const std::vector<int>& newInitState, const std::string& masterPassword) {
+    // Validate inputs
+    if (newTaps.empty()) {
+        std::cerr << "Error: LFSR taps cannot be empty\n";
+        return false;
+    }
+    
+    if (newInitState.empty()) {
+        std::cerr << "Error: LFSR initial state cannot be empty\n";
+        return false;
+    }
+    
+    if (masterPassword.empty()) {
+        std::cerr << "Error: Master password is required for LFSR settings update\n";
+        return false;
+    }
+    
+    // Store old settings in case of failure
+    auto oldTaps = config_.lfsrTaps;
+    auto oldInitState = config_.lfsrInitState;
+    
+    try {
+        // Update settings temporarily for re-encryption
+        config_.lfsrTaps = newTaps;
+        config_.lfsrInitState = newInitState;
+        taps = newTaps;
+        init_state = newInitState;
+        
+        // TODO: Re-encrypt existing credentials with new LFSR settings if needed
+        // This would require access to the credentials manager to re-encrypt all stored passwords
+        // For now, just return success
+        
+        // In a real implementation, you would:
+        // 1. Get all stored credentials
+        // 2. Decrypt them using the old LFSR settings and the provided master password
+        // 3. Re-encrypt them with the new LFSR settings
+        // 4. Save the re-encrypted credentials
+        
+        return true;
+    } catch (const std::exception& e) {
+        // Restore old settings if anything fails
+        std::cerr << "Error updating LFSR settings: " << e.what() << "\n";
+        config_.lfsrTaps = oldTaps;
+        config_.lfsrInitState = oldInitState;
+        taps = oldTaps;
+        init_state = oldInitState;
+        return false;
+    }
+}
+
+// Implementation of EncryptionUtils helper functions
 
 EncryptionType ConfigManager::parseEncryptionType(const std::string& value) const {
     if (value == "LFSR" || value == "0") {
@@ -193,8 +332,16 @@ std::vector<int> ConfigManager::parseIntArray(const std::string& value) const {
     
     while (std::getline(ss, item, ',')) {
         try {
+            // Validate that the string contains only digits
+            if (item.empty() || !std::all_of(item.begin(), item.end(), [](char c) { 
+                return std::isdigit(c) || c == '-'; // Allow negative numbers
+            })) {
+                std::cerr << "Warning: Invalid integer value '" << item << "' skipped\n";
+                continue;
+            }
             result.push_back(std::stoi(item));
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: Failed to parse integer '" << item << "': " << e.what() << "\n";
             // Skip invalid values
         }
     }

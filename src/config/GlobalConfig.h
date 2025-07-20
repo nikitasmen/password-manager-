@@ -70,6 +70,8 @@ public:
     int getMinPasswordLength() const { return config_.minPasswordLength; }
     bool getShowEncryptionInCredentials() const { return config_.showEncryptionInCredentials; }
     std::string getDefaultUIMode() const { return config_.defaultUIMode; }
+    const std::vector<int>& getLfsrTaps() const { return config_.lfsrTaps; }
+    const std::vector<int>& getLfsrInitState() const { return config_.lfsrInitState; }
     
     // Set specific config values
     void setDataPath(const std::string& path);
@@ -81,6 +83,9 @@ public:
     void setMinPasswordLength(int length);
     void setShowEncryptionInCredentials(bool show);
     void setDefaultUIMode(const std::string& mode);
+    void setLfsrTaps(const std::vector<int>& newTaps);
+    void setLfsrInitState(const std::vector<int>& newInitState);
+    bool updateLfsrSettings(const std::vector<int>& newTaps, const std::vector<int>& newInitState, const std::string& masterPassword);
 
 private:
     ConfigManager() = default;
