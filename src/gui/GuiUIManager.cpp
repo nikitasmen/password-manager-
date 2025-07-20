@@ -312,6 +312,7 @@ void GuiUIManager::createMainScreen() {
         rootComponent->addChild<MenuBarComponent>(
             mainWindow.get(), 0, 0, 600, 30,
             [this]() { createAddCredentialDialog(); },
+            [this]() { openSettingsDialog(); },
             []() { 
                 if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
                     exit(0);
@@ -576,4 +577,59 @@ void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
             }
         }
     }, reinterpret_cast<void*>(static_cast<uintptr_t>(exitOnClose)));
+}
+
+void GuiUIManager::openSettingsDialog() {
+    createSettingsDialog();
+    settingsWindow->show();
+}
+
+void GuiUIManager::createSettingsDialog() {
+    // Clean up any existing dialog
+    cleanupSettingsDialog();
+    
+    // Create new settings window with larger size
+    settingsWindow = std::make_unique<Fl_Window>(500, 500, "Application Settings");
+    settingsWindow->begin();
+    
+    // Create root container that fills the entire window
+    settingsRoot = std::make_unique<ContainerComponent>(settingsWindow.get(), 0, 0, 500, 500);
+    
+    // Add a simple test to see if the window is working
+    auto testLabel = settingsRoot->addChild<TitleComponent>(
+        settingsWindow.get(), 10, 10, 480, 30, "Settings", 16
+    );
+    
+    // Add settings form component
+    auto settingsForm = settingsRoot->addChild<SettingsDialogComponent>(
+        settingsWindow.get(), 10, 50, 480, 400,
+        [this]() {
+            // On save callback
+            cleanupSettingsDialog();
+        },
+        [this]() {
+            // On cancel callback
+            cleanupSettingsDialog();
+        }
+    );
+    
+    // Create the components BEFORE ending the window
+    settingsRoot->create();
+    
+    settingsWindow->end();
+    settingsWindow->set_modal();
+    
+    // Set close handler
+    setWindowCloseHandler(settingsWindow.get(), false);
+    
+    // Debug: Force redraw
+    settingsWindow->redraw();
+}
+
+void GuiUIManager::cleanupSettingsDialog() {
+    if (settingsWindow) {
+        settingsWindow->hide();
+        settingsRoot.reset();
+        settingsWindow.reset();
+    }
 }
