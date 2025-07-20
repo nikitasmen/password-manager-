@@ -36,12 +36,15 @@ CipherContextRAII& CipherContextRAII::operator=(CipherContextRAII&& other) noexc
 }
 
 Encryption::Encryption(EncryptionType algorithm, const std::vector<int>& taps, const std::vector<int>& init_state, const std::string& password) {
-    if (init_state.empty()) {
-        throw EncryptionError("Initial state cannot be empty");
-    }
-    
-    if (!taps.empty() && taps.back() >= init_state.size()) {
-        throw EncryptionError("Initial state size is too small for the specified taps");
+    // Only check init_state and taps for LFSR-based encryption types
+    if (algorithm == EncryptionType::LFSR || algorithm == EncryptionType::AES_LFSR) {
+        if (init_state.empty()) {
+            throw EncryptionError("Initial state cannot be empty for LFSR-based encryption");
+        }
+        
+        if (!taps.empty() && taps.back() >= init_state.size()) {
+            throw EncryptionError("Initial state size is too small for the specified taps");
+        }
     }
     
     // Lock to ensure thread safety during initialization
