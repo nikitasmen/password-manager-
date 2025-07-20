@@ -62,7 +62,6 @@ public:
     // Get specific config values
     std::string getDataPath() const { return config_.dataPath; }
     EncryptionType getDefaultEncryption() const { return config_.defaultEncryption; }
-    int getClipboardTimeout() const { return config_.clipboardTimeoutSeconds; }
     bool isAutoClipboardClearEnabled() const { return config_.autoClipboardClear; }
     int getMaxLoginAttempts() const { return config_.maxLoginAttempts; }
     int getClipboardTimeoutSeconds() const { return config_.clipboardTimeoutSeconds; }
@@ -75,7 +74,6 @@ public:
     // Set specific config values
     void setDataPath(const std::string& path);
     void setDefaultEncryption(EncryptionType type);
-    void setClipboardTimeout(int seconds);
     void setMaxLoginAttempts(int attempts);
     void setClipboardTimeoutSeconds(int seconds);
     void setAutoClipboardClear(bool enabled);

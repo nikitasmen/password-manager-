@@ -134,10 +134,6 @@ void ConfigManager::setDefaultEncryption(EncryptionType type) {
     g_encryption_type = type;
 }
 
-void ConfigManager::setClipboardTimeout(int seconds) {
-    config_.clipboardTimeoutSeconds = seconds;
-}
-
 void ConfigManager::setMaxLoginAttempts(int attempts) {
     config_.maxLoginAttempts = attempts;
 }
