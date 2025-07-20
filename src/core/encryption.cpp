@@ -191,6 +191,9 @@ std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
             // Pass the full encrypted_text to aesDecrypt
             return aesDecrypt(encrypted_text, masterPassword);
         }
+        else if (algorithm == EncryptionType::AES_LFSR) {
+            return decrypt(encrypted_text);
+        }
         else { // LFSR algorithm
             // Check if encrypted text is long enough to contain salt
             if (encrypted_text.size() <= 8) {
