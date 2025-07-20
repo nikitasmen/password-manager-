@@ -31,6 +31,8 @@ private:
     std::unique_ptr<ContainerComponent> addCredentialRoot;
     std::unique_ptr<Fl_Window> viewCredentialWindow;
     std::unique_ptr<ContainerComponent> viewCredentialRoot;
+    std::unique_ptr<Fl_Window> settingsWindow;
+    std::unique_ptr<ContainerComponent> settingsRoot;
     
     // Component references
     LoginFormComponent* loginForm;
@@ -44,8 +46,10 @@ private:
     void createMainScreen();
     void createAddCredentialDialog();
     void createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials);
+    void createSettingsDialog();
     void cleanupAddCredentialDialog();
     void cleanupViewCredentialDialog();
+    void cleanupSettingsDialog();
     void cleanupMainWindow();
     void refreshPlatformsList();
     void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false);
@@ -124,6 +128,11 @@ public:
      * @param isError Whether this is an error message
      */
     void showMessage(const std::string& title, const std::string& message, bool isError = false) override;
+    
+    /**
+     * @brief Open the settings dialog
+     */
+    void openSettingsDialog();
 };
 
 #endif // GUI_UI_MANAGER_H
