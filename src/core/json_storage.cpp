@@ -111,7 +111,15 @@ bool JsonStorage::backupStorageFile() const {
         ss << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
         
         // Create backup name with timestamp
-        std::string backupName = storageFile + ".backup." + ss.str();
+        std::string baseBackupName = storageFile + ".backup." + ss.str();
+        std::string backupName = baseBackupName;
+        
+        // Handle duplicate backup names by adding an index
+        int index = 1;
+        while (fs::exists(backupName)) {
+            backupName = baseBackupName + "_" + std::to_string(index);
+            index++;
+        }
         
         // Copy the file
         fs::copy_file(storageFile, backupName);
