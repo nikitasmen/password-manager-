@@ -10,6 +10,8 @@
 #include <FL/Fl_Text_Buffer.H>
 #include <FL/Fl_Menu_Bar.H>
 #include <FL/Fl_Choice.H>
+#include <FL/Fl_Check_Button.H>
+#include <FL/fl_ask.H>
 #include <sstream>
 #include <memory>
 #include "../config/GlobalConfig.h"
@@ -148,6 +150,7 @@ class MenuBarComponent : public GuiComponent {
 private:
     struct MenuActions {
         ButtonCallback onAddCredential;
+        ButtonCallback onSettings;
         ButtonCallback onExit;
         ButtonCallback onAbout;
     };
@@ -164,18 +167,20 @@ private:
         
         switch(actionId) {
             case 0: comp->actions.onAddCredential(); break;
-            case 1: comp->actions.onExit(); break;
-            case 2: comp->actions.onAbout(); break;
+            case 1: comp->actions.onSettings(); break;
+            case 2: comp->actions.onExit(); break;
+            case 3: comp->actions.onAbout(); break;
         }
     }
 
 public:
     MenuBarComponent(Fl_Group* parent, int x, int y, int w, int h,
                     ButtonCallback onAddCredential,
+                    ButtonCallback onSettings,
                     ButtonCallback onExit,
                     ButtonCallback onAbout)
         : GuiComponent(parent, x, y, w, h),
-          actions{onAddCredential, onExit, onAbout},
+          actions{onAddCredential, onSettings, onExit, onAbout},
           menuBar(nullptr) {}
     
     void create() override {
@@ -183,8 +188,9 @@ public:
         
         // Add menu items with standardized callback approach
         addMenuItem("File/Add Credential", 0); // Action ID 0
-        addMenuItem("File/Exit", 1);          // Action ID 1 
-        addMenuItem("Help/About", 2);         // Action ID 2
+        addMenuItem("File/Settings", 1);       // Action ID 1
+        addMenuItem("File/Exit", 2);           // Action ID 2 
+        addMenuItem("Help/About", 3);          // Action ID 3
     }
     
     // Helper method to add menu items with consistent handling
@@ -446,6 +452,156 @@ public:
         CallbackHelper::setCallback(closeButton, this, [this](CloseButtonComponent* comp) {
             comp->onClose();
         });
+    }
+};
+
+// Settings dialog component for configuring application settings
+class SettingsDialogComponent : public FormComponentBase {
+private:
+    Fl_Input* dataPathInput;
+    Fl_Choice* defaultEncryptionChoice;
+    Fl_Input* maxLoginAttemptsInput;
+    Fl_Input* clipboardTimeoutInput;
+    Fl_Check_Button* autoClipboardClearCheck;
+    Fl_Check_Button* requirePasswordConfirmationCheck;
+    Fl_Input* minPasswordLengthInput;
+    Fl_Check_Button* showEncryptionInCredentialsCheck;
+    Fl_Choice* defaultUIModeChoice;
+    
+    std::function<void()> onSave;
+    std::function<void()> onCancel;
+
+public:
+    SettingsDialogComponent(Fl_Group* parent, int x, int y, int w, int h,
+                           std::function<void()> onSave = nullptr,
+                           std::function<void()> onCancel = nullptr)
+        : FormComponentBase(parent, x, y, w, h), onSave(onSave), onCancel(onCancel) {}
+    
+    void create() override {
+        int yPos = y + 20;
+        const int labelWidth = 180;
+        const int fieldWidth = 200;
+        const int fieldHeight = 25;
+        const int spacing = 35;
+        
+        // Load current configuration
+        ConfigManager& config = ConfigManager::getInstance();
+        
+        // Add a title first to verify the dialog is working
+        auto titleBox = createWidget<Fl_Box>(x + 10, yPos, w - 20, 30, "Application Settings");
+        titleBox->labelfont(FL_BOLD);
+        titleBox->labelsize(16);
+        titleBox->align(FL_ALIGN_CENTER);
+        yPos += 40;
+        
+        // Data Path
+        auto dataPathLabel = createWidget<Fl_Box>(x + 10, yPos, labelWidth, fieldHeight, "Data Path:");
+        dataPathLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+        dataPathInput = createWidget<Fl_Input>(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
+        dataPathInput->value(config.getDataPath().c_str());
+        yPos += spacing;
+        
+        // Default Encryption
+        auto encryptionLabel = createWidget<Fl_Box>(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
+        encryptionLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+        defaultEncryptionChoice = createWidget<Fl_Choice>(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
+        defaultEncryptionChoice->add("AES");
+        defaultEncryptionChoice->add("LFSR");
+        defaultEncryptionChoice->add("AES+LFSR");
+        defaultEncryptionChoice->value(static_cast<int>(config.getDefaultEncryption()));
+        yPos += spacing;
+        
+        // Max Login Attempts
+        auto attemptsLabel = createWidget<Fl_Box>(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
+        attemptsLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+        maxLoginAttemptsInput = createWidget<Fl_Input>(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
+        maxLoginAttemptsInput->value(std::to_string(config.getMaxLoginAttempts()).c_str());
+        yPos += spacing;
+        
+        // Clipboard Timeout
+        auto clipboardLabel = createWidget<Fl_Box>(x + 10, yPos, labelWidth, fieldHeight, "Clipboard Timeout (sec):");
+        clipboardLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+        clipboardTimeoutInput = createWidget<Fl_Input>(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
+        clipboardTimeoutInput->value(std::to_string(config.getClipboardTimeoutSeconds()).c_str());
+        yPos += spacing;
+        
+        // Auto Clipboard Clear
+        autoClipboardClearCheck = createWidget<Fl_Check_Button>(x + 10, yPos, w - 20, fieldHeight, "Auto Clear Clipboard");
+        autoClipboardClearCheck->value(config.getAutoClipboardClear() ? 1 : 0);
+        yPos += spacing;
+        
+        // Require Password Confirmation
+        requirePasswordConfirmationCheck = createWidget<Fl_Check_Button>(x + 10, yPos, w - 20, fieldHeight, "Require Password Confirmation");
+        requirePasswordConfirmationCheck->value(config.getRequirePasswordConfirmation() ? 1 : 0);
+        yPos += spacing;
+        
+        // Min Password Length
+        auto minLengthLabel = createWidget<Fl_Box>(x + 10, yPos, labelWidth, fieldHeight, "Min Password Length:");
+        minLengthLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+        minPasswordLengthInput = createWidget<Fl_Input>(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
+        minPasswordLengthInput->value(std::to_string(config.getMinPasswordLength()).c_str());
+        yPos += spacing;
+        
+        // Show Encryption in Credentials
+        showEncryptionInCredentialsCheck = createWidget<Fl_Check_Button>(x + 10, yPos, w - 20, fieldHeight, "Show Encryption Type in Credentials");
+        showEncryptionInCredentialsCheck->value(config.getShowEncryptionInCredentials() ? 1 : 0);
+        yPos += spacing;
+        
+        // Default UI Mode
+        auto uiModeLabel = createWidget<Fl_Box>(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
+        uiModeLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+        defaultUIModeChoice = createWidget<Fl_Choice>(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
+        defaultUIModeChoice->add("CLI");
+        defaultUIModeChoice->add("GUI");
+        defaultUIModeChoice->value(config.getDefaultUIMode() == "GUI" ? 1 : 0);
+        yPos += spacing;
+        
+        // Buttons
+        yPos += 20;
+        Fl_Button* saveButton = createWidget<Fl_Button>(x + w - 180, yPos, 80, 30, "Save");
+        Fl_Button* cancelButton = createWidget<Fl_Button>(x + w - 90, yPos, 80, 30, "Cancel");
+        
+        // Set up callbacks
+        CallbackHelper::setCallback(saveButton, this, [this](SettingsDialogComponent* comp) {
+            comp->saveSettings();
+        });
+        
+        CallbackHelper::setCallback(cancelButton, this, [this](SettingsDialogComponent* comp) {
+            if (comp->onCancel) comp->onCancel();
+        });
+        
+        // Force redraw
+        if (parent) {
+            parent->redraw();
+        }
+    }
+    
+    void saveSettings() {
+        try {
+            ConfigManager& config = ConfigManager::getInstance();
+            
+            // Update configuration values
+            config.setDataPath(dataPathInput->value());
+            config.setDefaultEncryption(static_cast<EncryptionType>(defaultEncryptionChoice->value()));
+            config.setMaxLoginAttempts(std::stoi(maxLoginAttemptsInput->value()));
+            config.setClipboardTimeoutSeconds(std::stoi(clipboardTimeoutInput->value()));
+            config.setAutoClipboardClear(autoClipboardClearCheck->value() == 1);
+            config.setRequirePasswordConfirmation(requirePasswordConfirmationCheck->value() == 1);
+            config.setMinPasswordLength(std::stoi(minPasswordLengthInput->value()));
+            config.setShowEncryptionInCredentials(showEncryptionInCredentialsCheck->value() == 1);
+            config.setDefaultUIMode(defaultUIModeChoice->value() == 1 ? "GUI" : "CLI");
+            
+            // Save to file
+            if (config.saveConfig(".config")) {
+                fl_message("Settings saved successfully!");
+            } else {
+                fl_alert("Failed to save settings to file!");
+            }
+            
+            if (onSave) onSave();
+        } catch (const std::exception& e) {
+            fl_alert("Error saving settings: %s", e.what());
+        }
     }
 };
 
