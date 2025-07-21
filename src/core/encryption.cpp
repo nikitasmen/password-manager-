@@ -1,7 +1,6 @@
 #include "./encryption.h"
 #include <stdexcept>
 #include <algorithm>
-#include <iostream>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/kdf.h>
@@ -36,12 +35,15 @@ CipherContextRAII& CipherContextRAII::operator=(CipherContextRAII&& other) noexc
 }
 
 Encryption::Encryption(EncryptionType algorithm, const std::vector<int>& taps, const std::vector<int>& init_state, const std::string& password) {
-    if (init_state.empty()) {
-        throw EncryptionError("Initial state cannot be empty");
-    }
-    
-    if (!taps.empty() && taps.back() >= init_state.size()) {
-        throw EncryptionError("Initial state size is too small for the specified taps");
+    // Only check init_state and taps for LFSR-based encryption types
+    if (algorithm == EncryptionType::LFSR) {
+        if (init_state.empty()) {
+            throw EncryptionError("Initial state cannot be empty for LFSR-based encryption");
+        }
+        
+        if (!taps.empty() && taps.back() >= init_state.size()) {
+            throw EncryptionError("Initial state size is too small for the specified taps");
+        }
     }
     
     // Lock to ensure thread safety during initialization
@@ -104,16 +106,6 @@ std::string Encryption::encrypt(const std::string& plaintext) {
             // Use the master password for AES encryption
             return aesEncrypt(plaintext, masterPassword);
         }
-        else if (algorithm == EncryptionType::AES_LFSR) {
-            // Dual encryption: AES first, then LFSR
-            // Step 1: Encrypt with AES using master password
-            std::string aesEncrypted = aesEncrypt(plaintext, masterPassword);
-            
-            // Step 2: Encrypt the AES result with LFSR
-            std::string dualEncrypted = lfsrProcess(aesEncrypted);
-            
-            return dualEncrypted;
-        }
         else { // LFSR algorithm
             return lfsrProcess(plaintext);
         }
@@ -128,7 +120,6 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
     try {
         // Use the specified algorithm or default to the current one
         EncryptionType actualAlgorithm = forcedAlgorithm ? *forcedAlgorithm : algorithm;
-        
         // Choose decryption algorithm
         if (actualAlgorithm == EncryptionType::AES) {
             // For AES, we need to extract the IV from the beginning of the encrypted text
@@ -139,16 +130,6 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
             
             // Use the master password for AES decryption
             return aesDecrypt(encrypted_text, masterPassword);
-        }
-        else if (actualAlgorithm == EncryptionType::AES_LFSR) {
-            // Dual decryption: LFSR first, then AES
-            // Step 1: Decrypt LFSR layer
-            std::string lfsrDecrypted = lfsrProcess(encrypted_text);
-            
-            // Step 2: Decrypt AES layer using master password
-            std::string finalDecrypted = aesDecrypt(lfsrDecrypted, masterPassword);
-            
-            return finalDecrypted;
         }
         else { // LFSR algorithm
             return lfsrProcess(encrypted_text);
@@ -163,20 +144,13 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
 std::string Encryption::encryptWithSalt(const std::string& plaintext) {
     try {
         if (algorithm == EncryptionType::AES) {
-            // For AES, use the master password for encryption (salt is handled internally)
-            return aesEncrypt(plaintext, masterPassword);
+            // For AES and AES-LFSR, no salt needed
+            return encrypt(plaintext);
         }
-        else { // LFSR algorithm
-            // Generate a simple 8-byte salt for LFSR
-            std::string salt;
-            salt.resize(8);
-            if (RAND_bytes(reinterpret_cast<unsigned char*>(&salt[0]), 8) != 1) {
-                throw EncryptionError("Failed to generate salt for LFSR");
-            }
-            
-            // Return salt + encrypted data
-            return salt + lfsrProcess(plaintext);
-        }
+        // Prepend salt as string to plaintext, then encrypt
+        auto salt = generateSalt();
+        std::string saltStr(reinterpret_cast<const char*>(salt.data()), PBKDF2_SALT_SIZE);
+        return lfsrProcess(saltStr + plaintext);
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
     } catch (const std::exception& e) {
@@ -187,19 +161,16 @@ std::string Encryption::encryptWithSalt(const std::string& plaintext) {
 std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
     try {
         if (algorithm == EncryptionType::AES) {
-            // For AES, the salt and IV are embedded in the encrypted data
-            // Pass the full encrypted_text to aesDecrypt
-            return aesDecrypt(encrypted_text, masterPassword);
+            return decrypt(encrypted_text);
         }
-        else { // LFSR algorithm
+        else { 
             // Check if encrypted text is long enough to contain salt
             if (encrypted_text.size() <= 8) {
                 throw EncryptionError("Encrypted text too short to contain salt");
             }
-            
             // Extract salt (first 8 characters) and encrypted data for LFSR
-            std::string encryptedData = encrypted_text.substr(8);
-            return lfsrProcess(encryptedData);
+            std::string saltedData = lfsrProcess(encrypted_text); 
+            return saltedData.substr(8); 
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors

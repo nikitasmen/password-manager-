@@ -125,16 +125,16 @@ public:
         // Create password inputs
         newPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "New Master Password:");
         confirmPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
-        
-        // Add information about encryption (no user choice)
-        createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "Encryption: AES-256 with LFSR (Strongest)");
-        
+        ConfigManager& config = ConfigManager::getInstance();
+        EncryptionType encType = config.getDefaultEncryption();
+        // Convert EncryptionType to string for display
+        std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
+        std::string msg =  ("Encryption: " + encTypeStr + " (Default)");
+        createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, msg.c_str());
+
         // Create button (moved up since we removed the dropdown)
         createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 130, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
-        CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
-            // Always use dual AES+LFSR encryption (strongest security)
-            EncryptionType encType = EncryptionType::AES_LFSR;
-            
+        CallbackHelper::setCallback(createButton, this, [this, encType](PasswordSetupComponent* comp) {
             comp->onSetup(comp->newPasswordInput->value(), 
                          comp->confirmPasswordInput->value(),
                          encType);
@@ -516,7 +516,6 @@ public:
         defaultEncryptionChoice = new Fl_Choice(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
         defaultEncryptionChoice->add("AES");
         defaultEncryptionChoice->add("LFSR");
-        defaultEncryptionChoice->add("AES+LFSR");
         defaultEncryptionChoice->value(static_cast<int>(config.getDefaultEncryption()));
         yPos += spacing;
         

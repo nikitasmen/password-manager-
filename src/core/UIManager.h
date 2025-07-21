@@ -62,7 +62,7 @@ public:
      */
     virtual bool setupPassword(const std::string& newPassword, 
                               const std::string& confirmPassword,
-                              EncryptionType encryptionType = EncryptionType::AES_LFSR) = 0;
+                              EncryptionType encryptionType = EncryptionType::AES) = 0;
     
     /**
      * @brief Add a new credential

@@ -1,4 +1,5 @@
 #include "GlobalConfig.h"
+#include "MigrationHelper.h"
 #include <vector>
 #include <map>
 #include <fstream>
@@ -271,22 +272,30 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps, const st
     auto oldInitState = config_.lfsrInitState;
     
     try {
-        // Update settings temporarily for re-encryption
+        // Migrate existing credentials with the new LFSR settings
+        std::cout << "Updating LFSR settings and migrating existing data..." << std::endl;
+        
+        MigrationHelper& migrationHelper = MigrationHelper::getInstance();
+        bool migrationSuccess = migrationHelper.migrateCredentialsForLfsrChange(
+            oldTaps, oldInitState, newTaps, newInitState, masterPassword, config_.dataPath);
+        
+        if (!migrationSuccess) {
+            std::cerr << "Migration failed - reverting LFSR settings" << std::endl;
+            // Restore old settings
+            config_.lfsrTaps = oldTaps;
+            config_.lfsrInitState = oldInitState;
+            taps = oldTaps;
+            init_state = oldInitState;
+            return false;
+        }
+        
+        // Update settings after successful migration
         config_.lfsrTaps = newTaps;
         config_.lfsrInitState = newInitState;
         taps = newTaps;
         init_state = newInitState;
         
-        // TODO: Re-encrypt existing credentials with new LFSR settings if needed
-        // This would require access to the credentials manager to re-encrypt all stored passwords
-        // For now, just return success
-        
-        // In a real implementation, you would:
-        // 1. Get all stored credentials
-        // 2. Decrypt them using the old LFSR settings and the provided master password
-        // 3. Re-encrypt them with the new LFSR settings
-        // 4. Save the re-encrypted credentials
-        
+        std::cout << "LFSR settings updated and data migration completed successfully" << std::endl;
         return true;
     } catch (const std::exception& e) {
         // Restore old settings if anything fails
@@ -306,10 +315,8 @@ EncryptionType ConfigManager::parseEncryptionType(const std::string& value) cons
         return EncryptionType::LFSR;
     } else if (value == "AES" || value == "1") {
         return EncryptionType::AES;
-    } else if (value == "AES_LFSR" || value == "2") {
-        return EncryptionType::AES_LFSR;
     }
-    return EncryptionType::AES_LFSR; // Default fallback
+    return EncryptionType::AES; // Default fallback
 }
 
 std::string ConfigManager::encryptionTypeToString(EncryptionType type) const {
@@ -318,10 +325,8 @@ std::string ConfigManager::encryptionTypeToString(EncryptionType type) const {
             return "LFSR";
         case EncryptionType::AES:
             return "AES";
-        case EncryptionType::AES_LFSR:
-            return "AES_LFSR";
         default:
-            return "AES_LFSR";
+            return "Unknown";
     }
 }
 
@@ -367,8 +372,6 @@ namespace EncryptionUtils {
                 return "LFSR (Basic)";
             case EncryptionType::AES:
                 return "AES-256 (Strong)";
-            case EncryptionType::AES_LFSR:
-                return "AES-256 with LFSR (Strongest)";
             default:
                 return "Unknown";
         }
@@ -394,7 +397,7 @@ namespace EncryptionUtils {
     }
     
     EncryptionType getDefault() {
-        return EncryptionType::AES_LFSR; // Default to strongest encryption for new users
+        return EncryptionType::AES; // Default to strongest encryption for new users
     }
     
     const std::map<int, EncryptionType>& getChoiceMapping() {

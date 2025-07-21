@@ -12,7 +12,6 @@ const int MAX_LOGIN_ATTEMPTS = 3;  // Maximum allowed login attempts before exit
 enum class EncryptionType {
     LFSR = 0,       // Linear Feedback Shift Register (basic)
     AES = 1,        // Advanced Encryption Standard (stronger)
-    AES_LFSR = 2,   // AES followed by LFSR (strongest - dual layer)
     
     // Keep this as the last entry to track count
     COUNT
@@ -22,7 +21,7 @@ enum class EncryptionType {
 struct AppConfig {
     // Core settings
     std::string dataPath = "./data";
-    EncryptionType defaultEncryption = EncryptionType::AES_LFSR;
+    EncryptionType defaultEncryption = EncryptionType::AES;
     int maxLoginAttempts = 3;
     
     // Clipboard settings
