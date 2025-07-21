@@ -672,9 +672,22 @@ public:
                 config.setLfsrInitState(newInitState);
             }
             
-            // Update other configuration values
+          
+            // If encryption type changed, migrate master password
+            EncryptionType oldType = config.getDefaultEncryption();
+            EncryptionType newType = static_cast<EncryptionType>(defaultEncryptionChoice->value());
+            if (oldType != newType) {
+                // Prompt for master password
+                const char* masterPassword = fl_password("Enter master password to migrate to new encryption type:", "");
+                if (!masterPassword || strlen(masterPassword) == 0) {
+                    fl_alert("Master password is required to change encryption type!");
+                    return;
+                }
+                config.setDefaultEncryption(newType, std::string(masterPassword));
+            }
+            
+              // Update other configuration values
             config.setDataPath(dataPathInput->value());
-            config.setDefaultEncryption(static_cast<EncryptionType>(defaultEncryptionChoice->value()));
             config.setMaxLoginAttempts(std::stoi(maxLoginAttemptsInput->value()));
             config.setClipboardTimeoutSeconds(std::stoi(clipboardTimeoutInput->value()));
             config.setAutoClipboardClear(autoClipboardClearCheck->value() == 1);
