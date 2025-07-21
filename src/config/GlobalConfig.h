@@ -113,12 +113,9 @@ namespace EncryptionUtils {
     
     // Get default encryption type
     EncryptionType getDefault();
-
+    
     // Get encryption type mapping for menu choices
     const std::map<int, EncryptionType>& getChoiceMapping();
-
-    // Get display name for encryption type
-    const char* getDisplayName(EncryptionType type);
 }
 
 // Global variables (for backward compatibility)

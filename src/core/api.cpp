@@ -143,27 +143,6 @@ bool CredentialsManager::deleteCredentials(const std::string& platform) {
     }
 }
 
-void CredentialsManager::showOptions(const std::string& path) const {
-    try {
-        std::vector<std::string> platforms = storage->getAllPlatforms();
-        
-        std::cout << "Available platforms:\n";
-        std::cout << "==================\n";
-        
-        if (platforms.empty()) {
-            std::cout << "No platforms found.\n";
-        } else {
-            for (const auto& platform : platforms) {
-                std::cout << "- " << platform << std::endl;
-            }
-        }
-        
-        std::cout << "==================\n";
-    } catch (const std::exception& e) {
-        std::cerr << "Exception while showing options: " << e.what() << std::endl;
-    }
-}
-
 std::vector<std::string> CredentialsManager::getAllPlatforms() {
     return storage->getAllPlatforms();
 }

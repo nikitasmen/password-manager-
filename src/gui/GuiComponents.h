@@ -128,13 +128,9 @@ public:
         ConfigManager& config = ConfigManager::getInstance();
         EncryptionType encType = config.getDefaultEncryption();
         // Convert EncryptionType to string for display
-        std::string encTypeStr;
-        switch (encType) {
-            case EncryptionType::AES: encTypeStr = "AES"; break;
-            case EncryptionType::LFSR: encTypeStr = "LFSR"; break;
-            default: encTypeStr = "Unknown"; break;
-        }
-        createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, ("Encryption: " + encTypeStr + " (Default)").c_str());
+        std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
+        std::string msg =  ("Encryption: " + encTypeStr + " (Default)");
+        createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, msg.c_str());
 
         // Create button (moved up since we removed the dropdown)
         createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 130, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
