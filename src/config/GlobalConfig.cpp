@@ -157,7 +157,19 @@ void ConfigManager::setDataPath(const std::string& path) {
     g_data_path = path;
 }
 
-void ConfigManager::setDefaultEncryption(EncryptionType type) {
+void ConfigManager::setDefaultEncryption(EncryptionType type, const std::string& masterPassword) {
+    // Only migrate if encryption type is changing and master password is provided
+    if (type != config_.defaultEncryption && !masterPassword.empty()) {
+        MigrationHelper& migrationHelper = MigrationHelper::getInstance();
+        bool migrated = migrationHelper.migrateMasterPasswordForEncryptionChange(
+            config_.defaultEncryption, type,
+            config_.lfsrTaps, config_.lfsrInitState,
+            config_.lfsrTaps, config_.lfsrInitState,
+            masterPassword, config_.dataPath);
+        if (!migrated) {
+            std::cerr << "Warning: Master password migration failed during encryption type change." << std::endl;
+        }
+    }
     config_.defaultEncryption = type;
     g_encryption_type = type;
 }

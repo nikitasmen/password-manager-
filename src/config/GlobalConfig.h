@@ -74,7 +74,8 @@ public:
     
     // Set specific config values
     void setDataPath(const std::string& path);
-    void setDefaultEncryption(EncryptionType type);
+    // Set default encryption and migrate master password if needed
+    void setDefaultEncryption(EncryptionType type, const std::string& masterPassword = "");
     void setMaxLoginAttempts(int attempts);
     void setClipboardTimeoutSeconds(int seconds);
     void setAutoClipboardClear(bool enabled);
