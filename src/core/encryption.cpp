@@ -1,7 +1,6 @@
 #include "./encryption.h"
 #include <stdexcept>
 #include <algorithm>
-#include <iostream>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/kdf.h>
@@ -37,7 +36,7 @@ CipherContextRAII& CipherContextRAII::operator=(CipherContextRAII&& other) noexc
 
 Encryption::Encryption(EncryptionType algorithm, const std::vector<int>& taps, const std::vector<int>& init_state, const std::string& password) {
     // Only check init_state and taps for LFSR-based encryption types
-    if (algorithm == EncryptionType::LFSR || algorithm == EncryptionType::AES_LFSR) {
+    if (algorithm == EncryptionType::LFSR) {
         if (init_state.empty()) {
             throw EncryptionError("Initial state cannot be empty for LFSR-based encryption");
         }
@@ -107,16 +106,6 @@ std::string Encryption::encrypt(const std::string& plaintext) {
             // Use the master password for AES encryption
             return aesEncrypt(plaintext, masterPassword);
         }
-        else if (algorithm == EncryptionType::AES_LFSR) {
-            // Dual encryption: AES first, then LFSR
-            // Step 1: Encrypt with AES using master password
-            std::string aesEncrypted = aesEncrypt(plaintext, masterPassword);
-            
-            // Step 2: Encrypt the AES result with LFSR
-            std::string dualEncrypted = lfsrProcess(aesEncrypted);
-            
-            return dualEncrypted;
-        }
         else { // LFSR algorithm
             return lfsrProcess(plaintext);
         }
@@ -131,7 +120,6 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
     try {
         // Use the specified algorithm or default to the current one
         EncryptionType actualAlgorithm = forcedAlgorithm ? *forcedAlgorithm : algorithm;
-        
         // Choose decryption algorithm
         if (actualAlgorithm == EncryptionType::AES) {
             // For AES, we need to extract the IV from the beginning of the encrypted text
@@ -142,16 +130,6 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
             
             // Use the master password for AES decryption
             return aesDecrypt(encrypted_text, masterPassword);
-        }
-        else if (actualAlgorithm == EncryptionType::AES_LFSR) {
-            // Dual decryption: LFSR first, then AES
-            // Step 1: Decrypt LFSR layer
-            std::string lfsrDecrypted = lfsrProcess(encrypted_text);
-            
-            // Step 2: Decrypt AES layer using master password
-            std::string finalDecrypted = aesDecrypt(lfsrDecrypted, masterPassword);
-            
-            return finalDecrypted;
         }
         else { // LFSR algorithm
             return lfsrProcess(encrypted_text);
@@ -165,16 +143,14 @@ std::string Encryption::decrypt(const std::string& encrypted_text, EncryptionTyp
 
 std::string Encryption::encryptWithSalt(const std::string& plaintext) {
     try {
-        if (algorithm == EncryptionType::AES || algorithm == EncryptionType::AES_LFSR  ) {
-            std::cout << "Using AES or AES_LFSR algorithm, no salt needed." << std::endl;
-            // For AES AES-LFSR
+        if (algorithm == EncryptionType::AES) {
+            // For AES and AES-LFSR, no salt needed
             return encrypt(plaintext);
-        } else {
-            // Prepend salt as string to plaintext, then encrypt
-            auto salt = generateSalt();
-            std::string saltStr(reinterpret_cast<const char*>(salt.data()), PBKDF2_SALT_SIZE);
-            return lfsrProcess(saltStr + plaintext);
         }
+        // Prepend salt as string to plaintext, then encrypt
+        auto salt = generateSalt();
+        std::string saltStr(reinterpret_cast<const char*>(salt.data()), PBKDF2_SALT_SIZE);
+        return lfsrProcess(saltStr + plaintext);
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
     } catch (const std::exception& e) {
@@ -184,7 +160,7 @@ std::string Encryption::encryptWithSalt(const std::string& plaintext) {
 
 std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
     try {
-        if (algorithm == EncryptionType::AES || algorithm == EncryptionType::AES_LFSR) {
+        if (algorithm == EncryptionType::AES) {
             return decrypt(encrypted_text);
         }
         else { 

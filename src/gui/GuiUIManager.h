@@ -91,9 +91,9 @@ public:
      * @param encryptionType The encryption algorithm to use
      * @return True if password setup was successful
      */
-    bool setupPassword(const std::string& newPassword, 
-                      const std::string& confirmPassword,
-                      EncryptionType encryptionType = EncryptionType::AES_LFSR) override;
+bool setupPassword(const std::string& newPassword, 
+                  const std::string& confirmPassword,
+                  EncryptionType encryptionType = EncryptionType::AES) override;
     
     /**
      * @brief Add a new credential through GUI

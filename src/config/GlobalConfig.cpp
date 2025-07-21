@@ -315,10 +315,8 @@ EncryptionType ConfigManager::parseEncryptionType(const std::string& value) cons
         return EncryptionType::LFSR;
     } else if (value == "AES" || value == "1") {
         return EncryptionType::AES;
-    } else if (value == "AES_LFSR" || value == "2") {
-        return EncryptionType::AES_LFSR;
     }
-    return EncryptionType::AES_LFSR; // Default fallback
+    return EncryptionType::AES; // Default fallback
 }
 
 std::string ConfigManager::encryptionTypeToString(EncryptionType type) const {
@@ -327,10 +325,8 @@ std::string ConfigManager::encryptionTypeToString(EncryptionType type) const {
             return "LFSR";
         case EncryptionType::AES:
             return "AES";
-        case EncryptionType::AES_LFSR:
-            return "AES_LFSR";
         default:
-            return "AES_LFSR";
+            return "Unknown";
     }
 }
 
@@ -376,8 +372,6 @@ namespace EncryptionUtils {
                 return "LFSR (Basic)";
             case EncryptionType::AES:
                 return "AES-256 (Strong)";
-            case EncryptionType::AES_LFSR:
-                return "AES-256 with LFSR (Strongest)";
             default:
                 return "Unknown";
         }
@@ -403,7 +397,7 @@ namespace EncryptionUtils {
     }
     
     EncryptionType getDefault() {
-        return EncryptionType::AES_LFSR; // Default to strongest encryption for new users
+        return EncryptionType::AES; // Default to strongest encryption for new users
     }
     
     const std::map<int, EncryptionType>& getChoiceMapping() {

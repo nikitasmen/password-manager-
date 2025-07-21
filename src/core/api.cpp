@@ -73,12 +73,7 @@ bool CredentialsManager::login(const std::string& password) {
         
         if (!passwordMatched) {
             std::cerr << "Authentication failed: Invalid password" << std::endl;
-        } else {
-            // Store the master password and update the encryptor
-            currentMasterPassword = password;
-            encryptor->setMasterPassword(currentMasterPassword);
-        }
-        
+        } 
         return passwordMatched;
     } catch (const std::exception& e) {
         std::cerr << "Exception during login: " << e.what() << std::endl;
@@ -92,7 +87,7 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
             std::cerr << "Error: Empty password provided\n";
             return false;
         }
-        // Always use salt encryption
+        // Always use encryptWithSalt (it will handle salt logic internally)
         std::string passwordToStore = encryptor->encryptWithSalt(newPassword);
         return storage->updateMasterPassword(passwordToStore);
     } catch (const EncryptionError& e) {

@@ -166,11 +166,7 @@ EncryptionType TerminalUI::selectEncryptionAlgorithm() {
     std::cout << "|    - Industry-standard algorithm       |\n";
     std::cout << "|    - More secure but slightly slower   |\n";
     std::cout << "+---------------------------------------+\n";
-    std::cout << "| 3) AES + LFSR (Strongest)              |\n";
-    std::cout << "|    - Combines AES with LFSR            |\n";
-    std::cout << "|    - Best of both worlds                |\n";
-    std::cout << "+---------------------------------------+\n";
-    std::cout << "Please select an encryption algorithm (1-3): ";
+    std::cout << "Please select an encryption algorithm (1-2): ";
     
     if (!(std::cin >> choice)) {
         std::cin.clear(); // Clear the error flag

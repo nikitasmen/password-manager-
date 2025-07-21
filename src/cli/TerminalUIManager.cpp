@@ -19,8 +19,7 @@ void TerminalUIManager::initialize() {
         TerminalUI::display_message("Welcome to Password Manager!");
         TerminalUI::display_message("Please create a master password to get started.");
         
-        // Use dual AES+LFSR encryption (strongest security)
-        TerminalUI::display_message("\nUsing AES-256 with LFSR encryption (strongest security) for secure password storage.");
+        TerminalUI::display_message("\nUsing AES-256 or LFSR encryption for secure password storage.");
         
         std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
