@@ -60,6 +60,29 @@ public:
         const std::string& dataPath
     );
 
+        /**
+     * @brief Migrate master password when encryption type changes (AES <-> LFSR)
+     * @param oldType Previous encryption type
+     * @param newType New encryption type
+     * @param oldTaps Previous LFSR taps (if LFSR)
+     * @param oldInitState Previous LFSR init state (if LFSR)
+     * @param newTaps New LFSR taps (if LFSR)
+     * @param newInitState New LFSR init state (if LFSR)
+     * @param masterPassword Master password (plaintext)
+     * @param dataPath Path to data storage
+     * @return bool True if migration was successful
+     */
+    bool migrateMasterPasswordForEncryptionChange(
+        EncryptionType oldType,
+        EncryptionType newType,
+        const std::vector<int>& oldTaps,
+        const std::vector<int>& oldInitState,
+        const std::vector<int>& newTaps,
+        const std::vector<int>& newInitState,
+        const std::string& masterPassword,
+        const std::string& dataPath
+    );
+
 private:
     MigrationHelper() = default;
     

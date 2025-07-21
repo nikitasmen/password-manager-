@@ -291,3 +291,43 @@ bool MigrationHelper::reencryptCredential(
         return false;
     }
 }
+
+bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
+    EncryptionType oldType,
+    EncryptionType newType,
+    const std::vector<int>& oldTaps,
+    const std::vector<int>& oldInitState,
+    const std::vector<int>& newTaps,
+    const std::vector<int>& newInitState,
+    const std::string& masterPassword,
+    const std::string& dataPath) {
+    std::unique_ptr<JsonStorage> storage = std::make_unique<JsonStorage>(dataPath);
+    std::string storedPassword = storage->getMasterPassword();
+    if (storedPassword.empty()) {
+        std::cout << "No master password to migrate" << std::endl;
+        return true;
+    }
+    std::string decryptedPassword;
+    try {
+        // Always decrypt with the OLD type and parameters
+        std::unique_ptr<Encryption> oldEncryptor;
+        oldEncryptor = std::make_unique<Encryption>(oldType, oldTaps, oldInitState, masterPassword);
+        decryptedPassword = oldEncryptor->decryptWithSalt(storedPassword);
+        
+        // Now re-encrypt with the NEW type and parameters
+        std::unique_ptr<Encryption> newEncryptor;
+        std::string newEncrypted;
+        newEncryptor = std::make_unique<Encryption>(newType, newTaps, newInitState, masterPassword);
+        newEncrypted = newEncryptor->encryptWithSalt(decryptedPassword);
+
+        if (!storage->updateMasterPassword(newEncrypted)) {
+            std::cerr << "Failed to update master password with new encryption." << std::endl;
+            return false;
+        }
+        std::cout << "Master password migrated to new encryption type successfully." << std::endl;
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Exception during master password migration: " << e.what() << std::endl;
+        return false;
+    }
+}
