@@ -508,35 +508,45 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
     }
 }
 
+// Generic dialog cleanup helper
+namespace {
+    template<typename WindowPtr, typename RootPtr>
+    void cleanupDialog(WindowPtr& window, RootPtr& root, void*& componentRef) {
+        if (root) {
+            root->cleanup();
+            root.reset();
+        }
+        if (window) {
+            window->hide();
+            window.reset();
+        }
+        if (componentRef) {
+            componentRef = nullptr;
+        }
+    }
+    template<typename WindowPtr, typename RootPtr>
+    void cleanupDialog(WindowPtr& window, RootPtr& root) {
+        if (root) {
+            root->cleanup();
+            root.reset();
+        }
+        if (window) {
+            window->hide();
+            window.reset();
+        }
+    }
+}
+
 void GuiUIManager::cleanupAddCredentialDialog() {
-    if (addCredentialRoot) {
-        // First cleanup all the components
-        addCredentialRoot->cleanup();
-        addCredentialRoot.reset();
-    }
-    
-    if (addCredentialWindow) {
-        // Then hide and destroy the window
-        addCredentialWindow->hide();
-        addCredentialWindow.reset();
-    }
-    
-    // Reset component reference
-    credentialInputs = nullptr;
+    cleanupDialog(addCredentialWindow, addCredentialRoot, reinterpret_cast<void*&>(credentialInputs));
 }
 
 void GuiUIManager::cleanupViewCredentialDialog() {
-    if (viewCredentialRoot) {
-        // First cleanup all the components
-        viewCredentialRoot->cleanup();
-        viewCredentialRoot.reset();
-    }
-    
-    if (viewCredentialWindow) {
-        // Then hide and destroy the window
-        viewCredentialWindow->hide();
-        viewCredentialWindow.reset();
-    }
+    cleanupDialog(viewCredentialWindow, viewCredentialRoot);
+}
+
+void GuiUIManager::cleanupSettingsDialog() {
+    cleanupDialog(settingsWindow, settingsRoot);
 }
 
 void GuiUIManager::refreshPlatformsList() {
@@ -624,12 +634,4 @@ void GuiUIManager::createSettingsDialog() {
     
     // Debug: Force redraw
     settingsWindow->redraw();
-}
-
-void GuiUIManager::cleanupSettingsDialog() {
-    if (settingsWindow) {
-        settingsWindow->hide();
-        settingsRoot.reset();
-        settingsWindow.reset();
-    }
 }

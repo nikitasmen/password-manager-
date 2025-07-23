@@ -50,7 +50,7 @@ public:
      */
 bool setupPassword(const std::string& newPassword, 
                   const std::string& confirmPassword,
-                  EncryptionType encryptionType = EncryptionType::AES) override;
+                  EncryptionType encryptionType) override;
     
     /**
      * @brief Add a new credential through terminal

@@ -47,8 +47,17 @@ private:
     void createAddCredentialDialog();
     void createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials);
     void createSettingsDialog();
+    /**
+     * @brief Clean up the add credential dialog (uses generic helper)
+     */
     void cleanupAddCredentialDialog();
+    /**
+     * @brief Clean up the view credential dialog (uses generic helper)
+     */
     void cleanupViewCredentialDialog();
+    /**
+     * @brief Clean up the settings dialog (uses generic helper)
+     */
     void cleanupSettingsDialog();
     void cleanupMainWindow();
     void refreshPlatformsList();
@@ -93,7 +102,7 @@ public:
      */
 bool setupPassword(const std::string& newPassword, 
                   const std::string& confirmPassword,
-                  EncryptionType encryptionType = EncryptionType::AES) override;
+                  EncryptionType encryptionType) override;
     
     /**
      * @brief Add a new credential through GUI
