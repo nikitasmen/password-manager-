@@ -88,10 +88,6 @@ add_custom_target(create_data_dir ALL
 add_executable(base64_test tests/base64_test.cpp src/core/base64.cpp)
 link_common(base64_test)
 
-# --- Migration demo executable ---
-add_executable(migration_demo migration_demo.cpp ${CORE_SOURCES})
-link_common(migration_demo)
-
 # --- Install (optional; skip for local dev to speed up) ---
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     message(STATUS "Skipping install step for faster local builds")
