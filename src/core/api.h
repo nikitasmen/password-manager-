@@ -45,7 +45,7 @@ class CredentialsManager {
          * @param encryptionType The encryption algorithm to use
          */
         explicit CredentialsManager(const std::string& dataPath = ".", 
-                                  EncryptionType encryptionType = g_encryption_type);
+                                  EncryptionType encryptionType = EncryptionType::AES);
         
         /**
          * @brief Destroy the Credentials Manager object and free allocated memory
