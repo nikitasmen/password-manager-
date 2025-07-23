@@ -58,9 +58,9 @@ bool MigrationHelper::migrateCredentialsForLfsrChange(
                 if (encType == static_cast<int>(EncryptionType::LFSR)) {
                     // Pure LFSR encryption
                     std::unique_ptr<Encryption> oldEncryptor = 
-                        std::make_unique<Encryption>(EncryptionType::LFSR, oldTaps, oldInitState, masterPassword);
+                        EncryptionFactory::create(EncryptionType::LFSR, oldTaps, oldInitState, masterPassword);
                     std::unique_ptr<Encryption> newEncryptor = 
-                        std::make_unique<Encryption>(EncryptionType::LFSR, newTaps, newInitState, masterPassword);
+                        EncryptionFactory::create(EncryptionType::LFSR, newTaps, newInitState, masterPassword);
                     if (reencryptCredential(platform, credentials, oldEncryptor.get(), newEncryptor.get(), storage.get())) {
                         successCount++;
                         std::cout << "Migrated LFSR credentials for: " << platform << std::endl;
