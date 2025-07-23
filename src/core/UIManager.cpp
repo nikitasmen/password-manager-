@@ -27,3 +27,31 @@ std::unique_ptr<CredentialsManager> UIManager::getFreshCredManager() {
     }
     return manager;
 }
+
+bool UIManager::safeAddCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
+    try {
+        auto tempCredManager = getFreshCredManager();
+        return tempCredManager->addCredentials(platform, username, password, encryptionType);
+    } catch (const std::exception& e) {
+        std::cerr << "Error adding credential: " << e.what() << std::endl;
+        return false;
+    }
+}
+std::vector<std::string> UIManager::safeGetCredentials(const std::string& platform) {
+    try {
+        auto tempCredManager = getFreshCredManager();
+        return tempCredManager->getCredentials(platform);
+    } catch (const std::exception& e) {
+        std::cerr << "Error getting credentials: " << e.what() << std::endl;
+        return {};
+    }
+}
+bool UIManager::safeDeleteCredential(const std::string& platform) {
+    try {
+        auto tempCredManager = getFreshCredManager();
+        return tempCredManager->deleteCredentials(platform);
+    } catch (const std::exception& e) {
+        std::cerr << "Error deleting credential: " << e.what() << std::endl;
+        return false;
+    }
+}
