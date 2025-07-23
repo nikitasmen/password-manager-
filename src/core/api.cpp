@@ -21,27 +21,13 @@ namespace fs = std::experimental::filesystem;
 
 CredentialsManager::CredentialsManager(const std::string& dataPath, EncryptionType encryptionType) 
     : dataPath(dataPath), encryptionType(encryptionType), currentMasterPassword("") {
-    // Dynamically allocate memory for encryptor and storage
-    // Get LFSR settings from ConfigManager to ensure we're using the current settings
     const auto& configTaps = ConfigManager::getInstance().getLfsrTaps();
     const auto& configInitState = ConfigManager::getInstance().getLfsrInitState();
     
-    // Update global variables to match config (in case they're out of sync)
-    // taps = configTaps; // Removed as per edit hint
-    // init_state = configInitState; // Removed as per edit hint
-    
-    // Use the settings from ConfigManager
-    encryptor = new Encryption(encryptionType, configTaps, configInitState, currentMasterPassword);
-    storage = new JsonStorage(dataPath);
+    encryptor = EncryptionFactory::create(encryptionType, configTaps, configInitState, "");
 }
 
 CredentialsManager::~CredentialsManager() {
-    // Clean up allocated memory
-    if (encryptor) {
-        delete encryptor;
-        encryptor = nullptr;
-    }
-    
     if (storage) {
         delete storage;
         storage = nullptr;
@@ -62,13 +48,13 @@ bool CredentialsManager::login(const std::string& password) {
         EncryptionType masterEncType = ConfigManager::getInstance().getDefaultEncryption();
         const auto& configTaps = ConfigManager::getInstance().getLfsrTaps();
         const auto& configInitState = ConfigManager::getInstance().getLfsrInitState();
-        Encryption masterEncryptor(masterEncType, configTaps, configInitState, password);
+        auto masterEncryptor = EncryptionFactory::create(masterEncType, configTaps, configInitState, password);
         try {
             std::string correct;
             if (masterEncType == EncryptionType::LFSR) {
-                correct = masterEncryptor.decryptWithSalt(storedPassword);
+                correct = masterEncryptor->decryptWithSalt(storedPassword);
             } else {
-                correct = masterEncryptor.decrypt(storedPassword);
+                correct = masterEncryptor->decrypt(storedPassword);
             }
             if (correct == password) {
                 passwordMatched = true;
@@ -97,14 +83,21 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
         EncryptionType masterEncType = ConfigManager::getInstance().getDefaultEncryption();
         const auto& configTaps = ConfigManager::getInstance().getLfsrTaps();
         const auto& configInitState = ConfigManager::getInstance().getLfsrInitState();
-        Encryption masterEncryptor(masterEncType, configTaps, configInitState, newPassword);
+        auto masterEncryptor = EncryptionFactory::create(masterEncType, configTaps, configInitState, newPassword);
         std::string passwordToStore;
-        if (masterEncType == EncryptionType::LFSR) {
-            passwordToStore = masterEncryptor.encryptWithSalt(newPassword);
+        if (masterEncType == EncryptionType::BCRYPT) {
+            // Compute hash
+            auto hashEncryptor = EncryptionFactory::create(EncryptionType::BCRYPT);
+            std::string hashed = hashEncryptor->hash(newPassword);
+            return storage->updateMasterPassword(hashed);
         } else {
-            passwordToStore = masterEncryptor.encrypt(newPassword);
+            if (masterEncType == EncryptionType::LFSR) {
+                passwordToStore = masterEncryptor->encryptWithSalt(newPassword);
+            } else {
+                passwordToStore = masterEncryptor->encrypt(newPassword);
+            }
+            return storage->updateMasterPassword(passwordToStore);
         }
-        return storage->updateMasterPassword(passwordToStore);
     } catch (const EncryptionError& e) {
         std::cerr << "Encryption error during password update: " << e.what() << std::endl;
         return false;
@@ -121,14 +114,14 @@ bool CredentialsManager::addCredentials(const std::string& platform, const std::
         EncryptionType actualEncryptionType = encryptionType.value_or(this->encryptionType);
         
         // Create a temporary encryptor with the desired algorithm if needed
-        Encryption* currentEncryptor = encryptor;
+        Encryption* currentEncryptor = encryptor.get();
         std::unique_ptr<Encryption> tempEncryptor;
         
         // If requested algorithm is different from current, create a temporary encryptor
         if (actualEncryptionType != encryptor->getAlgorithm()) {
             const auto& configTaps = ConfigManager::getInstance().getLfsrTaps();
             const auto& configInitState = ConfigManager::getInstance().getLfsrInitState();
-            tempEncryptor = std::make_unique<Encryption>(actualEncryptionType, configTaps, configInitState, currentMasterPassword);
+            tempEncryptor = EncryptionFactory::create(actualEncryptionType, configTaps, configInitState, currentMasterPassword);
             currentEncryptor = tempEncryptor.get();
         }
         
@@ -195,14 +188,14 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
             }
             
             // Create a temporary encryptor with the correct algorithm if needed
-            Encryption* currentEncryptor = encryptor;
+            Encryption* currentEncryptor = encryptor.get();
             std::unique_ptr<Encryption> tempEncryptor;
             
             // If credential's encryption type is different from current, create a temporary encryptor
             if (credEncType != encryptor->getAlgorithm()) {
                 const auto& configTaps = ConfigManager::getInstance().getLfsrTaps();
                 const auto& configInitState = ConfigManager::getInstance().getLfsrInitState();
-                tempEncryptor = std::make_unique<Encryption>(credEncType, configTaps, configInitState, currentMasterPassword);
+                tempEncryptor = EncryptionFactory::create(credEncType, configTaps, configInitState, currentMasterPassword);
                 currentEncryptor = tempEncryptor.get();
             }
             
@@ -212,7 +205,7 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
                                           currentEncryptor->decryptWithSalt(encryptedCredentials[0]));
                 decryptedCredentials.insert(decryptedCredentials.begin() + 1, 
                                           currentEncryptor->decryptWithSalt(encryptedCredentials[1]));
-            } catch (const EncryptionError& e) {
+            } catch (const EncryptionError&) {
                 // Fallback to legacy decryption if salt-aware fails
                 try {
                     // Keep only the encryption type

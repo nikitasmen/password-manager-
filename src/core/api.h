@@ -10,6 +10,7 @@
 #include <optional>
 #include "./encryption.h"
 #include "./json_storage.h"
+#include <memory>
 
 /**
  * @class CredentialsManager
@@ -21,7 +22,7 @@
 class CredentialsManager { 
     private: 
         std::string dataPath;               // Path where data files are stored
-        Encryption* encryptor;              // Encryption engine for securing credentials - dynamically allocated
+        std::unique_ptr<Encryption> encryptor;              // Encryption engine for securing credentials - dynamically allocated
         JsonStorage* storage;               // Storage engine for credentials - dynamically allocated
         EncryptionType encryptionType;      // Current encryption algorithm
         std::string currentMasterPassword;  // Current master password for AES encryption
