@@ -130,78 +130,42 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
     }
 }
 
-bool GuiUIManager::addCredential(const std::string& platform, 
-                              const std::string& username, 
-                              const std::string& password,
-                              std::optional<EncryptionType> encryptionType) {
+bool GuiUIManager::addCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
     if (!isLoggedIn) return false;
-    
-    try {
-        // Get fresh credentials manager
-        auto tempCredManager = getFreshCredManager();
-        
-        if (tempCredManager->addCredentials(platform, username, password, encryptionType)) {
-            showMessage("Success", "Credentials added successfully!");
-            refreshPlatformsList();
-            return true;
-        } else {
-            showMessage("Error", "Failed to add credentials!", true);
-            return false;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in addCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while adding credentials", true);
+    if (safeAddCredential(platform, username, password, encryptionType)) {
+        showMessage("Success", "Credentials added successfully!");
+        refreshPlatformsList();
+        return true;
+    } else {
+        showMessage("Error", "Failed to add credentials!", true);
         return false;
     }
 }
 
 void GuiUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
-    
-    try {
-        // Get fresh credentials manager
-        auto tempCredManager = getFreshCredManager();
-        
-        // Get credentials for the platform
-        std::vector<std::string> credentials = tempCredManager->getCredentials(platform);
-        
-        if (credentials.empty() || credentials.size() < 2) {
-            showMessage("Error", "No valid credentials found for this platform!", true);
-            return;
-        }
-        
-        // Create and show the view credential dialog
-        createViewCredentialDialog(platform, credentials);
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in viewCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while retrieving credentials", true);
+    std::vector<std::string> credentials = safeGetCredentials(platform);
+    if (credentials.empty() || credentials.size() < 2) {
+        showMessage("Error", "No valid credentials found for this platform!", true);
+        return;
     }
+    createViewCredentialDialog(platform, credentials);
 }
 
 bool GuiUIManager::deleteCredential(const std::string& platform) {
     if (!isLoggedIn) return false;
-    
-    try {
-        std::string message = "Are you sure you want to delete credentials for " + platform + "?";
-        if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
-            // Get fresh credentials manager
-            auto tempCredManager = getFreshCredManager();
-            
-            if (tempCredManager->deleteCredentials(platform)) {
-                showMessage("Success", "Credentials deleted successfully!");
-                refreshPlatformsList();
-                return true;
-            } else {
-                showMessage("Error", "Failed to delete credentials!", true);
-                return false;
-            }
+    std::string message = "Are you sure you want to delete credentials for " + platform + "?";
+    if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
+        if (safeDeleteCredential(platform)) {
+            showMessage("Success", "Credentials deleted successfully!");
+            refreshPlatformsList();
+            return true;
+        } else {
+            showMessage("Error", "Failed to delete credentials!", true);
+            return false;
         }
-        return false;
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in deleteCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while deleting credentials", true);
-        return false;
     }
+    return false;
 }
 
 void GuiUIManager::showMessage(const std::string& title, const std::string& message, bool isError) {
@@ -312,6 +276,7 @@ void GuiUIManager::createMainScreen() {
         rootComponent->addChild<MenuBarComponent>(
             mainWindow.get(), 0, 0, 600, 30,
             [this]() { createAddCredentialDialog(); },
+            [this]() { openSettingsDialog(); },
             []() { 
                 if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
                     exit(0);
@@ -507,35 +472,45 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
     }
 }
 
+// Generic dialog cleanup helper
+namespace {
+    template<typename WindowPtr, typename RootPtr>
+    void cleanupDialog(WindowPtr& window, RootPtr& root, void*& componentRef) {
+        if (root) {
+            root->cleanup();
+            root.reset();
+        }
+        if (window) {
+            window->hide();
+            window.reset();
+        }
+        if (componentRef) {
+            componentRef = nullptr;
+        }
+    }
+    template<typename WindowPtr, typename RootPtr>
+    void cleanupDialog(WindowPtr& window, RootPtr& root) {
+        if (root) {
+            root->cleanup();
+            root.reset();
+        }
+        if (window) {
+            window->hide();
+            window.reset();
+        }
+    }
+}
+
 void GuiUIManager::cleanupAddCredentialDialog() {
-    if (addCredentialRoot) {
-        // First cleanup all the components
-        addCredentialRoot->cleanup();
-        addCredentialRoot.reset();
-    }
-    
-    if (addCredentialWindow) {
-        // Then hide and destroy the window
-        addCredentialWindow->hide();
-        addCredentialWindow.reset();
-    }
-    
-    // Reset component reference
-    credentialInputs = nullptr;
+    cleanupDialog(addCredentialWindow, addCredentialRoot, reinterpret_cast<void*&>(credentialInputs));
 }
 
 void GuiUIManager::cleanupViewCredentialDialog() {
-    if (viewCredentialRoot) {
-        // First cleanup all the components
-        viewCredentialRoot->cleanup();
-        viewCredentialRoot.reset();
-    }
-    
-    if (viewCredentialWindow) {
-        // Then hide and destroy the window
-        viewCredentialWindow->hide();
-        viewCredentialWindow.reset();
-    }
+    cleanupDialog(viewCredentialWindow, viewCredentialRoot);
+}
+
+void GuiUIManager::cleanupSettingsDialog() {
+    cleanupDialog(settingsWindow, settingsRoot);
 }
 
 void GuiUIManager::refreshPlatformsList() {
@@ -576,4 +551,52 @@ void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
             }
         }
     }, reinterpret_cast<void*>(static_cast<uintptr_t>(exitOnClose)));
+}
+
+void GuiUIManager::openSettingsDialog() {
+    ConfigManager::getInstance().loadConfig(); // Always reload config before showing settings
+    createSettingsDialog();
+    settingsWindow->show();
+}
+
+void GuiUIManager::createSettingsDialog() {
+    // Clean up any existing dialog
+    cleanupSettingsDialog();
+    
+    // Create new settings window with larger size to accommodate scrollable content
+    settingsWindow = std::make_unique<Fl_Window>(550, 600, "Application Settings");
+    settingsWindow->begin();
+    
+    // Create root container that fills the entire window
+    settingsRoot = std::make_unique<ContainerComponent>(settingsWindow.get(), 0, 0, 550, 600);
+    
+    // Add a simple test to see if the window is working
+    auto testLabel = settingsRoot->addChild<TitleComponent>(
+        settingsWindow.get(), 10, 10, 530, 30, "Settings", 16
+    );
+    
+    // Add settings form component with more space
+    auto settingsForm = settingsRoot->addChild<SettingsDialogComponent>(
+        settingsWindow.get(), 10, 50, 530, 500,
+        [this]() {
+            // On save callback
+            cleanupSettingsDialog();
+        },
+        [this]() {
+            // On cancel callback
+            cleanupSettingsDialog();
+        }
+    );
+    
+    // Create the components BEFORE ending the window
+    settingsRoot->create();
+    
+    settingsWindow->end();
+    settingsWindow->set_modal();
+    
+    // Set close handler
+    setWindowCloseHandler(settingsWindow.get(), false);
+    
+    // Debug: Force redraw
+    settingsWindow->redraw();
 }

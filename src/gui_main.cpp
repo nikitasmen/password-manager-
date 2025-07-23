@@ -7,8 +7,14 @@
 
 int main(int argc, char** argv) {
     try {
+        // Load configuration from file
+        ConfigManager& configManager = ConfigManager::getInstance();
+        if (!configManager.loadConfig(".config")) {
+            std::cout << "Warning: Could not load configuration file. Using defaults.\n";
+        }
+        
         // Create data directory if it doesn't exist
-        std::filesystem::path dir(g_data_path);
+        std::filesystem::path dir(configManager.getDataPath());
         if (!std::filesystem::exists(dir)) {
             std::filesystem::create_directories(dir);
         }
@@ -17,8 +23,8 @@ int main(int argc, char** argv) {
         Fl::scheme("gtk+");
         Fl::visual(FL_DOUBLE | FL_RGB);
         
-        // Create UI manager for graphical interface
-        auto uiManager = UIManagerFactory::createUIManager(UIType::GUI, g_data_path);
+        // Create UI manager for graphical interface using configured data path
+        auto uiManager = UIManagerFactory::createUIManager(UIType::GUI, configManager.getDataPath());
         
         // Initialize and show the UI
         uiManager->initialize();

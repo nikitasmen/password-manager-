@@ -1,0 +1,23 @@
+# Password Manager Configuration File
+# This file contains application settings and preferences
+
+# Core Settings
+dataPath=./data
+defaultEncryption=AES_LFSR
+maxLoginAttempts=3
+
+# Clipboard Settings
+clipboardTimeoutSeconds=30
+autoClipboardClear=true
+
+# Security Settings
+requirePasswordConfirmation=true
+minPasswordLength=8
+
+# LFSR Algorithm Settings
+lfsrTaps=0,2
+lfsrInitState=1,0,1
+
+# UI Settings
+showEncryptionInCredentials=true
+defaultUIMode=auto

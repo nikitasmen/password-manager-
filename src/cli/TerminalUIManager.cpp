@@ -19,8 +19,7 @@ void TerminalUIManager::initialize() {
         TerminalUI::display_message("Welcome to Password Manager!");
         TerminalUI::display_message("Please create a master password to get started.");
         
-        // Use dual AES+LFSR encryption (strongest security)
-        TerminalUI::display_message("\nUsing AES-256 with LFSR encryption (strongest security) for secure password storage.");
+        TerminalUI::display_message("\nUsing AES-256 or LFSR encryption for secure password storage.");
         
         std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
@@ -114,51 +113,30 @@ bool TerminalUIManager::setupPassword(const std::string& newPassword,
     }
 }
 
-bool TerminalUIManager::addCredential(const std::string& platform, 
-                                   const std::string& username, 
-                                   const std::string& password,
-                                   std::optional<EncryptionType> encryptionType) {
+bool TerminalUIManager::addCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
     if (!isLoggedIn) return false;
-    
-    try {
-        auto tempCredManager = getFreshCredManager();
-        
-        if (encryptionType.has_value()) {
-            if (tempCredManager->addCredentials(platform, username, password, encryptionType.value())) {
-                showMessage("Success", "Credentials added successfully!");
-                return true;
-            }
-        } else {
-            showMessage("Error", "Encryption type not specified!", true);
-            return false;
-        }
-        
+    if (encryptionType.has_value() && safeAddCredential(platform, username, password, encryptionType.value())) {
+        showMessage("Success", "Credentials added successfully!");
+        return true;
+    } else {
         showMessage("Error", "Failed to add credentials!", true);
-        return false;
-    } catch (const std::exception& e) {
-        showMessage("Error", e.what(), true);
         return false;
     }
 }
 
 void TerminalUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
-    
     try {
-        auto tempCredManager = getFreshCredManager();
-        std::vector<std::string> credentials = tempCredManager->getCredentials(platform);
-        
+        std::vector<std::string> credentials = safeGetCredentials(platform);
         if (credentials.empty() || credentials.size() < 2) {
             showMessage("Error", "No valid credentials found for this platform!", true);
             return;
         }
-        
         // Display the credentials
         TerminalUI::clear_screen();
         TerminalUI::display_message("Credentials for " + platform + ":");
         TerminalUI::display_message("Username: " + credentials[0]);
         TerminalUI::display_message("Password: " + credentials[1]);
-        
         // Display encryption type if available
         if (credentials.size() >= 3) {
             try {
@@ -170,7 +148,6 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
                 TerminalUI::display_message("Encryption: Unknown");
             }
         }
-        
         // Copy password to clipboard
         try {
             if (ClipboardManager::getInstance().isAvailable()) {
@@ -182,7 +159,6 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
         } catch (const ClipboardError& e) {
             TerminalUI::display_message("\nFailed to copy password to clipboard: " + std::string(e.what()));
         }
-        
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);
     }
@@ -190,27 +166,17 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
 
 bool TerminalUIManager::deleteCredential(const std::string& platform) {
     if (!isLoggedIn) return false;
-    
-    try {
-        std::string confirmation = TerminalUI::get_text_input("Are you sure you want to delete credentials for " + 
-                                                        platform + "? (y/n): ");
-        
-        if (confirmation == "y" || confirmation == "Y") {
-            auto tempCredManager = getFreshCredManager();
-            
-            if (tempCredManager->deleteCredentials(platform)) {
-                showMessage("Success", "Credentials deleted successfully!");
-                return true;
-            }
-            
+    std::string confirmation = TerminalUI::get_text_input("Are you sure you want to delete credentials for " + platform + "? (y/n): ");
+    if (confirmation == "y" || confirmation == "Y") {
+        if (safeDeleteCredential(platform)) {
+            showMessage("Success", "Credentials deleted successfully!");
+            return true;
+        } else {
             showMessage("Error", "Failed to delete credentials!", true);
+            return false;
         }
-        
-        return false;
-    } catch (const std::exception& e) {
-        showMessage("Error", e.what(), true);
-        return false;
     }
+    return false;
 }
 
 void TerminalUIManager::showMessage(const std::string& title, const std::string& message, bool isError) {

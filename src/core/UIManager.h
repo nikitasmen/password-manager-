@@ -23,6 +23,10 @@ protected:
     std::string masterPassword;
     std::string dataPath;
 
+    bool safeAddCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType);
+    std::vector<std::string> safeGetCredentials(const std::string& platform);
+    bool safeDeleteCredential(const std::string& platform);
+
 public:
     /**
      * @brief Constructor
@@ -62,7 +66,7 @@ public:
      */
     virtual bool setupPassword(const std::string& newPassword, 
                               const std::string& confirmPassword,
-                              EncryptionType encryptionType = EncryptionType::AES_LFSR) = 0;
+                              EncryptionType encryptionType) = 0;
     
     /**
      * @brief Add a new credential
