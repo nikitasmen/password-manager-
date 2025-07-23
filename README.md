@@ -37,7 +37,7 @@ The project follows a modular architecture with these key components:
 - **Core**: Core functionality shared across all interfaces
   - `api.cpp/h`: Main credentials management API
   - `encryption.cpp/h`: LFSR-based encryption with salt support
-  - `json_storage.cpp/h`: JSON-based secure storage system
+  - `json_storage.cpp/h`: JSON-based credential storage
   - `base64.cpp/h`: Base64 encoding/decoding utilities
   - `file_system.cpp/h`: File system operations
 
@@ -68,14 +68,19 @@ password-manager-/
 │   │   ├── api.h
 │   │   ├── base64.cpp
 │   │   ├── base64.h
+│   │   ├── clipboard.cpp
+│   │   ├── clipboard.h
 │   │   ├── encryption.cpp
 │   │   ├── encryption.h
-│   │   ├── file_system.cpp
-│   │   ├── file_system.h
 │   │   ├── json_storage.cpp
 │   │   ├── json_storage.h
 │   │   ├── terminal_ui.cpp
-│   │   └── terminal_ui.h
+│   │   ├── terminal_ui.h
+│   │   ├── UIManager.cpp
+│   │   ├── UIManager.h
+│   │   ├── UIManagerFactory.cpp
+│   │   ├── UIManagerFactory.h
+│   │   └── file_system.cpp
 │   ├── cli/              # Command-line interface
 │   │   ├── cli_ui.cpp
 │   │   └── cli_UI.h
