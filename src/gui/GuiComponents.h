@@ -16,6 +16,7 @@
 #include <sstream>
 #include <memory>
 #include "../config/GlobalConfig.h"
+#include <algorithm> // for std::remove_if
 
 // Base class for text display components
 class TextComponentBase : public GuiComponent {
