@@ -203,7 +203,7 @@ bool TerminalUI::login(int maxAttempts) {
         std::string password = get_password_input("Enter master password: ");
         
         // Validate the password using CredentialsManager
-        CredentialsManager manager(g_data_path);
+        CredentialsManager manager(ConfigManager::getInstance().getDataPath());
         if (manager.login(password)) {
             display_message("Login successful!");
             return true;
