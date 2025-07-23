@@ -651,7 +651,12 @@ public:
             std::stringstream tapsStream(tapsStr);
             std::string tapItem;
             while (std::getline(tapsStream, tapItem, ',')) {
-                newTaps.push_back(std::stoi(tapItem));
+                try {
+                    newTaps.push_back(std::stoi(tapItem));
+                } catch (const std::exception&) {
+                    fl_alert("Invalid LFSR tap value: '%s'. Please enter only numbers.", tapItem.c_str());
+                    return;
+                }
             }
             
             // Parse LFSR initial state
@@ -659,7 +664,12 @@ public:
             std::stringstream initStateStream(initStateStr);
             std::string stateItem;
             while (std::getline(initStateStream, stateItem, ',')) {
-                newInitState.push_back(std::stoi(stateItem));
+                try {
+                    newInitState.push_back(std::stoi(stateItem));
+                } catch (const std::exception&) {
+                    fl_alert("Invalid LFSR initial state value: '%s'. Please enter only numbers.", stateItem.c_str());
+                    return;
+                }
             }
             
             // Check if LFSR settings changed
@@ -699,12 +709,33 @@ public:
             }
             
               // Update other configuration values
+            int maxLoginAttempts = 3;
+            try {
+                maxLoginAttempts = std::stoi(maxLoginAttemptsInput->value());
+            } catch (const std::exception&) {
+                fl_alert("Invalid value for Max Login Attempts. Please enter a valid number.");
+                return;
+            }
+            int clipboardTimeout = 30;
+            try {
+                clipboardTimeout = std::stoi(clipboardTimeoutInput->value());
+            } catch (const std::exception&) {
+                fl_alert("Invalid value for Clipboard Timeout. Please enter a valid number.");
+                return;
+            }
+            int minPasswordLength = 8;
+            try {
+                minPasswordLength = std::stoi(minPasswordLengthInput->value());
+            } catch (const std::exception&) {
+                fl_alert("Invalid value for Min Password Length. Please enter a valid number.");
+                return;
+            }
             config.setDataPath(dataPathInput->value());
-            config.setMaxLoginAttempts(std::stoi(maxLoginAttemptsInput->value()));
-            config.setClipboardTimeoutSeconds(std::stoi(clipboardTimeoutInput->value()));
+            config.setMaxLoginAttempts(maxLoginAttempts);
+            config.setClipboardTimeoutSeconds(clipboardTimeout);
             config.setAutoClipboardClear(autoClipboardClearCheck->value() == 1);
             config.setRequirePasswordConfirmation(requirePasswordConfirmationCheck->value() == 1);
-            config.setMinPasswordLength(std::stoi(minPasswordLengthInput->value()));
+            config.setMinPasswordLength(minPasswordLength);
             config.setShowEncryptionInCredentials(showEncryptionInCredentialsCheck->value() == 1);
             config.setDefaultUIMode(defaultUIModeChoice->value() == 1 ? "GUI" : "CLI");
             
