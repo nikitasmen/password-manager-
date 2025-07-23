@@ -2,43 +2,6 @@
 #include <iostream>
 #include <memory>
 
-namespace {
-    std::string decryptMasterPassword(
-        EncryptionType type,
-        const std::vector<int>& taps,
-        const std::vector<int>& initState,
-        const std::string& encrypted,
-        const std::string& masterPassword
-    ) {
-        std::unique_ptr<Encryption> enc = std::make_unique<Encryption>(type, taps, initState, masterPassword);
-        if (type == EncryptionType::LFSR) {
-            try {
-                return enc->decryptWithSalt(encrypted);
-            } catch (...) {
-                return enc->decrypt(encrypted);
-            }
-        } else if (type == EncryptionType::AES) {
-            return enc->decrypt(encrypted);
-        }
-        throw std::runtime_error("Unknown encryption type for master password decryption");
-    }
-
-    std::string encryptMasterPassword(
-        EncryptionType type,
-        const std::vector<int>& taps,
-        const std::vector<int>& initState,
-        const std::string& masterPassword
-    ) {
-        std::unique_ptr<Encryption> enc = std::make_unique<Encryption>(type, taps, initState, masterPassword);
-        if (type == EncryptionType::LFSR) {
-            return enc->encryptWithSalt(masterPassword);
-        } else if (type == EncryptionType::AES) {
-            return enc->encrypt(masterPassword);
-        }
-        throw std::runtime_error("Unknown encryption type for master password encryption");
-    }
-}
-
 MigrationHelper& MigrationHelper::getInstance() {
     static MigrationHelper instance;
     return instance;
@@ -156,7 +119,7 @@ bool MigrationHelper::updateMasterPasswordWithNewLfsr(
 
     std::string decryptedPassword;
     try {
-        decryptedPassword = decryptMasterPassword(defaultEnc, oldTaps, oldInitState, storedPassword, masterPassword);
+        decryptedPassword = Encryption::decryptMasterPassword(defaultEnc, oldTaps, oldInitState, storedPassword, masterPassword);
     } catch (const std::exception& e) {
         std::cerr << "Failed to decrypt master password: " << e.what() << std::endl;
         return false;
@@ -169,7 +132,7 @@ bool MigrationHelper::updateMasterPasswordWithNewLfsr(
 
     std::string newEncryptedPassword;
     try {
-        newEncryptedPassword = encryptMasterPassword(defaultEnc, newTaps, newInitState, masterPassword);
+        newEncryptedPassword = Encryption::encryptMasterPassword(defaultEnc, newTaps, newInitState, masterPassword);
     } catch (const std::exception& e) {
         std::cerr << "Failed to encrypt master password: " << e.what() << std::endl;
         return false;
@@ -203,18 +166,8 @@ bool MigrationHelper::reencryptCredential(
         // Decrypt with correct method based on algorithm
         std::string username, password;
         if (oldEncryptor->getAlgorithm() == EncryptionType::LFSR) {
-            try {
-                username = oldEncryptor->decryptWithSalt(encryptedUser);
-                password = oldEncryptor->decryptWithSalt(encryptedPass);
-            } catch (const std::exception&) {
-                try {
-                    username = oldEncryptor->decrypt(encryptedUser);
-                    password = oldEncryptor->decrypt(encryptedPass);
-                } catch (const std::exception& e) {
-                    std::cerr << "Failed to decrypt credentials for " << platform << ": " << e.what() << std::endl;
-                    return false;
-                }
-            }
+            username = oldEncryptor->decryptWithSalt(encryptedUser);
+            password = oldEncryptor->decryptWithSalt(encryptedPass);
         } else {
             std::cerr << "Unknown encryption algorithm for platform: " << platform << std::endl;
             return false;
@@ -284,7 +237,7 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
 
     std::string decryptedPassword;
     try {
-        decryptedPassword = decryptMasterPassword(oldType, oldTaps, oldInitState, storedPassword, masterPassword);
+        decryptedPassword = Encryption::decryptMasterPassword(oldType, oldTaps, oldInitState, storedPassword, masterPassword);
     } catch (const std::exception& e) {
         std::cerr << "Failed to decrypt master password: " << e.what() << std::endl;
         return false;
@@ -297,7 +250,7 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
 
     std::string newEncrypted;
     try {
-        newEncrypted = encryptMasterPassword(newType, newTaps, newInitState, masterPassword);
+        newEncrypted = Encryption::encryptMasterPassword(newType, newTaps, newInitState, masterPassword);
     } catch (const std::exception& e) {
         std::cerr << "Failed to encrypt master password: " << e.what() << std::endl;
         return false;
