@@ -7,12 +7,6 @@
 #include <iostream>
 #include <algorithm>
 
-// Global variables (for backward compatibility)
-std::string g_data_path = "./data";
-std::vector<int> taps = {0, 2};
-std::vector<int> init_state = {1, 0, 1};
-EncryptionType g_encryption_type = EncryptionType::LFSR;
-
 // ConfigManager implementation
 ConfigManager& ConfigManager::getInstance() {
     static ConfigManager instance;
@@ -96,11 +90,11 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         }
     }
     
-    // Update global variables for backward compatibility
-    g_data_path = config_.dataPath;
-    taps = config_.lfsrTaps;
-    init_state = config_.lfsrInitState;
-    g_encryption_type = config_.defaultEncryption;
+    // Remove global variables for backward compatibility
+    // g_data_path = config_.dataPath;
+    // taps = config_.lfsrTaps;
+    // init_state = config_.lfsrInitState;
+    // g_encryption_type = config_.defaultEncryption;
     
     file.close();
     return true;
@@ -145,16 +139,16 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
 void ConfigManager::updateConfig(const AppConfig& newConfig) {
     config_ = newConfig;
     
-    // Update global variables for backward compatibility
-    g_data_path = config_.dataPath;
-    taps = config_.lfsrTaps;
-    init_state = config_.lfsrInitState;
-    g_encryption_type = config_.defaultEncryption;
+    // Remove global variables for backward compatibility
+    // g_data_path = config_.dataPath;
+    // taps = config_.lfsrTaps;
+    // init_state = config_.lfsrInitState;
+    // g_encryption_type = config_.defaultEncryption;
 }
 
 void ConfigManager::setDataPath(const std::string& path) {
     config_.dataPath = path;
-    g_data_path = path;
+    // g_data_path = path; // Removed global update
 }
 
 void ConfigManager::setDefaultEncryption(EncryptionType type, const std::string& masterPassword) {
@@ -171,7 +165,7 @@ void ConfigManager::setDefaultEncryption(EncryptionType type, const std::string&
         }
     }
     config_.defaultEncryption = type;
-    g_encryption_type = type;
+    // g_encryption_type = type; // Removed global update
 }
 
 void ConfigManager::setMaxLoginAttempts(int attempts) {
@@ -225,12 +219,12 @@ void ConfigManager::setLfsrTaps(const std::vector<int>& newTaps) {
     if (newTaps.empty()) {
         std::cerr << "Warning: Empty LFSR taps provided, using default {0, 2}\n";
         config_.lfsrTaps = {0, 2};
-        taps = {0, 2};
+        // taps = {0, 2}; // Removed global update
         return;
     }
     
     config_.lfsrTaps = newTaps;
-    taps = newTaps; // Update global variable for backward compatibility
+    // taps = newTaps; // Removed global update
 }
 
 void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
@@ -238,7 +232,7 @@ void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
     if (newInitState.empty()) {
         std::cerr << "Warning: Empty LFSR initial state provided, using default {1, 0, 1}\n";
         config_.lfsrInitState = {1, 0, 1};
-        init_state = {1, 0, 1};
+        // init_state = {1, 0, 1}; // Removed global update
         return;
     }
     
@@ -254,12 +248,12 @@ void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
     if (!validInitState) {
         std::cerr << "Warning: LFSR initial state must contain only 0s and 1s, using default {1, 0, 1}\n";
         config_.lfsrInitState = {1, 0, 1};
-        init_state = {1, 0, 1};
+        // init_state = {1, 0, 1}; // Removed global update
         return;
     }
     
     config_.lfsrInitState = newInitState;
-    init_state = newInitState; // Update global variable for backward compatibility
+    // init_state = newInitState; // Removed global update
 }
 
 bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps, const std::vector<int>& newInitState, const std::string& masterPassword) {
@@ -296,16 +290,16 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps, const st
             // Restore old settings
             config_.lfsrTaps = oldTaps;
             config_.lfsrInitState = oldInitState;
-            taps = oldTaps;
-            init_state = oldInitState;
+            // taps = oldTaps; // Removed global update
+            // init_state = oldInitState; // Removed global update
             return false;
         }
         
         // Update settings after successful migration
         config_.lfsrTaps = newTaps;
         config_.lfsrInitState = newInitState;
-        taps = newTaps;
-        init_state = newInitState;
+        // taps = newTaps; // Removed global update
+        // init_state = newInitState; // Removed global update
         
         std::cout << "LFSR settings updated and data migration completed successfully" << std::endl;
         return true;
@@ -314,8 +308,8 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps, const st
         std::cerr << "Error updating LFSR settings: " << e.what() << "\n";
         config_.lfsrTaps = oldTaps;
         config_.lfsrInitState = oldInitState;
-        taps = oldTaps;
-        init_state = oldInitState;
+        // taps = oldTaps; // Removed global update
+        // init_state = oldInitState; // Removed global update
         return false;
     }
 }

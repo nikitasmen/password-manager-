@@ -119,10 +119,4 @@ namespace EncryptionUtils {
     const std::map<int, EncryptionType>& getChoiceMapping();
 }
 
-// Global variables (for backward compatibility)
-extern std::string g_data_path;
-extern std::vector<int> taps;
-extern std::vector<int> init_state;
-extern EncryptionType g_encryption_type;
-
 #endif // GLOBALCONFIG_H
