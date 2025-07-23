@@ -130,78 +130,42 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
     }
 }
 
-bool GuiUIManager::addCredential(const std::string& platform, 
-                              const std::string& username, 
-                              const std::string& password,
-                              std::optional<EncryptionType> encryptionType) {
+bool GuiUIManager::addCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
     if (!isLoggedIn) return false;
-    
-    try {
-        // Get fresh credentials manager
-        auto tempCredManager = getFreshCredManager();
-        
-        if (tempCredManager->addCredentials(platform, username, password, encryptionType)) {
-            showMessage("Success", "Credentials added successfully!");
-            refreshPlatformsList();
-            return true;
-        } else {
-            showMessage("Error", "Failed to add credentials!", true);
-            return false;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in addCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while adding credentials", true);
+    if (safeAddCredential(platform, username, password, encryptionType)) {
+        showMessage("Success", "Credentials added successfully!");
+        refreshPlatformsList();
+        return true;
+    } else {
+        showMessage("Error", "Failed to add credentials!", true);
         return false;
     }
 }
 
 void GuiUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
-    
-    try {
-        // Get fresh credentials manager
-        auto tempCredManager = getFreshCredManager();
-        
-        // Get credentials for the platform
-        std::vector<std::string> credentials = tempCredManager->getCredentials(platform);
-        
-        if (credentials.empty() || credentials.size() < 2) {
-            showMessage("Error", "No valid credentials found for this platform!", true);
-            return;
-        }
-        
-        // Create and show the view credential dialog
-        createViewCredentialDialog(platform, credentials);
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in viewCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while retrieving credentials", true);
+    std::vector<std::string> credentials = safeGetCredentials(platform);
+    if (credentials.empty() || credentials.size() < 2) {
+        showMessage("Error", "No valid credentials found for this platform!", true);
+        return;
     }
+    createViewCredentialDialog(platform, credentials);
 }
 
 bool GuiUIManager::deleteCredential(const std::string& platform) {
     if (!isLoggedIn) return false;
-    
-    try {
-        std::string message = "Are you sure you want to delete credentials for " + platform + "?";
-        if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
-            // Get fresh credentials manager
-            auto tempCredManager = getFreshCredManager();
-            
-            if (tempCredManager->deleteCredentials(platform)) {
-                showMessage("Success", "Credentials deleted successfully!");
-                refreshPlatformsList();
-                return true;
-            } else {
-                showMessage("Error", "Failed to delete credentials!", true);
-                return false;
-            }
+    std::string message = "Are you sure you want to delete credentials for " + platform + "?";
+    if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
+        if (safeDeleteCredential(platform)) {
+            showMessage("Success", "Credentials deleted successfully!");
+            refreshPlatformsList();
+            return true;
+        } else {
+            showMessage("Error", "Failed to delete credentials!", true);
+            return false;
         }
-        return false;
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in deleteCredential: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred while deleting credentials", true);
-        return false;
     }
+    return false;
 }
 
 void GuiUIManager::showMessage(const std::string& title, const std::string& message, bool isError) {
@@ -590,6 +554,7 @@ void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
 }
 
 void GuiUIManager::openSettingsDialog() {
+    ConfigManager::getInstance().loadConfig(); // Always reload config before showing settings
     createSettingsDialog();
     settingsWindow->show();
 }

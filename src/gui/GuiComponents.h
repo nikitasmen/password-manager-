@@ -125,16 +125,27 @@ public:
         // Create password inputs
         newPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "New Master Password:");
         confirmPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
+        // Always fetch the current default encryption from config at creation time
         ConfigManager& config = ConfigManager::getInstance();
         EncryptionType encType = config.getDefaultEncryption();
-        // Convert EncryptionType to string for display
-        std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
-        std::string msg =  ("Encryption: " + encTypeStr + " (Default)");
-        createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, msg.c_str());
+        const char* encTypeCStr = EncryptionUtils::getDisplayName(encType);
+        std::string encTypeStr = encTypeCStr ? std::string(encTypeCStr) : "Unknown";
+        std::string msg;
+        if (encTypeStr == "Unknown") {
+            msg = "Encryption: Unknown (Check .config!)";
+        } else {
+            msg = "Encryption: " + encTypeStr + " (Default)";
+        }
+        // Debug output
+        std::cerr << "[PasswordSetupComponent] encType=" << static_cast<int>(encType) << ", encTypeStr='" << encTypeStr << "'\n";
+        Fl_Box* encLabel = createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "");
+        encLabel->copy_label(msg.c_str());
 
         // Create button (moved up since we removed the dropdown)
         createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 130, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
-        CallbackHelper::setCallback(createButton, this, [this, encType](PasswordSetupComponent* comp) {
+        CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
+            // Fetch the encryption type again in case config changed
+            EncryptionType encType = ConfigManager::getInstance().getDefaultEncryption();
             comp->onSetup(comp->newPasswordInput->value(), 
                          comp->confirmPasswordInput->value(),
                          encType);
@@ -514,9 +525,10 @@ public:
         auto encryptionLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
         encryptionLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
         defaultEncryptionChoice = new Fl_Choice(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        defaultEncryptionChoice->add("AES");
         defaultEncryptionChoice->add("LFSR");
-        defaultEncryptionChoice->value(static_cast<int>(config.getDefaultEncryption()));
+        defaultEncryptionChoice->add("AES");
+        // Preselect the value from the config file
+        defaultEncryptionChoice->value(EncryptionUtils::toDropdownIndex(config.getDefaultEncryption()));
         yPos += spacing;
         
         // Max Login Attempts
@@ -698,6 +710,7 @@ public:
             
             // Save to file
             if (config.saveConfig(".config")) {
+                config.loadConfig(); // Reload config after saving
                 if (lfsrChanged) {
                     fl_message("Settings saved successfully!\nExisting LFSR-encrypted credentials have been re-encrypted with new settings.");
                 } else {
@@ -707,7 +720,7 @@ public:
                 fl_alert("Failed to save settings to file!");
             }
             
-            if (onSave) onSave();
+            if (onSave) onSave(); // UIManager will refresh main screen or settings
         } catch (const std::exception& e) {
             fl_alert("Error saving settings: %s", e.what());
         }
