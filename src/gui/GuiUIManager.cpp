@@ -144,12 +144,21 @@ bool GuiUIManager::addCredential(const std::string& platform, const std::string&
 
 void GuiUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
-    std::vector<std::string> credentials = safeGetCredentials(platform);
-    if (credentials.empty() || credentials.size() < 2) {
+    auto credentials = credManager->getCredentials(platform);
+    if (credentials.size() >= 3) {
+        std::string username = credentials[0];
+        std::string password = credentials[1];
+        std::string encType = credentials[2];
+        
+        if (username == "HASHED") {
+            showMessage("Hashed Credential", "This credential is stored as hash and cannot be displayed.");
+            return;
+        }
+        createViewCredentialDialog(platform, credentials);
+    } else {
         showMessage("Error", "No valid credentials found for this platform!", true);
         return;
     }
-    createViewCredentialDialog(platform, credentials);
 }
 
 bool GuiUIManager::deleteCredential(const std::string& platform) {
