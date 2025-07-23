@@ -165,12 +165,12 @@ std::string Encryption::decryptWithSalt(const std::string& encrypted_text) {
         }
         else { 
             // Check if encrypted text is long enough to contain salt
-            if (encrypted_text.size() <= 8) {
+            if (encrypted_text.size() <= PBKDF2_SALT_SIZE) {
                 throw EncryptionError("Encrypted text too short to contain salt");
             }
-            // Extract salt (first 8 characters) and encrypted data for LFSR
-            std::string saltedData = lfsrProcess(encrypted_text); 
-            return saltedData.substr(8); 
+            // Extract salt (first PBKDF2_SALT_SIZE characters) and encrypted data for LFSR
+            std::string saltedData = lfsrProcess(encrypted_text);
+            return saltedData.substr(PBKDF2_SALT_SIZE); 
         }
     } catch (const EncryptionError& e) {
         throw; // Re-throw encryption-specific errors
@@ -361,4 +361,23 @@ std::array<unsigned char, AES_KEY_SIZE> Encryption::deriveKey(const std::string&
     }
     
     return key;
+}
+
+std::string Encryption::decryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& encrypted, const std::string& masterPassword) {
+    Encryption enc(type, taps, initState, masterPassword);
+    if (type == EncryptionType::LFSR) {
+        return enc.decryptWithSalt(encrypted);
+    } else if (type == EncryptionType::AES) {
+        return enc.decrypt(encrypted);
+    }
+    throw std::runtime_error("Unknown encryption type for master password decryption");
+}
+std::string Encryption::encryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& masterPassword) {
+    Encryption enc(type, taps, initState, masterPassword);
+    if (type == EncryptionType::LFSR) {
+        return enc.encryptWithSalt(masterPassword);
+    } else if (type == EncryptionType::AES) {
+        return enc.encrypt(masterPassword);
+    }
+    throw std::runtime_error("Unknown encryption type for master password encryption");
 }

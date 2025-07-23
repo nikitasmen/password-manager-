@@ -151,6 +151,9 @@ public:
      * @return std::string The decrypted plaintext with salt removed
      */
     std::string decryptWithSalt(const std::string& encrypted_text);
+
+    static std::string decryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& encrypted, const std::string& masterPassword);
+    static std::string encryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& masterPassword);
 };
 
 #endif // ENCRYPTION_H
