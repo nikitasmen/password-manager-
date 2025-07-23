@@ -65,95 +65,26 @@ constexpr int PBKDF2_ITERATIONS = 100000;  // Number of PBKDF2 iterations (NIST 
  * 2. AES-256 for stronger encryption
  */
 class Encryption {
-private:
-    EncryptionType algorithm;       // The encryption algorithm to use
-    std::vector<int> taps;          // Feedback taps for the LFSR
-    std::vector<int> state;         // Current state of the LFSR
-    std::vector<int> initial_state; // Saved initial state for reset operations
-    std::mt19937 rng;               // Mersenne Twister random number generator
-    std::string masterPassword;     // Master password for AES encryption
-    
-    // LFSR methods
-    int getNextBit();
-    void resetState();
-    std::string lfsrProcess(const std::string& input); // Helper for LFSR encryption/decryption
-    
-    // AES methods
-    std::string aesEncrypt(const std::string& plaintext, const std::string& key);
-    std::string aesDecrypt(const std::string& ciphertext, const std::string& key);
-    std::array<unsigned char, AES_KEY_SIZE> deriveKey(const std::string& password, const std::array<unsigned char, PBKDF2_SALT_SIZE>& salt);
-    std::array<unsigned char, PBKDF2_SALT_SIZE> generateSalt();
-    
-    // Mutex for thread safety
-    mutable std::mutex state_mutex;
-
 public:
-    /**
-     * @brief Construct a new Encryption object
-     * 
-     * @param algorithm The encryption algorithm to use
-     * @param taps The feedback taps for the LFSR (for LFSR algorithm)
-     * @param init_state The initial state of the LFSR (for LFSR algorithm)
-     * @param password The master password for AES encryption (optional for LFSR)
-     */
-    Encryption(EncryptionType algorithm, const std::vector<int>& taps, const std::vector<int>& init_state, const std::string& password = "");
-    
-    /**
-     * @brief Get current encryption algorithm
-     * 
-     * @return EncryptionType The current algorithm
-     */
-    EncryptionType getAlgorithm() const { return algorithm; }
-    
-    /**
-     * @brief Set encryption algorithm
-     * 
-     * @param newAlgorithm The algorithm to use
-     */
-    void setAlgorithm(EncryptionType newAlgorithm);
-    
-    /**
-     * @brief Set the master password for AES encryption
-     * 
-     * @param password The master password
-     */
-    void setMasterPassword(const std::string& password);
-    
-    /**
-     * @brief Encrypt a plaintext string
-     * 
-     * @param plaintext The text to encrypt
-     * @return std::string The encrypted text
-     */
-    std::string encrypt(const std::string& plaintext);
-    
-    /**
-     * @brief Decrypt an encrypted string
-     * 
-     * @param encrypted_text The text to decrypt
-     * @param forcedAlgorithm Force a specific algorithm (useful for legacy data)
-     * @return std::string The decrypted plaintext
-     */
-    std::string decrypt(const std::string& encrypted_text, EncryptionType* forcedAlgorithm = nullptr);
-    
-    /**
-     * @brief Encrypt plaintext with added salt for improved security
-     * 
-     * @param plaintext The text to encrypt
-     * @return std::string The encrypted text with embedded salt and algorithm identifier
-     */
-    std::string encryptWithSalt(const std::string& plaintext);
-    
-    /**
-     * @brief Decrypt text that was encrypted with salt
-     * 
-     * @param encrypted_text The text to decrypt
-     * @return std::string The decrypted plaintext with salt removed
-     */
-    std::string decryptWithSalt(const std::string& encrypted_text);
+    virtual ~Encryption() = default;
 
+    virtual std::string encrypt(const std::string& plaintext) = 0;
+    virtual std::string decrypt(const std::string& encrypted_text) = 0;
+    virtual std::string encryptWithSalt(const std::string& plaintext) = 0;
+    virtual std::string decryptWithSalt(const std::string& encrypted_text) = 0;
+    virtual EncryptionType getAlgorithm() const = 0;
+    virtual void setAlgorithm(EncryptionType newAlgorithm) = 0;
+    virtual void setMasterPassword(const std::string& password) = 0;
+    // Add virtual hash for hashing support
+    virtual std::string hash(const std::string& input) = 0;
+
+    // Keep static methods if needed
     static std::string decryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& encrypted, const std::string& masterPassword);
     static std::string encryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& masterPassword);
 };
+
+namespace EncryptionFactory {
+    std::unique_ptr<Encryption> create(EncryptionType type, const std::vector<int>& taps = {}, const std::vector<int>& init_state = {}, const std::string& password = "");
+}
 
 #endif // ENCRYPTION_H
