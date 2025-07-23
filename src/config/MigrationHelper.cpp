@@ -2,6 +2,43 @@
 #include <iostream>
 #include <memory>
 
+namespace {
+    std::string decryptMasterPassword(
+        EncryptionType type,
+        const std::vector<int>& taps,
+        const std::vector<int>& initState,
+        const std::string& encrypted,
+        const std::string& masterPassword
+    ) {
+        std::unique_ptr<Encryption> enc = std::make_unique<Encryption>(type, taps, initState, masterPassword);
+        if (type == EncryptionType::LFSR) {
+            try {
+                return enc->decryptWithSalt(encrypted);
+            } catch (...) {
+                return enc->decrypt(encrypted);
+            }
+        } else if (type == EncryptionType::AES) {
+            return enc->decrypt(encrypted);
+        }
+        throw std::runtime_error("Unknown encryption type for master password decryption");
+    }
+
+    std::string encryptMasterPassword(
+        EncryptionType type,
+        const std::vector<int>& taps,
+        const std::vector<int>& initState,
+        const std::string& masterPassword
+    ) {
+        std::unique_ptr<Encryption> enc = std::make_unique<Encryption>(type, taps, initState, masterPassword);
+        if (type == EncryptionType::LFSR) {
+            return enc->encryptWithSalt(masterPassword);
+        } else if (type == EncryptionType::AES) {
+            return enc->encrypt(masterPassword);
+        }
+        throw std::runtime_error("Unknown encryption type for master password encryption");
+    }
+}
+
 MigrationHelper& MigrationHelper::getInstance() {
     static MigrationHelper instance;
     return instance;
@@ -103,67 +140,47 @@ bool MigrationHelper::updateMasterPasswordWithNewLfsr(
     const std::vector<int>& newInitState,
     const std::string& masterPassword,
     const std::string& dataPath) {
-    
-        // Create storage instance
-        std::unique_ptr<JsonStorage> storage = std::make_unique<JsonStorage>(dataPath);
-        
-        // Check if master password exists
-        std::string storedPassword = storage->getMasterPassword();
-        if (storedPassword.empty()) {
-            std::cout << "No master password to migrate" << std::endl;
-            return true;
-        }
-        
-        std::cout << "Migrating master password..." << std::endl;
-        
-        EncryptionType defaultEnc = ConfigManager::getInstance().getDefaultEncryption();
-      
-        if (defaultEnc == EncryptionType::AES) {
-            std::cout << "Skipping master password migration (config is AES or stored password is AES-encrypted)." << std::endl;
-            return true;
-        }
 
-        // Try to decrypt and re-encrypt master password with correct method
-        bool successfulMigration = false;
-        std::cout << "Attempting LFSR migration... EncryptionType: " << static_cast<int>(defaultEnc) << std::endl;
-        std::unique_ptr<Encryption> oldEncryptor = std::make_unique<Encryption>(defaultEnc, oldTaps, oldInitState, masterPassword);
-        std::unique_ptr<Encryption> newEncryptor = std::make_unique<Encryption>(defaultEnc, newTaps, newInitState, masterPassword);
-
-        std::string decryptedPassword;
-        if (defaultEnc == EncryptionType::LFSR) {
-            try {
-                decryptedPassword = oldEncryptor->decryptWithSalt(storedPassword);
-            } catch (const std::exception&) {
-                try {
-                    decryptedPassword = oldEncryptor->decrypt(storedPassword);
-                } catch (const std::exception& e) {
-                    std::cerr << "Failed to decrypt master password with LFSR: " << e.what() << std::endl;
-                    return false;
-                }
-            }
-        }
-        std::cout << "Decrypted master password with old settings: " << decryptedPassword << std::endl;
-
-        // Verify the decrypted password matches
-        if (decryptedPassword == masterPassword) {
-            std::string newEncryptedPassword;
-            // Always uses encryptWithSalt for LFSR
-            if (defaultEnc == EncryptionType::LFSR) {
-                newEncryptedPassword = newEncryptor->encryptWithSalt(masterPassword);
-            } else {
-                std::cerr << "Unsupported encryption type for master password migration (reencrypt)." << std::endl;
-                return false;
-            }
-            if (storage->updateMasterPassword(newEncryptedPassword)) {
-                std::cout << "Master password successfully migrated with LFSR encryption" << std::endl;
-                successfulMigration = true;
-            }
-        }
-        if (!successfulMigration) {
-            std::cerr << "Failed to migrate master password - could not decrypt with old settings" << std::endl;
-            return false;
-        }
+    std::unique_ptr<JsonStorage> storage = std::make_unique<JsonStorage>(dataPath);
+    std::string storedPassword = storage->getMasterPassword();
+    if (storedPassword.empty()) {
+        std::cout << "No master password to migrate" << std::endl;
         return true;
+    }
+
+    EncryptionType defaultEnc = ConfigManager::getInstance().getDefaultEncryption();
+    if (defaultEnc == EncryptionType::AES) {
+        std::cout << "Skipping master password migration (config is AES or stored password is AES-encrypted)." << std::endl;
+        return true;
+    }
+
+    std::string decryptedPassword;
+    try {
+        decryptedPassword = decryptMasterPassword(defaultEnc, oldTaps, oldInitState, storedPassword, masterPassword);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to decrypt master password: " << e.what() << std::endl;
+        return false;
+    }
+
+    if (decryptedPassword != masterPassword) {
+        std::cerr << "Failed to migrate master password - could not decrypt with old settings" << std::endl;
+        return false;
+    }
+
+    std::string newEncryptedPassword;
+    try {
+        newEncryptedPassword = encryptMasterPassword(defaultEnc, newTaps, newInitState, masterPassword);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to encrypt master password: " << e.what() << std::endl;
+        return false;
+    }
+
+    if (!storage->updateMasterPassword(newEncryptedPassword)) {
+        std::cerr << "Failed to update master password with new encryption" << std::endl;
+        return false;
+    }
+    std::cout << "Master password successfully migrated with LFSR encryption" << std::endl;
+    return true;
 }
 
 bool MigrationHelper::reencryptCredential(
@@ -257,33 +274,39 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
     const std::vector<int>& newInitState,
     const std::string& masterPassword,
     const std::string& dataPath) {
+
     std::unique_ptr<JsonStorage> storage = std::make_unique<JsonStorage>(dataPath);
     std::string storedPassword = storage->getMasterPassword();
     if (storedPassword.empty()) {
         std::cout << "No master password to migrate" << std::endl;
         return true;
     }
+
     std::string decryptedPassword;
     try {
-        // Always decrypt with the OLD type and parameters
-        std::unique_ptr<Encryption> oldEncryptor;
-        oldEncryptor = std::make_unique<Encryption>(oldType, oldTaps, oldInitState, masterPassword);
-        decryptedPassword = oldEncryptor->decryptWithSalt(storedPassword);
-        
-        // Now re-encrypt with the NEW type and parameters
-        std::unique_ptr<Encryption> newEncryptor;
-        std::string newEncrypted;
-        newEncryptor = std::make_unique<Encryption>(newType, newTaps, newInitState, masterPassword);
-        newEncrypted = newEncryptor->encryptWithSalt(decryptedPassword);
-
-        if (!storage->updateMasterPassword(newEncrypted)) {
-            std::cerr << "Failed to update master password with new encryption." << std::endl;
-            return false;
-        }
-        std::cout << "Master password migrated to new encryption type successfully." << std::endl;
-        return true;
+        decryptedPassword = decryptMasterPassword(oldType, oldTaps, oldInitState, storedPassword, masterPassword);
     } catch (const std::exception& e) {
-        std::cerr << "Exception during master password migration: " << e.what() << std::endl;
+        std::cerr << "Failed to decrypt master password: " << e.what() << std::endl;
         return false;
     }
+
+    if (decryptedPassword != masterPassword) {
+        std::cerr << "Master password verification failed during migration." << std::endl;
+        return false;
+    }
+
+    std::string newEncrypted;
+    try {
+        newEncrypted = encryptMasterPassword(newType, newTaps, newInitState, masterPassword);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to encrypt master password: " << e.what() << std::endl;
+        return false;
+    }
+
+    if (!storage->updateMasterPassword(newEncrypted)) {
+        std::cerr << "Failed to update master password with new encryption." << std::endl;
+        return false;
+    }
+    std::cout << "Master password migrated to new encryption type successfully." << std::endl;
+    return true;
 }
