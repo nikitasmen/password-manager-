@@ -45,6 +45,12 @@ std::string AesEncryption::aesDecrypt(const std::string& ciphertext, const std::
     const unsigned char* iv = reinterpret_cast<const unsigned char*>(ciphertext.data() + PBKDF2_SALT_SIZE);
     const unsigned char* encrypted_data = iv + AES_IV_SIZE;
     int encrypted_len = ciphertext.size() - PBKDF2_SALT_SIZE - AES_IV_SIZE;
+
+    // Add special case for empty encrypted data
+    if (encrypted_len == 0) {
+        return "";
+    }
+
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx) throw EncryptionError("Failed to create context");
     if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, deriveKeyResult.data(), iv) != 1) { EVP_CIPHER_CTX_free(ctx); throw EncryptionError("Init failed"); }
