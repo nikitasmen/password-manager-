@@ -33,6 +33,9 @@ set(CORE_SOURCES
     src/core/api.cpp
     src/core/base64.cpp
     src/core/encryption.cpp
+    src/crypto/aes_encryption.cpp
+    src/crypto/lfsr_encryption.cpp
+    src/crypto/bcrypt_encryption.cpp
     src/core/json_storage.cpp
     src/core/terminal_ui.cpp
     src/core/UIManager.cpp
