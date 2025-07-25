@@ -61,23 +61,10 @@ private:
         const std::string& password, 
         const std::array<unsigned char, PBKDF2_SALT_SIZE>& salt);
 
-    // Helper methods for salt-based encryption/decryption
+public:
+    // Salt-based encryption/decryption methods
     std::string encryptWithSalt(const std::string& plaintext);
     std::string decryptWithSalt(const std::string& ciphertext);
-
-public:
-    /**
-     * @brief Construct a new Encryption object
-     * 
-     * @param algorithm The encryption algorithm to use
-     * @param taps Taps for LFSR (only used if algorithm is LFSR)
-     * @param initState Initial state for LFSR (only used if algorithm is LFSR)
-     * @param password The master password to use for encryption/decryption
-     */
-    Encryption(EncryptionType algorithm = EncryptionType::AES, 
-              const std::vector<int>& taps = {0, 2}, 
-              const std::vector<int>& initState = {1, 0, 1, 1, 0, 1, 0, 1},
-              const std::string& password = "");
 
     /**
      * @brief Get the current encryption algorithm
@@ -96,21 +83,36 @@ public:
     void setMasterPassword(const std::string& password) override;
 
     /**
+     * @brief Construct a new Encryption object
+     * 
+     * @param algorithm The encryption algorithm to use
+     * @param taps Taps for LFSR (only used if algorithm is LFSR)
+     * @param initState Initial state for LFSR (only used if algorithm is LFSR)
+     * @param password The master password to use for encryption/decryption
+     */
+    Encryption(EncryptionType algorithm = EncryptionType::AES, 
+              const std::vector<int>& taps = {0, 2}, 
+              const std::vector<int>& initState = {1, 0, 1, 1, 0, 1, 0, 1},
+              const std::string& password = "");
+
+    /**
      * @brief Static method to decrypt a master password
      */
     static std::string decryptMasterPassword(EncryptionType type, 
-                                           const std::vector<int>& taps, 
-                                           const std::vector<int>& initState, 
-                                           const std::string& encrypted, 
-                                           const std::string& masterPassword);
-    
+                                          const std::vector<int>& taps, 
+                                          const std::vector<int>& initState, 
+                                          const std::string& encrypted, 
+                                          const std::string& masterPassword);
+
     /**
      * @brief Static method to encrypt a master password
      */
     static std::string encryptMasterPassword(EncryptionType type, 
-                                           const std::vector<int>& taps, 
-                                           const std::vector<int>& initState, 
-                                           const std::string& masterPassword);
+                                          const std::vector<int>& taps, 
+                                          const std::vector<int>& initState, 
+                                          const std::string& masterPassword);
+
+private:
 };
 
 #endif // ENCRYPTION_H
