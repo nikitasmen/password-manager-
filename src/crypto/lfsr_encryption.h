@@ -21,6 +21,7 @@ private:
     int getNextBit();
     void resetState();
     std::string lfsrProcess(const std::string& input);
+    std::string lfsrProcessWithState(const std::string& input, const std::vector<int>& startState);
     std::string computeSha256(const std::string& input); // Helper for hashing
 
 public:

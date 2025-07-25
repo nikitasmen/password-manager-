@@ -114,7 +114,8 @@ public:
     bool addCredentials(const std::string& platformName, 
                        const std::string& userName, 
                        const std::string& password,
-                       int encryptionType);
+                       int encryptionType,
+                       const std::string& extraInfo = "");
     
     /**
      * @brief Delete stored credentials for a platform

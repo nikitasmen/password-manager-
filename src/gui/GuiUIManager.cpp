@@ -523,27 +523,39 @@ void GuiUIManager::cleanupSettingsDialog() {
 }
 
 void GuiUIManager::refreshPlatformsList() {
-    if (!isLoggedIn || !mainWindow || !platformsDisplay) {
+    std::cerr << "[DEBUG] refreshPlatformsList called\n";
+    std::cerr << "[DEBUG] isLoggedIn: " << isLoggedIn << "\n";
+    std::cerr << "[DEBUG] mainWindow: " << (mainWindow ? "OK" : "NULL") << "\n";
+    std::cerr << "[DEBUG] platformsDisplay: " << (platformsDisplay ? "OK" : "NULL") << "\n";
+    std::cerr << "[DEBUG] credManager: " << (credManager ? "OK" : "NULL") << "\n";
+    if (!isLoggedIn) {
+        std::cerr << "[DEBUG] Not logged in\n";
         return;
     }
-    
+    if (!mainWindow) {
+        std::cerr << "[DEBUG] mainWindow is null\n";
+        return;
+    }
+    if (!platformsDisplay) {
+        std::cerr << "[DEBUG] platformsDisplay is null\n";
+        return;
+    }
+    if (!credManager) {
+        std::cerr << "[DEBUG] credManager is null\n";
+        return;
+    }
     try {
-        // Get fresh credentials manager and retrieve platforms
-        auto tempCredManager = getFreshCredManager();
-        std::vector<std::string> platforms = tempCredManager->getAllPlatforms();
-        
-        // Format platform information
+        std::vector<std::string> platforms = credManager->getAllPlatforms();
         std::stringstream ss;
         ss << "Double-click a platform to view credentials:\n\n";
-        
         for (const auto& platform : platforms) {
             ss << "• " << platform << "\n";
         }
-        
-        // Set the text in the display
+        std::cerr << "[DEBUG] About to call platformsDisplay->setText()\n";
         platformsDisplay->setText(ss.str());
+        std::cerr << "[DEBUG] platformsDisplay->setText() succeeded\n";
     } catch (const std::exception& e) {
-        std::cerr << "Exception in refreshPlatformsList: " << e.what() << std::endl;
+        std::cerr << "[DEBUG] Exception in refreshPlatformsList: " << e.what() << std::endl;
     }
 }
 

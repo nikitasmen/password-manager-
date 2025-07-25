@@ -296,51 +296,47 @@ bool JsonStorage::updateMasterPassword(const std::string& password) {
 bool JsonStorage::addCredentials(const std::string& platformName, 
                                const std::string& userName, 
                                const std::string& password,
-                               int encryptionType) {
+                               int encryptionType,
+                               const std::string& extraInfo) {
     try {
         // Input validation
         if (platformName.empty() || userName.empty() || password.empty()) {
             return false;
         }
-        
         // Reload data to ensure we have the latest version
         if (!loadData()) {
             std::cerr << "Failed to reload data before adding credentials" << std::endl;
             return false;
         }
-        
         // Check if platform already exists
         if (credentialsData.contains("platforms") && 
             credentialsData["platforms"].contains(platformName)) {
             return false;
         }
-        
         // Initialize platforms object if it doesn't exist
         if (!credentialsData.contains("platforms")) {
             credentialsData["platforms"] = nlohmann::json::object();
         }
-        
         // Encode credentials in Base64 to ensure they're valid UTF-8 in JSON
         std::string encodedUsername = Base64::encode(userName);
         std::string encodedPassword = Base64::encode(password);
-        
-        // Create platform entry with username and password
+        // Create platform entry with username, password, encryption type, and extra info
         nlohmann::json platform = {
             {"username", encodedUsername},
             {"password", encodedPassword},
             {"encryption_type", encryptionType}
         };
-        
+        if (!extraInfo.empty()) {
+            platform["extra_info"] = extraInfo;
+        }
         // Add to credentials data
         credentialsData["platforms"][platformName] = platform;
         modified = true;
-        
         // Immediately save to disk for transaction safety
         if (!saveData()) {
             std::cerr << "Failed to save credentials addition" << std::endl;
             return false;
         }
-        
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error adding credentials: " << e.what() << std::endl;
@@ -351,34 +347,52 @@ bool JsonStorage::addCredentials(const std::string& platformName,
 bool JsonStorage::deleteCredentials(const std::string& platformName) {
     try {
         if (platformName.empty()) {
+            std::cerr << "Error: Empty platform name provided for deletion" << std::endl;
             return false;
         }
+        
+        // Create a local copy of credentialsData before attempting to modify
+        nlohmann::json currentData = credentialsData;
         
         // Reload data to ensure we have the latest version
         if (!loadData()) {
             std::cerr << "Failed to reload data before deleting credentials" << std::endl;
+            // Restore the original data to prevent corruption
+            credentialsData = currentData;
             return false;
         }
         
         // Check if platforms and the specific platform exist
-        if (!credentialsData.contains("platforms") || 
+        if (!credentialsData.is_object() || 
+            !credentialsData.contains("platforms") || 
+            !credentialsData["platforms"].is_object() ||
             !credentialsData["platforms"].contains(platformName)) {
+            std::cerr << "Error: Platform '" << platformName << "' not found or invalid data structure" << std::endl;
             return false;
         }
         
-        // Remove the platform
-        credentialsData["platforms"].erase(platformName);
-        modified = true;
-        
-        // Immediately save to disk for transaction safety
-        if (!saveData()) {
-            std::cerr << "Failed to save credentials deletion" << std::endl;
+        try {
+            // Remove the platform
+            credentialsData["platforms"].erase(platformName);
+            modified = true;
+            
+            // Immediately save to disk for transaction safety
+            if (!saveData()) {
+                std::cerr << "Failed to save credentials deletion" << std::endl;
+                // If save fails, restore the original data
+                credentialsData = currentData;
+                return false;
+            }
+            
+            return true;
+        } catch (const std::exception& e) {
+            // If anything goes wrong during the modification, restore the original data
+            std::cerr << "Error during credentials deletion: " << e.what() << std::endl;
+            credentialsData = currentData;
             return false;
         }
-        
-        return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error deleting credentials: " << e.what() << std::endl;
+        std::cerr << "Unexpected error in deleteCredentials: " << e.what() << std::endl;
         return false;
     }
 }
@@ -430,69 +444,31 @@ std::vector<std::string> JsonStorage::getAllPlatforms() const {
 
 std::vector<std::string> JsonStorage::getCredentials(const std::string& platformName) {
     std::vector<std::string> credentials;
-    
     try {
         if (platformName.empty()) {
             return credentials;
         }
-        
-        // Reload data to ensure we have the latest version
         if (!loadData()) {
             std::cerr << "Failed to reload data before getting credentials" << std::endl;
             return credentials;
         }
-        
-        // Check if platforms and the specific platform exist
         if (credentialsData.contains("platforms") && 
             credentialsData["platforms"].contains(platformName)) {
-            
             const auto& platform = credentialsData["platforms"][platformName];
-            
             if (platform.contains("username") && platform.contains("password")) {
                 std::string encodedUsername = platform["username"];
                 std::string encodedPassword = platform["password"];
-                
-                // Get encryption type if available (default to 0 = LFSR for backward compatibility)
-                std::string encType = "0";  // Default to LFSR
-                if (platform.contains("encryption_type")) {
-                    encType = std::to_string(platform["encryption_type"].get<int>());
-                }
-                
-                // Try to decode Base64-encoded data
-                try {
-                    // Decode username (Base64 or raw)
-                    std::string decodedUsername;
-                    if (encodedUsername.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == 0) {
-                        decodedUsername = Base64::decode(encodedUsername);
-                    } else {
-                        decodedUsername = encodedUsername; // Use as-is for backward compatibility
-                    }
-                    
-                    // Decode password (Base64 or raw)
-                    std::string decodedPassword;
-                    if (encodedPassword.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == 0) {
-                        decodedPassword = Base64::decode(encodedPassword);
-                    } else {
-                        decodedPassword = encodedPassword; // Use as-is for backward compatibility
-                    }
-                    
-                    // Add credentials in correct order: [username, password, encryption_type]
-                    credentials.push_back(decodedUsername);
-                    credentials.push_back(decodedPassword);
-                    credentials.push_back(encType);
-                } catch (const std::exception& e) {
-                    std::cerr << "Error decoding credentials: " << e.what() << std::endl;
-                    // Fall back to raw values - maintain [username, password, encryption_type] order
-                    credentials.clear();
-                    credentials.push_back(encodedUsername);
-                    credentials.push_back(encodedPassword);
-                    credentials.push_back(encType);
+                std::string encType = platform.contains("encryption_type") ? std::to_string(platform["encryption_type"].get<int>()) : "0";
+                credentials.push_back(encodedUsername);
+                credentials.push_back(encodedPassword);
+                credentials.push_back(encType);
+                if (platform.contains("extra_info")) {
+                    credentials.push_back(platform["extra_info"]);
                 }
             }
         }
     } catch (const std::exception& e) {
         std::cerr << "Error getting credentials: " << e.what() << std::endl;
     }
-    
     return credentials;
 }

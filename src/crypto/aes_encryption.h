@@ -14,7 +14,10 @@ private:
     std::string computeSha256(const std::string& input); // Helper
 
 public:
-    AesEncryption(const std::string& password);
+    // Default constructor with no password
+    AesEncryption() : masterPassword("") {}
+    // Constructor with password
+    explicit AesEncryption(const std::string& password) : masterPassword(password) {}
     
     std::string encrypt(const std::string& plaintext) override;
     std::string decrypt(const std::string& encrypted_text) override;

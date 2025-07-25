@@ -63,28 +63,77 @@ constexpr int PBKDF2_ITERATIONS = 100000;  // Number of PBKDF2 iterations (NIST 
  * This class implements multiple encryption mechanisms:
  * 1. LFSR-based stream cipher (original implementation)
  * 2. AES-256 for stronger encryption
+ * 3. RSA for asymmetric encryption
  */
 class Encryption {
 public:
     virtual ~Encryption() = default;
-
+    
+    // Core encryption operations - these should validate password
     virtual std::string encrypt(const std::string& plaintext) = 0;
     virtual std::string decrypt(const std::string& encrypted_text) = 0;
     virtual std::string encryptWithSalt(const std::string& plaintext) = 0;
     virtual std::string decryptWithSalt(const std::string& encrypted_text) = 0;
+    
+    // Configuration operations - these can be called during initialization
     virtual EncryptionType getAlgorithm() const = 0;
     virtual void setAlgorithm(EncryptionType newAlgorithm) = 0;
     virtual void setMasterPassword(const std::string& password) = 0;
-    // Add virtual hash for hashing support
     virtual std::string hash(const std::string& input) = 0;
 
-    // Keep static methods if needed
+    // Static methods for master password encryption/decryption
     static std::string decryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& encrypted, const std::string& masterPassword);
     static std::string encryptMasterPassword(EncryptionType type, const std::vector<int>& taps, const std::vector<int>& initState, const std::string& masterPassword);
 };
 
+/**
+ * @class EncryptionManager
+ * @brief Concrete implementation that routes encryption operations to appropriate algorithms
+ * 
+ * This class acts as a facade that internally manages different encryption implementations
+ * and routes operations based on the selected encryption type.
+ */
+class EncryptionManager : public Encryption {
+private:
+    EncryptionType currentAlgorithm;
+    std::string masterPassword;
+    std::vector<int> lfsrTaps;
+    std::vector<int> lfsrInitState;
+    std::string rsaPublicKey;
+    std::string rsaPrivateKey;
+    
+    // Internal encryption instances
+    std::unique_ptr<Encryption> aesEncryptor;
+    std::unique_ptr<Encryption> lfsrEncryptor;
+    std::unique_ptr<Encryption> rsaEncryptor;
+    
+    // Helper method to get the current encryptor
+    Encryption* getCurrentEncryptor();
+    void initializeEncryptors();
+    
+public:
+    explicit EncryptionManager(EncryptionType algorithm = EncryptionType::AES);
+    ~EncryptionManager() override = default;
+    
+    // Core encryption operations
+    std::string encrypt(const std::string& plaintext) override;
+    std::string decrypt(const std::string& encrypted_text) override;
+    std::string encryptWithSalt(const std::string& plaintext) override;
+    std::string decryptWithSalt(const std::string& encrypted_text) override;
+    
+    // Configuration operations
+    EncryptionType getAlgorithm() const override { return currentAlgorithm; }
+    void setAlgorithm(EncryptionType newAlgorithm) override;
+    void setMasterPassword(const std::string& password) override;
+    std::string hash(const std::string& input) override;
+    
+    // RSA-specific methods
+    void setRsaKeys(const std::string& publicKey, const std::string& privateKey = "");
+    std::pair<std::string, std::string> generateRsaKeys();
+};
+
 namespace EncryptionFactory {
-    std::unique_ptr<Encryption> create(EncryptionType type, const std::vector<int>& taps = {}, const std::vector<int>& init_state = {}, const std::string& password = "");
+    std::unique_ptr<Encryption> create(EncryptionType type, const std::vector<int>& taps = {}, const std::vector<int>& init_state = {}, const std::string& password = "", const std::string& pubKey = "", const std::string& privKey = "");
 }
 
 #endif // ENCRYPTION_H

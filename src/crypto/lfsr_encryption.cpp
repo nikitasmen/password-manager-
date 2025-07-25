@@ -52,7 +52,11 @@ void LfsrEncryption::resetState() {
 }
 
 std::string LfsrEncryption::lfsrProcess(const std::string& input) {
-    std::vector<int> local_state = initial_state;
+    return lfsrProcessWithState(input, initial_state);
+}
+
+std::string LfsrEncryption::lfsrProcessWithState(const std::string& input, const std::vector<int>& startState) {
+    std::vector<int> local_state = startState;
     std::string output;
     output.reserve(input.size());
     for (char c : input) {
@@ -94,17 +98,46 @@ std::string LfsrEncryption::decrypt(const std::string& encrypted_text) {
 }
 
 std::string LfsrEncryption::encryptWithSalt(const std::string& plaintext) {
-    auto salt = generateSalt(); // Need to implement generateSalt or use from somewhere
-    std::string saltStr(reinterpret_cast<const char*>(salt.data()), PBKDF2_SALT_SIZE); // Assume PBKDF2_SALT_SIZE=16
-    return lfsrProcess(saltStr + plaintext);
+    auto salt = generateSalt();
+    
+    // Create a temporary LFSR state modified by the salt
+    std::vector<int> saltedState = initial_state;
+    for (size_t i = 0; i < saltedState.size() && i < salt.size(); ++i) {
+        saltedState[i] ^= (salt[i] & 1);
+    }
+    
+    // Encrypt using the salted state
+    std::string encrypted = lfsrProcessWithState(plaintext, saltedState);
+    
+    // Prepend salt to encrypted data (salt is not encrypted)
+    std::string result;
+    result.reserve(PBKDF2_SALT_SIZE + encrypted.size());
+    result.append(reinterpret_cast<const char*>(salt.data()), PBKDF2_SALT_SIZE);
+    result.append(encrypted);
+    
+    return result;
 }
 
 std::string LfsrEncryption::decryptWithSalt(const std::string& encrypted_text) {
-    if (encrypted_text.size() <= PBKDF2_SALT_SIZE) { // PBKDF2_SALT_SIZE
+    if (encrypted_text.size() <= PBKDF2_SALT_SIZE) {
         throw EncryptionError("Encrypted text too short to contain salt");
     }
-    std::string saltedData = lfsrProcess(encrypted_text);
-    return saltedData.substr(PBKDF2_SALT_SIZE);
+    
+    // Extract salt from the beginning of encrypted data
+    std::array<unsigned char, PBKDF2_SALT_SIZE> salt;
+    std::copy(encrypted_text.begin(), encrypted_text.begin() + PBKDF2_SALT_SIZE, salt.begin());
+    
+    // Extract the actual encrypted data (without salt)
+    std::string actualEncryptedData = encrypted_text.substr(PBKDF2_SALT_SIZE);
+    
+    // Create a temporary LFSR state modified by the salt
+    std::vector<int> saltedState = initial_state;
+    for (size_t i = 0; i < saltedState.size() && i < salt.size(); ++i) {
+        saltedState[i] ^= (salt[i] & 1);
+    }
+    
+    // Decrypt using the salted state
+    return lfsrProcessWithState(actualEncryptedData, saltedState);
 }
 
 void LfsrEncryption::setMasterPassword(const std::string& password) {

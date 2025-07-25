@@ -21,17 +21,22 @@ UIManager::UIManager(const std::string& dataPath)
 }
 
 std::unique_ptr<CredentialsManager> UIManager::getFreshCredManager() {
-    auto manager = std::make_unique<CredentialsManager>(dataPath);
-    if (isLoggedIn) {
-        manager->login(masterPassword);
+    if (isLoggedIn && credManager) {
+        // After login, always use the existing credManager (do not create a new one)
+        return nullptr; // Signal to use credManager directly
     }
+    // Before login, create a new instance
+    auto manager = std::make_unique<CredentialsManager>(dataPath);
     return manager;
 }
 
 bool UIManager::safeAddCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
     try {
-        auto tempCredManager = getFreshCredManager();
-        return tempCredManager->addCredentials(platform, username, password, encryptionType);
+        if (!credManager) {
+            std::cerr << "Error: credManager is null!" << std::endl;
+            return false;
+        }
+        return credManager->addCredentials(platform, username, password, encryptionType);
     } catch (const std::exception& e) {
         std::cerr << "Error adding credential: " << e.what() << std::endl;
         return false;
@@ -39,8 +44,11 @@ bool UIManager::safeAddCredential(const std::string& platform, const std::string
 }
 std::vector<std::string> UIManager::safeGetCredentials(const std::string& platform) {
     try {
-        auto tempCredManager = getFreshCredManager();
-        return tempCredManager->getCredentials(platform);
+        if (!credManager) {
+            std::cerr << "Error: credManager is null!" << std::endl;
+            return {};
+        }
+        return credManager->getCredentials(platform);
     } catch (const std::exception& e) {
         std::cerr << "Error getting credentials: " << e.what() << std::endl;
         return {};

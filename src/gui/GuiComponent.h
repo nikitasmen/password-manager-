@@ -15,18 +15,18 @@ protected:
     int x, y, w, h;
     std::vector<std::unique_ptr<GuiComponent>> children;
     std::vector<Fl_Widget*> widgets;
-    std::vector<void*> callbackData; // To track and free callback data
+    std::vector<void*> callbackData;
 
 public:
     GuiComponent(Fl_Group* parent, int x, int y, int w, int h)
         : parent(parent), x(x), y(y), w(w), h(h) {}
     
-    virtual ~GuiComponent() = default;
+    virtual ~GuiComponent() {
+        cleanup();
+    }
     
-    // Create and render the component
     virtual void create() = 0;
     
-    // Add a child component
     template<typename T, typename... Args>
     T* addChild(Args&&... args) {
         auto child = std::make_unique<T>(std::forward<Args>(args)...);
@@ -35,7 +35,6 @@ public:
         return ptr;
     }
     
-    // Add a widget to track
     template<typename T, typename... Args>
     T* createWidget(Args&&... args) {
         T* widget = new T(std::forward<Args>(args)...);
@@ -43,37 +42,34 @@ public:
         return widget;
     }
     
-    // Register callback data for cleanup
     void registerCallbackData(void* data) {
         if (data) {
             callbackData.push_back(data);
         }
     }
     
-    // Clean up all widgets
     virtual void cleanup() {
-        // First clean up all children
+        // First clean up all children recursively
         for (auto& child : children) {
+            if (child) {
             child->cleanup();
+            }
         }
         children.clear();
         
-        // Then clean up own widgets
-        for (auto* widget : widgets) {
-            delete widget;
-        }
-        widgets.clear();
-        
-        // Finally, clean up callback data
+        // Clean up callback data before widgets
         for (void* data : callbackData) {
             if (data) {
-                delete static_cast<CallbackDataBase*>(data);
+                auto* base = static_cast<CallbackDataBase*>(data);
+                delete base;
             }
         }
         callbackData.clear();
+        
+        // Do NOT manually delete widgets here; let FLTK parent/group handle widget deletion
+        widgets.clear();
     }
     
-    // Getters
     int getX() const { return x; }
     int getY() const { return y; }
     int getWidth() const { return w; }

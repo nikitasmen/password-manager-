@@ -231,25 +231,36 @@ protected:
     Fl_Text_Display* display;
     Fl_Text_Buffer* buffer;
     std::string label;
+    std::string currentText;  // Store current text to prevent dangling references
 
 public:
     BufferedTextDisplayBase(Fl_Group* parent, int x, int y, int w, int h, const std::string& label = "")
         : GuiComponent(parent, x, y, w, h), display(nullptr), buffer(nullptr), label(label) {}
     
     virtual void create() override {
-        buffer = new Fl_Text_Buffer();
-        
-        // Create display with or without label based on provided label
-        if (!label.empty()) {
-            display = createWidget<Fl_Text_Display>(x, y, w, h, label.c_str());
-        } else {
-            display = createWidget<Fl_Text_Display>(x, y, w, h);
+        if (!buffer) {
+            buffer = new Fl_Text_Buffer();
         }
         
-        display->buffer(buffer);
+        if (!display) {
+            // Create display with or without label based on provided label
+            if (!label.empty()) {
+                display = createWidget<Fl_Text_Display>(x, y, w, h, label.c_str());
+            } else {
+                display = createWidget<Fl_Text_Display>(x, y, w, h);
+            }
+            
+            if (buffer) {
+                display->buffer(buffer);
+                if (!currentText.empty()) {
+                    buffer->text(currentText.c_str());
+                }
+            }
+        }
     }
     
     void setText(const std::string& text) {
+        currentText = text;  // Store the text
         if (buffer) {
             buffer->text(text.c_str());
         }
@@ -257,12 +268,14 @@ public:
     
     void cleanup() override {
         if (display && buffer) {
-            display->buffer(nullptr);
+            display->buffer(nullptr);  // Disconnect buffer from display first
         }
         if (buffer) {
             delete buffer;
             buffer = nullptr;
         }
+        // Do NOT delete display here; let FLTK parent/group handle it
+        display = nullptr;
         GuiComponent::cleanup();
     }
     
@@ -341,7 +354,6 @@ public:
         passwordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 2 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Password:");
         encryptionChoice = createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
         
-        // Add encryption options using helper functions
         auto availableTypes = EncryptionUtils::getAllTypes();
         for (const auto& type : availableTypes) {
             encryptionChoice->add(EncryptionUtils::getDisplayName(type));

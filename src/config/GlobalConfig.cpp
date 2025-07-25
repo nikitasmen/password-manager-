@@ -378,6 +378,8 @@ namespace EncryptionUtils {
                 return "LFSR (Basic)";
             case EncryptionType::AES:
                 return "AES-256 (Strong)";
+            case EncryptionType::RSA:
+                return "RSA (Strong)";
             default:
                 return "Unknown";
         }
