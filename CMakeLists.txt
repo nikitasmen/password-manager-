@@ -62,7 +62,12 @@ else()
 endif()
 
 function(link_common target)
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${JSON_INCLUDE_DIR})
+    target_include_directories(${target} PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/config 
+        ${JSON_INCLUDE_DIR}
+    )
     if(FILESYSTEM_LIB)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()
