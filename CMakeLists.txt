@@ -40,6 +40,10 @@ set(CORE_SOURCES
     src/core/clipboard.cpp
     src/config/GlobalConfig.cpp
     src/config/MigrationHelper.cpp
+    src/crypto/encryption_factory.cpp
+    src/crypto/aes_encryption.cpp
+    src/crypto/lfsr_encryption.cpp
+    src/crypto/cipher_context_raii.cpp
 )
 
 set(CLI_SOURCES
