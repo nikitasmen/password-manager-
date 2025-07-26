@@ -1,4 +1,5 @@
 #include "aes_encryption.h"
+#include "cipher_context_raii.h"
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/kdf.h>
@@ -6,34 +7,7 @@
 #include <stdexcept>
 #include <algorithm>
 
-// CipherContextRAII implementation
-CipherContextRAII::CipherContextRAII() : ctx_(EVP_CIPHER_CTX_new()) {
-    if (!ctx_) {
-        throw EncryptionError("Failed to create OpenSSL cipher context");
-    }
-}
-
-CipherContextRAII::~CipherContextRAII() {
-    if (ctx_) {
-        EVP_CIPHER_CTX_free(ctx_);
-    }
-}
-
-CipherContextRAII::CipherContextRAII(CipherContextRAII&& other) noexcept 
-    : ctx_(other.ctx_) {
-    other.ctx_ = nullptr;
-}
-
-CipherContextRAII& CipherContextRAII::operator=(CipherContextRAII&& other) noexcept {
-    if (this != &other) {
-        if (ctx_) {
-            EVP_CIPHER_CTX_free(ctx_);
-        }
-        ctx_ = other.ctx_;
-        other.ctx_ = nullptr;
-    }
-    return *this;
-}
+// CipherContextRAII implementation has been moved to cipher_context_raii.h/cpp
 
 // AESEncryption implementation
 AESEncryption::AESEncryption() {
@@ -98,7 +72,7 @@ std::string AESEncryption::encrypt(const std::string& plaintext) {
     
     // Initialize encryption context
     CipherContextRAII ctx;
-    if (!ctx.isValid()) {
+    if (!ctx.get()) {
         throw EncryptionError("Failed to create encryption context");
     }
     
@@ -161,7 +135,7 @@ std::string AESEncryption::decrypt(const std::string& ciphertext) {
     
     // Initialize decryption context
     CipherContextRAII ctx;
-    if (!ctx.isValid()) {
+    if (!ctx.get()) {
         throw EncryptionError("Failed to create decryption context");
     }
     
