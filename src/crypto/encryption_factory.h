@@ -16,12 +16,14 @@ public:
      * @param type The type of encryption to create
      * @param taps Taps for LFSR (only used if type is LFSR)
      * @param initState Initial state for LFSR (only used if type is LFSR)
+     * @param salt Optional salt for key derivation (used by LFSR)
      * @return std::unique_ptr<IEncryption> The encryption instance
      */
     static std::unique_ptr<IEncryption> create(
         EncryptionType type,
         const std::vector<int>& taps = {},
-        const std::vector<int>& initState = {});
+        const std::vector<int>& initState = {},
+        const std::string& salt = "");
     
     /**
      * @brief Creates an encryption instance for the master password
