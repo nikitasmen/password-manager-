@@ -4,9 +4,12 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <random>
 #include "GlobalConfig.h"
 #include "../core/json_storage.h"
 #include "../core/encryption.h"
+#include "../crypto/aes_encryption.h"
+#include "../crypto/lfsr_encryption.h"
 
 /**
  * @class MigrationHelper
@@ -83,26 +86,45 @@ public:
         const std::string& dataPath
     );
 
-private:
-    MigrationHelper() = default;
-    
     /**
-     * @brief Re-encrypt a single credential with new LFSR settings
+     * @brief Re-encrypt a single credential with new encryption settings
      * 
      * @param platform Platform name for the credential
-     * @param credentials Existing credential data [username, password, encryption_type]
+     * @param credentials Existing credential data
      * @param oldEncryptor Encryptor with old settings
      * @param newEncryptor Encryptor with new settings
      * @param storage Storage instance for saving updated credentials
      * @return bool True if re-encryption was successful
      */
-    bool reencryptCredential(
+    static bool reencryptCredential(
         const std::string& platform,
-        const std::vector<std::string>& credentials,
+        const CredentialData& credentials,
         Encryption* oldEncryptor,
         Encryption* newEncryptor,
         JsonStorage* storage
     );
+
+    std::string generateRandomSalt();
+
+    /**
+     * @brief Apply all settings from newConfig, comparing with oldConfig, and perform necessary migrations.
+     *
+     * This method should be called after settings are changed via the UI or config form.
+     * It will:
+     *  - Detect changes to default encryption, data path, and LFSR settings
+     *  - Call appropriate migration/update methods for each change
+     *  - Ensure all app data and config is consistent with the new settings
+     *
+     * @param oldConfig The previous (current) AppConfig
+     * @param newConfig The updated AppConfig from the settings form
+     * @param masterPassword The plaintext master password (required for migrations)
+     * @return bool True if all migrations and updates succeeded
+     */
+    bool applySettingsFromConfig(const AppConfig& oldConfig, const AppConfig& newConfig, const std::string& masterPassword);
+
+private:
+    static MigrationHelper instance_;
+    MigrationHelper() = default;
 };
 
 #endif // MIGRATION_HELPER_H
