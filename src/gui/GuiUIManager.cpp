@@ -114,10 +114,9 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
         if (credManager->updatePassword(newPassword)) {
             std::cout << "Password created successfully!" << std::endl;
             showMessage("Success", "Master password created successfully!");
-            isLoggedIn = true;
-            masterPassword = newPassword;
-            createMainScreen();
-            return true;
+
+            // Automatically log the user in
+            return login(newPassword);
         } else {
             std::cerr << "Failed to create master password" << std::endl;
             showMessage("Error", "Failed to create master password!", true);
