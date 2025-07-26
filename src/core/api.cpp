@@ -243,21 +243,21 @@ bool CredentialsManager::deleteCredentials(const std::string& platform) {
     }
 }
 
-std::vector<std::string> CredentialsManager::getCredentials(const std::string& platform) {
+std::optional<DecryptedCredential> CredentialsManager::getCredentials(const std::string& platform) {
     try {
         if (platform.empty()) {
             std::cerr << "Error: Empty platform name provided\n";
-            return {};
+            return std::nullopt;
         }
 
         auto credentialDataOpt = storage->getCredentials(platform);
         if (!credentialDataOpt) {
-            std::cerr << "Failed to retrieve credentials for platform: " << platform << "\n";
-            return {};
+            // This is not an error, just means no credentials for this platform
+            return std::nullopt;
         }
 
         CredentialData credentialData = *credentialDataOpt;
-        std::vector<std::string> decryptedCredentials;
+        DecryptedCredential decryptedCredential;
 
         // Create a temporary encryptor for the specific type
         auto encryptor = EncryptionFactory::createForMasterPassword(
@@ -269,16 +269,22 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
 
         if (auto saltedDecryptor = dynamic_cast<ISaltedEncryption*>(encryptor.get())) {
             std::vector<std::string> encrypted_data = {credentialData.encrypted_user, credentialData.encrypted_pass};
-            decryptedCredentials = saltedDecryptor->decryptWithSalt(encrypted_data);
+            std::vector<std::string> decrypted_data = saltedDecryptor->decryptWithSalt(encrypted_data);
+            if (decrypted_data.size() == 2) {
+                decryptedCredential.username = decrypted_data[0];
+                decryptedCredential.password = decrypted_data[1];
+            } else {
+                return std::nullopt;
+            }
         } else {
-            decryptedCredentials.push_back(encryptor->decrypt(credentialData.encrypted_user));
-            decryptedCredentials.push_back(encryptor->decrypt(credentialData.encrypted_pass));
+            decryptedCredential.username = encryptor->decrypt(credentialData.encrypted_user);
+            decryptedCredential.password = encryptor->decrypt(credentialData.encrypted_pass);
         }
 
-        return decryptedCredentials;
+        return decryptedCredential;
     } catch (const std::exception& e) {
         std::cerr << "Exception while getting credentials: " << e.what() << std::endl;
-        return {};
+        return std::nullopt;
     }
 }
 

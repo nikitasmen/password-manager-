@@ -96,7 +96,7 @@ public:
      * @return std::vector<std::string> Vector containing [username, password, encryption_type]
      *         where encryption_type is the string representation of EncryptionType
      */
-    std::vector<std::string> getCredentials(const std::string& platform);
+    std::optional<DecryptedCredential> getCredentials(const std::string& platform);
     
     /**
      * @brief Check if a master password is set
