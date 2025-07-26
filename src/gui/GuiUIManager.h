@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include "../core/credential_data.h"
 
 /**
  * @class GuiUIManager
@@ -45,7 +46,7 @@ private:
     void createSetupScreen();
     void createMainScreen();
     void createAddCredentialDialog();
-    void createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials);
+    void createViewCredentialDialog(const std::string& platform, const DecryptedCredential& credentials);
     void createSettingsDialog();
     /**
      * @brief Clean up the add credential dialog (uses generic helper)

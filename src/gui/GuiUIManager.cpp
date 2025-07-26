@@ -143,12 +143,12 @@ bool GuiUIManager::addCredential(const std::string& platform, const std::string&
 
 void GuiUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
-    std::vector<std::string> credentials = safeGetCredentials(platform);
-    if (credentials.empty() || credentials.size() < 2) {
-        showMessage("Error", "No valid credentials found for this platform!", true);
-        return;
+    auto credsOpt = safeGetCredentials(platform);
+    if (credsOpt) {
+        createViewCredentialDialog(platform, *credsOpt);
+    } else {
+        showMessage("Info", "No credentials found for " + platform);
     }
-    createViewCredentialDialog(platform, credentials);
 }
 
 bool GuiUIManager::deleteCredential(const std::string& platform) {
@@ -385,46 +385,34 @@ void GuiUIManager::createAddCredentialDialog() {
     }
 }
 
-void GuiUIManager::createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials) {
+void GuiUIManager::createViewCredentialDialog(const std::string& platform, const DecryptedCredential& credentials) {
     // Clean up existing dialog if it exists
     cleanupViewCredentialDialog();
-    
+
     try {
-        // Create the dialog window (increased height for new button)
+        // Create the dialog window
         viewCredentialWindow = std::make_unique<Fl_Window>(400, 240, ("Credentials for " + platform).c_str());
         viewCredentialWindow->begin();
-        
+
         // Create root component for the dialog
         viewCredentialRoot = std::make_unique<ContainerComponent>(viewCredentialWindow.get(), 0, 0, 400, 240);
-        
+
         // Add credential display component
         auto credDisplay = viewCredentialRoot->addChild<CredentialDisplayComponent>(
             viewCredentialWindow.get(), 20, 20, 360, 120
         );
-        
+
         // Format credential information
         std::stringstream ss;
         ss << "Platform: " << platform << "\n";
-        ss << "Username: " << credentials[0] << "\n";
-        ss << "Password: " << credentials[1] << "\n";
-        
-        // Add encryption type if available
-        if (credentials.size() >= 3) {
-            try {
-                int encTypeInt = std::stoi(credentials[2]);
-                EncryptionType encType = static_cast<EncryptionType>(encTypeInt);
-                std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
-                ss << "Encryption: " << encTypeStr << "\n";
-            } catch (const std::exception& e) {
-                ss << "Encryption: Unknown\n";
-            }
-        }
-        
+        ss << "Username: " << credentials.username << "\n";
+        ss << "Password: " << credentials.password << "\n";
+
         // Add clipboard status
         if (ClipboardManager::getInstance().isAvailable()) {
             // Store password for clipboard operation
-            std::string password = credentials[1];
-            
+            std::string password = credentials.password;
+
             // Add Copy Password button component
             auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
                 viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
@@ -444,9 +432,7 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         } else {
             ss << "\nClipboard functionality not available on this system";
         }
-        
-       
-        
+
         // Add close button component
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
             viewCredentialWindow.get(), 210, 160, 100, 30, "Close",
@@ -454,17 +440,17 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
                 cleanupViewCredentialDialog();
             }
         );
-        
+
         // Create all components FIRST
         viewCredentialRoot->create();
-        
+
         // THEN set the text in the display
         credDisplay->setText(ss.str());
-        
+
         // Show the dialog
         viewCredentialWindow->end();
         viewCredentialWindow->show();
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Exception in createViewCredentialDialog: " << e.what() << std::endl;
         showMessage("Error", "Failed to create view credential dialog", true);
