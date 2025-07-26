@@ -11,4 +11,9 @@ struct CredentialData {
     EncryptionType encryption_type;
 };
 
+struct DecryptedCredential {
+    std::string username;
+    std::string password;
+};
+
 #endif // CREDENTIAL_DATA_H
