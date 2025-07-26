@@ -1,8 +1,10 @@
 #include "MigrationHelper.h"
+#include "../crypto/encryption_factory.h"
 #include <iostream>
 #include <memory>
 #include <random>
 #include <sstream>
+#include <fstream>
 
 MigrationHelper& MigrationHelper::getInstance() {
     static MigrationHelper instance;
@@ -225,152 +227,242 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
     const std::string& masterPassword,
     const std::string& dataPath) {
 
-    // Get encryption type names from config
-    std::string oldTypeStr = "Unknown";
-    std::string newTypeStr = "Unknown";
-    
-    switch (oldType) {
-        case EncryptionType::AES: oldTypeStr = "AES"; break;
-        case EncryptionType::LFSR: oldTypeStr = "LFSR"; break;
-        default: oldTypeStr = "Unknown"; break;
-    }
-    
-    switch (newType) {
-        case EncryptionType::AES: newTypeStr = "AES"; break;
-        case EncryptionType::LFSR: newTypeStr = "LFSR"; break;
-        default: newTypeStr = "Unknown"; break;
-    }
-    
-    std::cout << "Starting master password migration from " << 
-        oldTypeStr << " to " << newTypeStr << std::endl;
+    auto storage = std::make_unique<JsonStorage>(dataPath);
+    std::string currentEncrypted = storage->getMasterPassword();
 
-    std::unique_ptr<JsonStorage> storage = std::make_unique<JsonStorage>(dataPath);
-    std::string storedPassword = storage->getMasterPassword();
-    
-    if (storedPassword.empty()) {
-        std::cout << "No master password to migrate" << std::endl;
-        return true;
+    if (currentEncrypted.empty()) {
+        std::cerr << "Error: No master password found to migrate." << std::endl;
+        return false;
     }
 
-    // 1. First check if the stored password is already in the new format
-    if (newType == EncryptionType::LFSR) {
-        // For LFSR, we'll just store the password directly since we can't decrypt the old one
-        std::cout << "Migrating to LFSR - will store new encrypted password" << std::endl;
+    std::string oldTypeStr = (oldType == EncryptionType::AES) ? "AES" : "LFSR";
+    std::string newTypeStr = (newType == EncryptionType::AES) ? "AES" : "LFSR";
+
+    std::cout << "Starting master password migration from " << oldTypeStr 
+              << " to " << newTypeStr << "..." << std::endl;
+
+    // 1. Verify the current master password is correct by decrypting the verification token
+    // The stored value is in format: salt$encrypted_verification_token
+    size_t delimiter = currentEncrypted.find('$');
+    if (delimiter == std::string::npos) {
+        std::cerr << "Invalid format for stored master password" << std::endl;
+        return false;
+    }
+    
+    std::string salt = currentEncrypted.substr(0, delimiter);
+    std::string encryptedToken = currentEncrypted.substr(delimiter + 1);
+    
+    // Create decryptor with the old encryption type and salt
+    std::unique_ptr<IEncryption> oldEncryptor;
+    if (oldType == EncryptionType::LFSR) {
+        // For LFSR, create with the existing salt
+        oldEncryptor = std::make_unique<LFSREncryption>(oldTaps, oldInitState, salt);
     } else {
-        // For other encryption types, try to decrypt with the new type first
-        try {
-            std::cout << "Attempting to verify current master password..." << std::endl;
-            std::string decrypted = Encryption::decryptMasterPassword(
-                newType, newTaps, newInitState, storedPassword, masterPassword);
-            if (decrypted == masterPassword) {
-                std::cout << "Master password is already using the new encryption type" << std::endl;
-                return true;  // Already migrated
-            }
-        } catch (const std::exception& e) {
-            std::cout << "Master password not yet migrated to new encryption type, proceeding with migration..." << std::endl;
-        }
+        // For AES and others, use the factory
+        oldEncryptor = EncryptionFactory::createForMasterPassword(
+            oldType, masterPassword, oldTaps, oldInitState);
     }
-
-    // 2. For migration to LFSR, we'll use the master password directly
-    //    since we can't reliably decrypt the old password
-    std::string decryptedPassword = masterPassword;
-    std::cout << "Using provided master password for migration to LFSR" << std::endl;
-
-    // 3. Ensure we have a valid password
-    if (decryptedPassword.empty()) {
-        std::cerr << "Error: Cannot use empty password for migration" << std::endl;
-        return false;
-    }
-
-    // 4. Create encryptors for both old and new types
-    std::unique_ptr<Encryption> oldEncryptor = std::make_unique<Encryption>(oldType, oldTaps, oldInitState, masterPassword);
-    std::unique_ptr<Encryption> newEncryptor = std::make_unique<Encryption>(newType, newTaps, newInitState, masterPassword);
-
-    // 5. Encrypt with the new encryption type
-    std::string newEncrypted;
-    try {
-        std::cout << "Encrypting master password with new encryption type..." << std::endl;
-        
-        if (newType == EncryptionType::LFSR) {
-            // For LFSR, generate a random salt
-            std::string salt = generateRandomSalt();
-            
-            // Create a new encryptor with the new LFSR settings and salted password
-            std::string saltedPassword = masterPassword + salt;
-            auto saltedEncryptor = std::make_unique<Encryption>(
-                newType, 
-                newTaps, 
-                newInitState, 
-                saltedPassword
-            );
-            
-            // Encrypt the master password with the salted key
-            std::string encrypted = saltedEncryptor->encrypt(masterPassword);
-            
-            // Store as "salt:encrypted_data"
-            newEncrypted = salt + ":" + encrypted;
-        } else {
-            // For non-LFSR (AES), use regular encryption
-            newEncrypted = newEncryptor->encrypt(decryptedPassword);
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to encrypt master password with new encryption type: " << e.what() << std::endl;
-        return false;
-    }
-
-    // 6. Update the stored password
-    if (!storage->updateMasterPassword(newEncrypted)) {
-        std::cerr << "Failed to update master password with new encryption." << std::endl;
+    
+    if (!oldEncryptor) {
+        std::cerr << "Failed to create decryptor for old encryption type" << std::endl;
         return false;
     }
     
-    // 7. Verify the new encryption works
+    oldEncryptor->setMasterPassword(masterPassword);
+    
+    // Try to decrypt the verification token
+    std::string decryptedToken;
     try {
-        std::string verify;
-        if (newType == EncryptionType::LFSR) {
-            // For LFSR, extract salt and encrypted data
-            size_t saltEnd = newEncrypted.find(':');
-            if (saltEnd != std::string::npos) {
-                std::string salt = newEncrypted.substr(0, saltEnd);
-                std::string encrypted = newEncrypted.substr(saltEnd + 1);
-                
-                // Create a decryptor with the salted password
-                std::string saltedPassword = masterPassword + salt;
-                auto saltedDecryptor = std::make_unique<Encryption>(
-                    newType,
-                    newTaps,
-                    newInitState,
-                    saltedPassword
-                );
-                
-                // Decrypt with the salted key
-                verify = saltedDecryptor->decrypt(encrypted);
-            } else {
-                // Fallback to non-salted decryption if format is unexpected
-                std::cerr << "Warning: No salt found in encrypted data, using non-salted decryption" << std::endl;
-                auto verifyEncryptor = std::make_unique<Encryption>(
-                    newType,
-                    newTaps,
-                    newInitState,
-                    masterPassword
-                );
-                verify = verifyEncryptor->decrypt(newEncrypted);
-            }
-        } else {
-            // For non-LFSR, use regular decryption
-            verify = newEncryptor->decrypt(newEncrypted);
-        }
+        std::cout << "Attempting decryption with " << oldTypeStr << "..." << std::endl;
+        decryptedToken = oldEncryptor->decrypt(encryptedToken);
         
-        if (verify != masterPassword) {
-            std::cerr << "Verification of newly encrypted password failed" << std::endl;
+        // Verify it's a valid verification token
+        if (decryptedToken.empty() || decryptedToken.find("verify_") != 0) {
+            std::cerr << "Decryption with " << oldTypeStr << " failed: Invalid verification token" << std::endl;
             return false;
         }
+        
+        std::cout << "Successfully verified master password with " << oldTypeStr << "." << std::endl;
     } catch (const std::exception& e) {
-        std::cerr << "Failed to verify newly encrypted password: " << e.what() << std::endl;
+        std::cerr << "Decryption with " << oldTypeStr << " failed: " << e.what() << std::endl;
         return false;
     }
 
-    std::cout << "Successfully migrated master password from " << 
-        oldTypeStr << " to " << newTypeStr << " encryption." << std::endl;
+    // 2. Create the new encryptor for the new encryption type
+    std::unique_ptr<IEncryption> newEncryptor;
+    std::string newSalt;
+    
+    if (newType == EncryptionType::LFSR) {
+        // For LFSR, generate a new salt
+        unsigned char saltBytes[16];
+        if (RAND_bytes(saltBytes, sizeof(saltBytes)) != 1) {
+            std::cerr << "Failed to generate random salt for new LFSR encryption" << std::endl;
+            return false;
+        }
+        newSalt = std::string(reinterpret_cast<const char*>(saltBytes), sizeof(saltBytes));
+        newEncryptor = std::make_unique<LFSREncryption>(newTaps, newInitState, newSalt);
+    } else {
+        // For AES and others, use the factory
+        newEncryptor = EncryptionFactory::createForMasterPassword(
+            newType, masterPassword, newTaps, newInitState);
+        
+        // For non-LFSR, we'll use the same salt format as the old one for consistency
+        newSalt = salt;
+    }
+    
+    if (!newEncryptor) {
+        std::cerr << "Failed to create encryptor for new encryption type" << std::endl;
+        return false;
+    }
+    
+    newEncryptor->setMasterPassword(masterPassword);
+
+    // 3. Encrypt the verification token with the new encryption type
+    std::string newEncryptedToken;
+    try {
+        std::cout << "Encrypting verification token with new type: " << newTypeStr << "..." << std::endl;
+        newEncryptedToken = newEncryptor->encrypt(decryptedToken);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to encrypt verification token: " << e.what() << std::endl;
+        return false;
+    }
+
+    // 4. Update the stored password with new salt and encrypted token
+    std::string newStoredFormat = newSalt + "$" + newEncryptedToken;
+    if (!storage->updateMasterPassword(newStoredFormat)) {
+        std::cerr << "Failed to update master password in storage." << std::endl;
+        return false;
+    }
+    
+    std::cout << "Successfully migrated master password from " << oldTypeStr 
+              << " to " << newTypeStr << " encryption." << std::endl;
     return true;
+}
+
+bool MigrationHelper::applySettingsFromConfig(const AppConfig& oldConfig, const AppConfig& newConfig, const std::string& masterPassword) {
+    if (masterPassword.empty()) {
+        std::cerr << "Error: Master password is required for settings migration" << std::endl;
+        return false;
+    }
+
+    bool success = true;
+    ConfigManager& configMgr = ConfigManager::getInstance();
+    
+    std::cout << "Starting settings migration..." << std::endl;
+    
+    try {
+        // Get paths for migration
+        std::string oldDataPath = oldConfig.dataPath;
+        std::string newDataPath = newConfig.dataPath;
+        EncryptionType oldEnc = oldConfig.defaultEncryption;
+        EncryptionType newEnc = newConfig.defaultEncryption;
+        const std::vector<int>& oldTaps = oldConfig.lfsrTaps;
+        const std::vector<int>& oldInit = oldConfig.lfsrInitState;
+        const std::vector<int>& newTaps = newConfig.lfsrTaps;
+        const std::vector<int>& newInit = newConfig.lfsrInitState;
+
+        // 1. Handle data path change first (move/copy data file if needed)
+        if (oldDataPath != newDataPath) {
+            std::cout << "Data path changed from '" << oldDataPath << "' to '" << newDataPath << "'" << std::endl;
+            
+            // Check if old file exists
+            std::ifstream oldFile(oldDataPath);
+            if (oldFile.good()) {
+                oldFile.close();
+                
+                // Create directory structure if it doesn't exist
+                size_t lastSlash = newDataPath.find_last_of("/\\");
+                if (lastSlash != std::string::npos) {
+                    std::string dirPath = newDataPath.substr(0, lastSlash);
+                    // Note: Directory creation would require additional system calls
+                    // For now, we'll just try to copy and let it fail if directory doesn't exist
+                }
+                
+                // Copy data file to new location
+                std::ifstream src(oldDataPath, std::ios::binary);
+                std::ofstream dst(newDataPath, std::ios::binary);
+                
+                if (!src || !dst) {
+                    std::cerr << "Failed to move/copy data file from '" << oldDataPath << "' to '" << newDataPath << "'" << std::endl;
+                    success = false;
+                } else {
+                    dst << src.rdbuf();
+                    src.close();
+                    dst.close();
+                    std::cout << "Data file successfully copied to new location" << std::endl;
+                    
+                    // Optionally remove old file (commented out for safety)
+                    // std::remove(oldDataPath.c_str());
+                }
+            } else {
+                std::cout << "No existing data file to move" << std::endl;
+            }
+        }
+
+        // Use the new data path for all subsequent operations
+        std::string workingDataPath = newDataPath;
+
+        // 2. Handle encryption type change (migrate master password)
+        if (oldEnc != newEnc) {
+            std::cout << "Encryption type changed, migrating master password..." << std::endl;
+            
+            bool migrated = migrateMasterPasswordForEncryptionChange(
+                oldEnc, newEnc, oldTaps, oldInit, newTaps, newInit, masterPassword, workingDataPath
+            );
+            
+            if (!migrated) {
+                std::cerr << "Failed to migrate master password for encryption type change!" << std::endl;
+                success = false;
+            } else {
+                std::cout << "Master password encryption migration completed" << std::endl;
+            }
+        }
+
+        // 3. Handle LFSR taps/initial state change (migrate all LFSR credentials)
+        if ((oldTaps != newTaps) || (oldInit != newInit)) {
+            std::cout << "LFSR settings changed, migrating credentials..." << std::endl;
+            
+            bool migrated = migrateCredentialsForLfsrChange(
+                oldTaps, oldInit, newTaps, newInit, masterPassword, workingDataPath
+            );
+            
+            if (!migrated) {
+                std::cerr << "Failed to migrate LFSR credentials for new taps/init state!" << std::endl;
+                success = false;
+            } else {
+                std::cout << "LFSR credentials migration completed" << std::endl;
+            }
+        }
+
+        // 4. Update all config settings in ConfigManager (atomic update)
+        if (success) {
+            try {
+                configMgr.updateConfig(newConfig);
+                std::cout << "Configuration updated successfully" << std::endl;
+                
+                // Save the updated config to file
+                if (!configMgr.saveConfig()) {
+                    std::cerr << "Warning: Failed to save configuration to file" << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to update configuration: " << e.what() << std::endl;
+                success = false;
+            }
+        }
+
+        if (success) {
+            std::cout << "All settings applied and migrations completed successfully!" << std::endl;
+        } else {
+            std::cerr << "Settings migration completed with errors. Some changes may not have been applied." << std::endl;
+        }
+        
+        return success;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Unexpected error during settings migration: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "Unknown error during settings migration" << std::endl;
+        return false;
+    }
 }

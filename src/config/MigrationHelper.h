@@ -9,6 +9,7 @@
 #include "../core/json_storage.h"
 #include "../core/encryption.h"
 #include "../crypto/aes_encryption.h"
+#include "../crypto/lfsr_encryption.h"
 
 /**
  * @class MigrationHelper
@@ -104,6 +105,22 @@ public:
     );
 
     std::string generateRandomSalt();
+
+    /**
+     * @brief Apply all settings from newConfig, comparing with oldConfig, and perform necessary migrations.
+     *
+     * This method should be called after settings are changed via the UI or config form.
+     * It will:
+     *  - Detect changes to default encryption, data path, and LFSR settings
+     *  - Call appropriate migration/update methods for each change
+     *  - Ensure all app data and config is consistent with the new settings
+     *
+     * @param oldConfig The previous (current) AppConfig
+     * @param newConfig The updated AppConfig from the settings form
+     * @param masterPassword The plaintext master password (required for migrations)
+     * @return bool True if all migrations and updates succeeded
+     */
+    bool applySettingsFromConfig(const AppConfig& oldConfig, const AppConfig& newConfig, const std::string& masterPassword);
 
 private:
     static MigrationHelper instance_;
