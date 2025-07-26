@@ -78,14 +78,8 @@ string Encryption::encrypt(const string& plaintext) {
     }
     
     try {
-        switch (algorithm_) {
-            case EncryptionType::AES:
-                return aesEncrypt(plaintext, masterPassword_);
-            case EncryptionType::LFSR:
-                return lfsrProcess(plaintext);
-            default:
-                throw runtime_error("Unsupported encryption algorithm");
-        }
+        auto encryptor = EncryptionFactory::createForMasterPassword(algorithm_, masterPassword_, taps_, initialState_);
+        return encryptor->encrypt(plaintext);
     } catch (const exception& e) {
         throw runtime_error(string("Encryption failed: ") + e.what());
     }
@@ -97,14 +91,8 @@ string Encryption::decrypt(const string& ciphertext) {
     }
     
     try {
-        switch (algorithm_) {
-            case EncryptionType::AES:
-                return aesDecrypt(ciphertext, masterPassword_);
-            case EncryptionType::LFSR:
-                return lfsrProcess(ciphertext); // LFSR is symmetric
-            default:
-                throw runtime_error("Unsupported encryption algorithm");
-        }
+        auto decryptor = EncryptionFactory::createForMasterPassword(algorithm_, masterPassword_, taps_, initialState_);
+        return decryptor->decrypt(ciphertext);
     } catch (const exception& e) {
         throw runtime_error(string("Decryption failed: ") + e.what());
     }
@@ -112,176 +100,16 @@ string Encryption::decrypt(const string& ciphertext) {
 
 // Salt-based encryption/decryption helpers
 string Encryption::encryptWithSalt(const string& plaintext) {
-    if (algorithm_ == EncryptionType::LFSR) {
-        // For LFSR, we'll use the salt to modify the initial state
-        return lfsrProcess(plaintext);
-    } else {
-        // For AES, we already handle salt in the encryption process
-        return encrypt(plaintext);
-    }
+    // Use the standard encrypt method which now includes per-record salt for LFSR
+    return encrypt(plaintext);
 }
 
 string Encryption::decryptWithSalt(const string& ciphertext) {
-    if (algorithm_ == EncryptionType::LFSR) {
-        // For LFSR, decryption is the same as encryption
-        return lfsrProcess(ciphertext);
-    } else {
-        // For AES, we handle salt in the decryption process
-        return decrypt(ciphertext);
-    }
+    // Use the standard decrypt method which now handles both old and new salt formats for LFSR
+    return decrypt(ciphertext);
 }
 
-// LFSR Implementation
-string Encryption::lfsrProcess(const string& input) {
-    if (taps_.empty() || initialState_.empty()) {
-        throw runtime_error("LFSR not properly initialized");
-    }
 
-    vector<int> state = initialState_;
-    string result;
-    result.reserve(input.size());
-
-    for (char c : input) {
-        // XOR the tap bits
-        int feedback = 0;
-        for (int tap : taps_) {
-            if (tap >= 0 && tap < state.size()) {
-                feedback ^= state[tap];
-            }
-        }
-
-        // Get the output bit (MSB of the state)
-        int output = state.back();
-        
-        // Shift state right and set MSB to feedback
-        for (int i = state.size() - 1; i > 0; --i) {
-            state[i] = state[i-1];
-        }
-        state[0] = feedback;
-
-        // XOR the input byte with the output bit
-        result.push_back(c ^ (output & 0xFF));
-    }
-
-    return result;
-}
-
-// AES Implementation
-string Encryption::aesEncrypt(const string& plaintext, const string& key) {
-    // Generate a random IV
-    array<unsigned char, AES_IV_SIZE> iv;
-    if (RAND_bytes(iv.data(), iv.size()) != 1) {
-        throw runtime_error("Failed to generate IV");
-    }
-
-    // Generate salt and derive key
-    auto salt = generateSalt();
-    auto derivedKey = deriveKey(key, salt);
-
-    // Initialize context
-    CipherContextRAII ctx;
-    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, 
-                          derivedKey.data(), iv.data()) != 1) {
-        throw runtime_error("Failed to initialize encryption");
-    }
-
-    // Encrypt
-    vector<unsigned char> ciphertext(plaintext.size() + AES_BLOCK_SIZE);
-    int len;
-    if (EVP_EncryptUpdate(ctx, ciphertext.data(), &len, 
-                         reinterpret_cast<const unsigned char*>(plaintext.data()), 
-                         plaintext.size()) != 1) {
-        throw runtime_error("Encryption failed");
-    }
-    int ciphertext_len = len;
-
-    // Finalize encryption
-    if (EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len) != 1) {
-        throw runtime_error("Failed to finalize encryption");
-    }
-    ciphertext_len += len;
-    ciphertext.resize(ciphertext_len);
-
-    // Combine salt, IV, and ciphertext
-    string result;
-    result.reserve(salt.size() + iv.size() + ciphertext.size());
-    result.append(reinterpret_cast<const char*>(salt.data()), salt.size());
-    result.append(reinterpret_cast<const char*>(iv.data()), iv.size());
-    result.append(reinterpret_cast<const char*>(ciphertext.data()), ciphertext.size());
-
-    return result;
-}
-
-string Encryption::aesDecrypt(const string& ciphertext, const string& key) {
-    // Check minimum size (salt + IV)
-    if (ciphertext.size() < PBKDF2_SALT_SIZE + AES_IV_SIZE) {
-        throw runtime_error("Invalid ciphertext format");
-    }
-
-    // Extract salt, IV, and actual ciphertext
-    array<unsigned char, PBKDF2_SALT_SIZE> salt;
-    copy_n(ciphertext.begin(), salt.size(), salt.begin());
-
-    array<unsigned char, AES_IV_SIZE> iv;
-    copy_n(ciphertext.begin() + salt.size(), iv.size(), iv.begin());
-
-    string encrypted(ciphertext.begin() + salt.size() + iv.size(), ciphertext.end());
-
-    // Derive key
-    auto derivedKey = deriveKey(key, salt);
-
-    // Initialize context
-    CipherContextRAII ctx;
-    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, 
-                          derivedKey.data(), iv.data()) != 1) {
-        throw runtime_error("Failed to initialize decryption");
-    }
-
-    // Decrypt
-    vector<unsigned char> plaintext(encrypted.size() + AES_BLOCK_SIZE);
-    int len;
-    if (EVP_DecryptUpdate(ctx, plaintext.data(), &len,
-                         reinterpret_cast<const unsigned char*>(encrypted.data()),
-                         encrypted.size()) != 1) {
-        throw runtime_error("Decryption failed");
-    }
-    int plaintext_len = len;
-
-    // Finalize decryption
-    if (EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len) != 1) {
-        throw runtime_error("Failed to finalize decryption");
-    }
-    plaintext_len += len;
-    plaintext.resize(plaintext_len);
-
-    return string(plaintext.begin(), plaintext.end());
-}
-
-array<unsigned char, PBKDF2_SALT_SIZE> Encryption::generateSalt() {
-    array<unsigned char, PBKDF2_SALT_SIZE> salt;
-    if (RAND_bytes(salt.data(), salt.size()) != 1) {
-        throw runtime_error("Failed to generate salt");
-    }
-    return salt;
-}
-
-array<unsigned char, AES_KEY_SIZE> Encryption::deriveKey(
-    const string& password, 
-    const array<unsigned char, PBKDF2_SALT_SIZE>& salt) {
-    
-    array<unsigned char, AES_KEY_SIZE> key;
-    
-    if (PKCS5_PBKDF2_HMAC(
-        password.data(), static_cast<int>(password.size()),
-        salt.data(), salt.size(),
-        PBKDF2_ITERATIONS,
-        EVP_sha256(),
-        key.size(), key.data()) != 1) {
-        throw runtime_error("Failed to derive key");
-    }
-    
-    return key;
-}
 
 // Static methods for master password encryption/decryption
 string Encryption::decryptMasterPassword(EncryptionType type, 
