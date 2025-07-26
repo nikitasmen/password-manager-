@@ -37,13 +37,13 @@ bool UIManager::safeAddCredential(const std::string& platform, const std::string
         return false;
     }
 }
-std::vector<std::string> UIManager::safeGetCredentials(const std::string& platform) {
+std::optional<DecryptedCredential> UIManager::safeGetCredentials(const std::string& platform) {
     try {
         auto tempCredManager = getFreshCredManager();
         return tempCredManager->getCredentials(platform);
     } catch (const std::exception& e) {
         std::cerr << "Error getting credentials: " << e.what() << std::endl;
-        return {};
+        return std::nullopt;
     }
 }
 bool UIManager::safeDeleteCredential(const std::string& platform) {
