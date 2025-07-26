@@ -1,4 +1,5 @@
 #include "./encryption.h"
+#include "../crypto/cipher_context_raii.h"
 #include <stdexcept>
 #include <algorithm>
 #include <sstream>
@@ -14,35 +15,7 @@
 
 using namespace std;
 
-// CipherContextRAII implementation
-CipherContextRAII::CipherContextRAII() : ctx_(EVP_CIPHER_CTX_new()) {
-    if (!ctx_) {
-        throw runtime_error("Failed to create EVP_CIPHER_CTX");
-    }
-}
-
-CipherContextRAII::~CipherContextRAII() {
-    if (ctx_) {
-        EVP_CIPHER_CTX_free(ctx_);
-        ctx_ = nullptr;
-    }
-}
-
-CipherContextRAII::CipherContextRAII(CipherContextRAII&& other) noexcept 
-    : ctx_(other.ctx_) {
-    other.ctx_ = nullptr;
-}
-
-CipherContextRAII& CipherContextRAII::operator=(CipherContextRAII&& other) noexcept {
-    if (this != &other) {
-        if (ctx_) {
-            EVP_CIPHER_CTX_free(ctx_);
-        }
-        ctx_ = other.ctx_;
-        other.ctx_ = nullptr;
-    }
-    return *this;
-}
+// CipherContextRAII implementation has been moved to cipher_context_raii.h/cpp
 
 // Helper function to convert bytes to hex
 static string bytesToHex(const vector<unsigned char>& bytes) {

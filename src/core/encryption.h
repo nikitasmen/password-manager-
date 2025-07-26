@@ -12,6 +12,7 @@
 #include <openssl/sha.h>
 #include "../crypto/encryption_interface.h"
 #include "../crypto/encryption_factory.h"
+#include "../crypto/cipher_context_raii.h"
 #include "../config/GlobalConfig.h"
 
 // Constants for encryption
@@ -20,26 +21,6 @@ constexpr size_t AES_KEY_SIZE = 32;      // 256 bits
 constexpr size_t AES_IV_SIZE = 16;       // 128 bits
 constexpr size_t PBKDF2_ITERATIONS = 10000;
 constexpr size_t PBKDF2_SALT_SIZE = 16;
-
-/**
- * @brief RAII wrapper for OpenSSL's EVP_CIPHER_CTX
- */
-class CipherContextRAII {
-    EVP_CIPHER_CTX* ctx_;
-
-public:
-    CipherContextRAII();
-    ~CipherContextRAII();
-    CipherContextRAII(CipherContextRAII&& other) noexcept;
-    CipherContextRAII& operator=(CipherContextRAII&& other) noexcept;
-    
-    // Disable copy
-    CipherContextRAII(const CipherContextRAII&) = delete;
-    CipherContextRAII& operator=(const CipherContextRAII&) = delete;
-    
-    operator EVP_CIPHER_CTX*() { return ctx_; }
-    EVP_CIPHER_CTX* get() { return ctx_; }
-};
 
 /**
  * @brief Implementation of IEncryption that provides encryption/decryption
