@@ -4,9 +4,11 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <random>
 #include "GlobalConfig.h"
 #include "../core/json_storage.h"
 #include "../core/encryption.h"
+#include "../crypto/aes_encryption.h"
 
 /**
  * @class MigrationHelper
@@ -83,11 +85,8 @@ public:
         const std::string& dataPath
     );
 
-private:
-    MigrationHelper() = default;
-    
     /**
-     * @brief Re-encrypt a single credential with new LFSR settings
+     * @brief Re-encrypt a single credential with new encryption settings
      * 
      * @param platform Platform name for the credential
      * @param credentials Existing credential data [username, password, encryption_type]
@@ -103,6 +102,12 @@ private:
         Encryption* newEncryptor,
         JsonStorage* storage
     );
+
+    std::string generateRandomSalt();
+
+private:
+    static MigrationHelper instance_;
+    MigrationHelper() = default;
 };
 
 #endif // MIGRATION_HELPER_H
