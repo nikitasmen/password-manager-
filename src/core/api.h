@@ -99,13 +99,6 @@ public:
     std::vector<std::string> getCredentials(const std::string& platform);
     
     /**
-     * @brief Get all platforms that have stored credentials
-     * 
-     * @return std::vector<std::string> List of platform names
-     */
-    std::vector<std::string> getAllPlatforms();
-    
-    /**
      * @brief Check if a master password is set
      * 
      * @return true if a master password is set, false otherwise
@@ -125,6 +118,13 @@ public:
      * @return EncryptionType The current encryption type
      */
     EncryptionType getEncryptionType() const { return encryptionType; }
+    
+    /**
+     * @brief Get all platform names that have stored credentials
+     * 
+     * @return std::vector<std::string> Vector of platform names
+     */
+    std::vector<std::string> getAllPlatforms() const;
 };
 
 

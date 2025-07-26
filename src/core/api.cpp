@@ -295,10 +295,21 @@ bool CredentialsManager::hasMasterPassword() const {
 }
 
 void CredentialsManager::setEncryptionType(EncryptionType type) {
-    this->encryptionType = type;
-    
-    // No need to create a new encryptor here because the master password isn't known
-    // The encryptor will be updated when needed (e.g., during login or password change)
+    encryptionType = type;
+    if (encryptor) {
+        createEncryptor(type, currentMasterPassword);
+    }
 }
 
-
+std::vector<std::string> CredentialsManager::getAllPlatforms() const {
+    if (!storage) {
+        throw std::runtime_error("Storage not initialized");
+    }
+    
+    try {
+        return storage->getAllPlatforms();
+    } catch (const std::exception& e) {
+        std::cerr << "Error retrieving platforms: " << e.what() << std::endl;
+        return {};
+    }
+}
