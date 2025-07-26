@@ -89,15 +89,15 @@ public:
      * @brief Re-encrypt a single credential with new encryption settings
      * 
      * @param platform Platform name for the credential
-     * @param credentials Existing credential data [username, password, encryption_type]
+     * @param credentials Existing credential data
      * @param oldEncryptor Encryptor with old settings
      * @param newEncryptor Encryptor with new settings
      * @param storage Storage instance for saving updated credentials
      * @return bool True if re-encryption was successful
      */
-    bool reencryptCredential(
+    static bool reencryptCredential(
         const std::string& platform,
-        const std::vector<std::string>& credentials,
+        const CredentialData& credentials,
         Encryption* oldEncryptor,
         Encryption* newEncryptor,
         JsonStorage* storage

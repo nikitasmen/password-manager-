@@ -58,25 +58,19 @@ bool MigrationHelper::migrateCredentialsForLfsrChange(
         
         // Process each platform's credentials
         for (const auto& platform : platforms) {
-            std::vector<std::string> credentials = storage->getCredentials(platform);
+            auto credDataOpt = storage->getCredentials(platform);
             
-            // Only re-encrypt credentials that use LFSR
-            if (credentials.size() >= 3) {
-                // Check encryption type (if specified)
-                int encType = static_cast<int>(EncryptionType::LFSR); // Default to LFSR
-                try {
-                    encType = std::stoi(credentials[2]);
-                } catch (...) {
-                    // If not a valid number, assume LFSR
-                }
+            if (credDataOpt) {
+                CredentialData& credentials = *credDataOpt;
                 
                 // Only process LFSR encrypted credentials
-                if (encType == static_cast<int>(EncryptionType::LFSR)) {
+                if (credentials.encryption_type == EncryptionType::LFSR) {
                     // Pure LFSR encryption
                     std::unique_ptr<Encryption> oldEncryptor = 
                         std::make_unique<Encryption>(EncryptionType::LFSR, oldTaps, oldInitState, masterPassword);
                     std::unique_ptr<Encryption> newEncryptor = 
                         std::make_unique<Encryption>(EncryptionType::LFSR, newTaps, newInitState, masterPassword);
+
                     if (reencryptCredential(platform, credentials, oldEncryptor.get(), newEncryptor.get(), storage.get())) {
                         successCount++;
                         std::cout << "Migrated LFSR credentials for: " << platform << std::endl;
@@ -89,7 +83,7 @@ bool MigrationHelper::migrateCredentialsForLfsrChange(
                     std::cout << "Skipped non-LFSR credentials for: " << platform << " (no migration needed)" << std::endl;
                 }
             } else {
-                std::cerr << "Invalid credential format for platform: " << platform << std::endl;
+                std::cerr << "Could not retrieve credentials for platform: " << platform << std::endl;
             }
         }
         
@@ -164,20 +158,14 @@ bool MigrationHelper::updateMasterPasswordWithNewLfsr(
 
 bool MigrationHelper::reencryptCredential(
     const std::string& platform,
-    const std::vector<std::string>& credentials,
+    const CredentialData& credentials,
     Encryption* oldEncryptor,
     Encryption* newEncryptor,
     JsonStorage* storage) {
     
     try {
-        if (credentials.size() < 2) {
-            std::cerr << "Invalid credential format for platform: " << platform << std::endl;
-            return false;
-        }
-        
-        // Get encrypted username and password
-        std::string encryptedUser = credentials[0];
-        std::string encryptedPass = credentials[1];
+        std::string encryptedUser = credentials.encrypted_user;
+        std::string encryptedPass = credentials.encrypted_pass;
         
         // Decrypt with correct method based on algorithm
         std::string username, password;
@@ -207,14 +195,7 @@ bool MigrationHelper::reencryptCredential(
         }
         
         // Save back with the same encryption type
-        int encType = static_cast<int>(ConfigManager::getInstance().getDefaultEncryption());
-        if (credentials.size() >= 3) {
-            try {
-                encType = std::stoi(credentials[2]);
-            } catch (...) {
-                // If not valid, keep default encryption
-            }
-        }
+        int encType = static_cast<int>(credentials.encryption_type);
         
         // Delete existing credentials and add new ones
         if (!storage->deleteCredentials(platform)) {
