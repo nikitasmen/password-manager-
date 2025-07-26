@@ -127,37 +127,32 @@ bool TerminalUIManager::addCredential(const std::string& platform, const std::st
 void TerminalUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
     try {
-        std::vector<std::string> credentials = safeGetCredentials(platform);
-        if (credentials.empty() || credentials.size() < 2) {
-            showMessage("Error", "No valid credentials found for this platform!", true);
+        auto credsOpt = safeGetCredentials(platform);
+        if (!credsOpt) {
+            showMessage("Info", "No credentials found for " + platform);
             return;
         }
-        // Display the credentials
+
+        DecryptedCredential credentials = *credsOpt;
+
         TerminalUI::clear_screen();
         TerminalUI::display_message("Credentials for " + platform + ":");
-        TerminalUI::display_message("Username: " + credentials[0]);
-        TerminalUI::display_message("Password: " + credentials[1]);
-        // Display encryption type if available
-        if (credentials.size() >= 3) {
+        TerminalUI::display_message("Username: " + credentials.username);
+        TerminalUI::display_message("Password: " + credentials.password);
+
+        // Ask user if they want to copy password to clipboard
+        std::string copyChoice = TerminalUI::get_text_input("\nCopy password to clipboard? (y/n): ");
+        if (copyChoice == "y" || copyChoice == "Y") {
             try {
-                int encTypeInt = std::stoi(credentials[2]);
-                EncryptionType encType = static_cast<EncryptionType>(encTypeInt);
-                std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
-                TerminalUI::display_message("Encryption: " + encTypeStr);
-            } catch (const std::exception& e) {
-                TerminalUI::display_message("Encryption: Unknown");
+                if (ClipboardManager::getInstance().isAvailable()) {
+                    ClipboardManager::getInstance().copyToClipboard(credentials.password);
+                    TerminalUI::display_message("Password copied to clipboard for 30 seconds.");
+                } else {
+                    TerminalUI::display_message("\n️Clipboard functionality not available on this system.");
+                }
+            } catch (const ClipboardError& e) {
+                TerminalUI::display_message("\nFailed to copy password to clipboard: " + std::string(e.what()));
             }
-        }
-        // Copy password to clipboard
-        try {
-            if (ClipboardManager::getInstance().isAvailable()) {
-                ClipboardManager::getInstance().copyToClipboard(credentials[1]);
-                TerminalUI::display_message("\nPassword copied to clipboard!");
-            } else {
-                TerminalUI::display_message("\n️Clipboard functionality not available on this system.");
-            }
-        } catch (const ClipboardError& e) {
-            TerminalUI::display_message("\nFailed to copy password to clipboard: " + std::string(e.what()));
         }
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);

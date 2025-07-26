@@ -9,6 +9,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include "./base64.h"
+#include "credential_data.h"
 
 /**
  * @class JsonStorage
@@ -135,10 +136,9 @@ public:
      * @brief Get credentials for a specific platform
      * 
      * @param platformName Name of the platform
-     * @return std::vector<std::string> Vector containing [username, password, encryption_type]
-     *         where encryption_type is "0" for LFSR or "1" for AES
+     * @return std::optional<CredentialData> A struct containing the credential data, or std::nullopt if not found.
      */
-    std::vector<std::string> getCredentials(const std::string& platformName);
+    std::optional<CredentialData> getCredentials(const std::string& platformName);
 };
 
 #endif // JSON_STORAGE_H

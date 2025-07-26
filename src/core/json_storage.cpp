@@ -428,18 +428,16 @@ std::vector<std::string> JsonStorage::getAllPlatforms() const {
     return platforms;
 }
 
-std::vector<std::string> JsonStorage::getCredentials(const std::string& platformName) {
-    std::vector<std::string> credentials;
-    
+std::optional<CredentialData> JsonStorage::getCredentials(const std::string& platformName) {
     try {
         if (platformName.empty()) {
-            return credentials;
+            return std::nullopt;
         }
         
         // Reload data to ensure we have the latest version
         if (!loadData()) {
             std::cerr << "Failed to reload data before getting credentials" << std::endl;
-            return credentials;
+            return std::nullopt;
         }
         
         // Check if platforms and the specific platform exist
@@ -449,50 +447,19 @@ std::vector<std::string> JsonStorage::getCredentials(const std::string& platform
             const auto& platform = credentialsData["platforms"][platformName];
             
             if (platform.contains("username") && platform.contains("password")) {
-                std::string encodedUsername = platform["username"];
-                std::string encodedPassword = platform["password"];
-                
-                // Get encryption type if available (default to 0 = LFSR for backward compatibility)
-                std::string encType = "0";  // Default to LFSR
-                if (platform.contains("encryption_type")) {
-                    encType = std::to_string(platform["encryption_type"].get<int>());
-                }
-                
-                // Try to decode Base64-encoded data
-                try {
-                    // Decode username (Base64 or raw)
-                    std::string decodedUsername;
-                    if (encodedUsername.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == 0) {
-                        decodedUsername = Base64::decode(encodedUsername);
-                    } else {
-                        decodedUsername = encodedUsername; // Use as-is for backward compatibility
-                    }
-                    
-                    // Decode password (Base64 or raw)
-                    std::string decodedPassword;
-                    if (encodedPassword.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == 0) {
-                        decodedPassword = Base64::decode(encodedPassword);
-                    } else {
-                        decodedPassword = encodedPassword; // Use as-is for backward compatibility
-                    }
-                    
-                    // Add credentials in correct order: [username, password, encryption_type]
-                    credentials.push_back(decodedUsername);
-                    credentials.push_back(decodedPassword);
-                    credentials.push_back(encType);
-                } catch (const std::exception& e) {
-                    std::cerr << "Error decoding credentials: " << e.what() << std::endl;
-                    // Fall back to raw values - maintain [username, password, encryption_type] order
-                    credentials.clear();
-                    credentials.push_back(encodedUsername);
-                    credentials.push_back(encodedPassword);
-                    credentials.push_back(encType);
-                }
+                CredentialData data;
+                data.encrypted_user = Base64::decode(platform["username"].get<std::string>());
+                data.encrypted_pass = Base64::decode(platform["password"].get<std::string>());
+                int encTypeInt = platform.contains("encryption_type") ? 
+                                        platform["encryption_type"].get<int>() : 
+                                        0; // Default to LFSR
+                data.encryption_type = static_cast<EncryptionType>(encTypeInt);
+                return data;
             }
         }
     } catch (const std::exception& e) {
         std::cerr << "Error getting credentials: " << e.what() << std::endl;
     }
     
-    return credentials;
+    return std::nullopt;
 }

@@ -40,6 +40,10 @@ set(CORE_SOURCES
     src/core/clipboard.cpp
     src/config/GlobalConfig.cpp
     src/config/MigrationHelper.cpp
+    src/crypto/encryption_factory.cpp
+    src/crypto/aes_encryption.cpp
+    src/crypto/lfsr_encryption.cpp
+    src/crypto/cipher_context_raii.cpp
 )
 
 set(CLI_SOURCES
@@ -58,7 +62,12 @@ else()
 endif()
 
 function(link_common target)
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${JSON_INCLUDE_DIR})
+    target_include_directories(${target} PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/config 
+        ${JSON_INCLUDE_DIR}
+    )
     if(FILESYSTEM_LIB)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()

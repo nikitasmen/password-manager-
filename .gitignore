@@ -62,6 +62,7 @@ third_party/
 deps/
 
 # Logs and databases
+data/
 *.log
 *.sqlite
 *.db
