@@ -289,14 +289,24 @@ string Encryption::decryptMasterPassword(EncryptionType type,
                                        const vector<int>& initState, 
                                        const string& encrypted, 
                                        const string& masterPassword) {
-    Encryption decryptor(type, taps, initState, masterPassword);
-    return decryptor.decrypt(encrypted);
+    try {
+        Encryption decryptor(type, taps, initState, masterPassword);
+        // For master password, we use decryptWithSalt which handles the salt properly
+        return decryptor.decryptWithSalt(encrypted);
+    } catch (const exception& e) {
+        throw runtime_error(string("Failed to decrypt master password: ") + e.what());
+    }
 }
 
 string Encryption::encryptMasterPassword(EncryptionType type, 
                                        const vector<int>& taps, 
                                        const vector<int>& initState, 
                                        const string& masterPassword) {
-    Encryption encryptor(type, taps, initState, masterPassword);
-    return encryptor.encrypt(masterPassword);
+    try {
+        Encryption encryptor(type, taps, initState, masterPassword);
+        // For master password, we use encryptWithSalt which adds a random salt
+        return encryptor.encryptWithSalt(masterPassword);
+    } catch (const exception& e) {
+        throw runtime_error(string("Failed to encrypt master password: ") + e.what());
+    }
 }
