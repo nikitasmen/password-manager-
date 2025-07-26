@@ -151,21 +151,74 @@ void ConfigManager::setDataPath(const std::string& path) {
     // g_data_path = path; // Removed global update
 }
 
-void ConfigManager::setDefaultEncryption(EncryptionType type, const std::string& masterPassword) {
-    // Only migrate if encryption type is changing and master password is provided
-    if (type != config_.defaultEncryption && !masterPassword.empty()) {
-        MigrationHelper& migrationHelper = MigrationHelper::getInstance();
-        bool migrated = migrationHelper.migrateMasterPasswordForEncryptionChange(
-            config_.defaultEncryption, type,
-            config_.lfsrTaps, config_.lfsrInitState,
-            config_.lfsrTaps, config_.lfsrInitState,
-            masterPassword, config_.dataPath);
-        if (!migrated) {
-            std::cerr << "Warning: Master password migration failed during encryption type change." << std::endl;
-        }
+void ConfigManager::setDefaultEncryption(EncryptionType newType, const std::string& masterPassword) {
+    // No migration needed if type isn't changing
+    if (newType == config_.defaultEncryption) {
+        return;
     }
-    config_.defaultEncryption = type;
-    // g_encryption_type = type; // Removed global update
+    
+    // Store old values before updating
+    EncryptionType oldType = config_.defaultEncryption;
+    
+    try {
+        // If master password is provided, migrate the data
+        if (!masterPassword.empty()) {
+            std::cout << "Preparing to migrate from " << encryptionTypeToString(oldType)
+                      << " to " << encryptionTypeToString(newType) << "..." << std::endl;
+            
+            MigrationHelper& migrationHelper = MigrationHelper::getInstance();
+            
+            // 1. First migrate the master password
+            bool masterMigrated = migrationHelper.migrateMasterPasswordForEncryptionChange(
+                oldType, newType,
+                config_.lfsrTaps, config_.lfsrInitState,
+                config_.lfsrTaps, config_.lfsrInitState,
+                masterPassword, config_.dataPath);
+                
+            if (!masterMigrated) {
+                std::string error = "Master password migration failed during encryption type change";
+                std::cerr << "Error: " << error << std::endl;
+                throw std::runtime_error(error);
+            }
+            
+            // 2. Update the encryption type in config
+            config_.defaultEncryption = newType;
+            
+            // 3. Migrate existing credentials if needed
+            if (newType == EncryptionType::LFSR) {
+                // Validate LFSR settings
+                if (config_.lfsrTaps.empty() || config_.lfsrInitState.empty()) {
+                    std::string error = "Cannot switch to LFSR encryption: LFSR taps and initial state must be configured first";
+                    std::cerr << "Error: " << error << std::endl;
+                    throw std::runtime_error(error);
+                }
+                
+                // Migrate all credentials to new encryption type
+                std::cout << "Migrating existing credentials to new encryption type..." << std::endl;
+                bool credentialsMigrated = migrationHelper.migrateCredentialsForLfsrChange(
+                    config_.lfsrTaps, config_.lfsrInitState,
+                    config_.lfsrTaps, config_.lfsrInitState,
+                    masterPassword, config_.dataPath);
+                    
+                if (!credentialsMigrated) {
+                    std::cerr << "Warning: Some credentials could not be migrated to the new encryption type" << std::endl;
+                    // Continue with the migration but log the warning
+                }
+            }
+            
+            std::cout << "Successfully changed default encryption to " 
+                      << encryptionTypeToString(newType) << std::endl;
+        } else {
+            // Just update the config if no password provided (for new installations)
+            config_.defaultEncryption = newType;
+        }
+    } catch (const std::exception& e) {
+        std::string error = std::string("Failed to change encryption type: ") + e.what();
+        std::cerr << error << std::endl;
+        // Revert the config change on error
+        config_.defaultEncryption = oldType;
+        throw std::runtime_error(error);
+    }
 }
 
 void ConfigManager::setMaxLoginAttempts(int attempts) {
