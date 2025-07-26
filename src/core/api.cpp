@@ -187,10 +187,11 @@ bool CredentialsManager::addCredentials(const std::string& platform, const std::
         
         // Encrypt the password
         std::string encryptedPass = credEncryptor->encrypt(pass);
-        
+        std::string encryptedUser = credEncryptor->encrypt(user);
+
         // Store the credentials with encryption type
-        storage->addCredentials(platform, user, encryptedPass, static_cast<int>(credEncType));
-        
+        storage->addCredentials(platform, encryptedUser, encryptedPass, static_cast<int>(credEncType));
+
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error adding credentials: " << e.what() << std::endl;
@@ -255,23 +256,14 @@ std::vector<std::string> CredentialsManager::getCredentials(const std::string& p
             }
             
             try {
-                // Use the standard decrypt method from the interface
+                // For AES, the decrypt method handles the salt and IV extraction
                 std::string username = currentEncryptor->decrypt(encryptedCredentials[0]);
                 std::string password = currentEncryptor->decrypt(encryptedCredentials[1]);
                 decryptedCredentials.insert(decryptedCredentials.begin(), username);
                 decryptedCredentials.insert(decryptedCredentials.begin() + 1, password);
             } catch (const EncryptionError& e) {
-                // Fallback to legacy decryption if salt-aware fails
-                try {
-                    // Keep only the encryption type
-                    std::string encType = decryptedCredentials.back();
-                    decryptedCredentials.clear();
-                    decryptedCredentials.push_back(currentEncryptor->decrypt(encryptedCredentials[0]));
-                    decryptedCredentials.push_back(currentEncryptor->decrypt(encryptedCredentials[1]));
-                    decryptedCredentials.push_back(encType);
-                } catch (const EncryptionError&) {
-                    return std::vector<std::string>();
-                }
+                std::cerr << "Decryption error: " << e.what() ; 
+                return std::vector<std::string>();
             }
         } else {
             std::cerr << "Failed to retrieve credentials for platform: " << platform << "\n";

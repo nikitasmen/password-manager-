@@ -5,6 +5,7 @@
 #include <openssl/kdf.h>
 #include <openssl/sha.h>
 #include <stdexcept>
+#include <iostream>
 #include <algorithm>
 
 // CipherContextRAII implementation has been moved to cipher_context_raii.h/cpp
@@ -114,10 +115,13 @@ std::string AESEncryption::decrypt(const std::string& ciphertext) {
         return "";
     }
     
-    // Check minimum size (salt + iv + at least 1 block of ciphertext)
-    const size_t min_size = SALT_SIZE + IV_SIZE + 16; // 16 = AES block size
+    // Check minimum size (must have at least salt + iv)
+    const size_t min_size = SALT_SIZE + IV_SIZE;
     if (ciphertext.size() < min_size) {
-        throw EncryptionError("Ciphertext too short");
+        std::cerr << "AES Decrypt Error: Ciphertext too short. Size: " << ciphertext.size() 
+                  << ", Required: " << min_size << " (SALT: " << SALT_SIZE 
+                  << " + IV: " << IV_SIZE << ")" << std::endl;
+        throw EncryptionError("Ciphertext too short to contain salt and IV");
     }
     
     std::lock_guard<std::mutex> lock(mutex_);
