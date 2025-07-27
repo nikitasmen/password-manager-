@@ -24,7 +24,7 @@ protected:
     std::string dataPath;
 
     bool safeAddCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType);
-    std::vector<std::string> safeGetCredentials(const std::string& platform);
+    std::optional<DecryptedCredential> safeGetCredentials(const std::string& platform);
     bool safeDeleteCredential(const std::string& platform);
 
 public:

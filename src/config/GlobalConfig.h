@@ -75,7 +75,16 @@ public:
     // Set specific config values
     void setDataPath(const std::string& path);
     // Set default encryption and migrate master password if needed
-    void setDefaultEncryption(EncryptionType type, const std::string& masterPassword = "");
+    // Deprecated: Use the new method that accepts LFSR settings
+    void setDefaultEncryption(EncryptionType newType, const std::string& masterPassword);
+
+    // New method for handling encryption change with LFSR settings
+    void setDefaultEncryption(
+        EncryptionType newType, 
+        const std::string& masterPassword,
+        const std::vector<int>& newLfsrTaps,
+        const std::vector<int>& newLfsrInitState
+    );
     void setMaxLoginAttempts(int attempts);
     void setClipboardTimeoutSeconds(int seconds);
     void setAutoClipboardClear(bool enabled);

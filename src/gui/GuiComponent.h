@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <functional> // Include functional for std::function
 
 class GuiComponent {
 protected:

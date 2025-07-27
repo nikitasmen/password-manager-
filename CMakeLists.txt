@@ -40,6 +40,10 @@ set(CORE_SOURCES
     src/core/clipboard.cpp
     src/config/GlobalConfig.cpp
     src/config/MigrationHelper.cpp
+    src/crypto/encryption_factory.cpp
+    src/crypto/aes_encryption.cpp
+    src/crypto/lfsr_encryption.cpp
+    src/crypto/cipher_context_raii.cpp
 )
 
 set(CLI_SOURCES
@@ -58,7 +62,17 @@ else()
 endif()
 
 function(link_common target)
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${JSON_INCLUDE_DIR})
+    # ARGN contains all arguments after 'target'
+    set(EXTRA_INCLUDES ${ARGN})
+
+    target_include_directories(${target} PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/config 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+        ${JSON_INCLUDE_DIR}
+        ${EXTRA_INCLUDES}
+    )
     if(FILESYSTEM_LIB)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()
@@ -76,8 +90,10 @@ target_compile_definitions(password_manager_cli PRIVATE ENABLE_CLI)
 # GUI application
 add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} src/gui_main.cpp)
 target_compile_definitions(password_manager_gui PRIVATE ENABLE_GUI)
+
 target_link_libraries(password_manager_gui PRIVATE ${FLTK_LIBRARIES})
-link_common(password_manager_gui)
+# Pass GUI-specific include directory to the common link function
+link_common(password_manager_gui ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
 
 # --- Create data directory (only once per build) ---
 add_custom_target(create_data_dir ALL

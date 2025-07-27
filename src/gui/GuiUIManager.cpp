@@ -1,4 +1,5 @@
 #include "GuiUIManager.h"
+#include "GuiComponents.h"
 #include "../core/api.h"
 #include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
@@ -74,10 +75,11 @@ bool GuiUIManager::login(const std::string& password) {
         
         // Try to login using the credentials manager
         if (credManager->login(password)) {
+            UIManager::masterPassword = password;
             std::cout << "Login successful!" << std::endl;
             isLoggedIn = true;
-            masterPassword = password;
             createMainScreen();
+            refreshPlatformsList();
             return true;
         } else {
             std::cerr << "Login failed: Invalid password" << std::endl;
@@ -114,10 +116,9 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
         if (credManager->updatePassword(newPassword)) {
             std::cout << "Password created successfully!" << std::endl;
             showMessage("Success", "Master password created successfully!");
-            isLoggedIn = true;
-            masterPassword = newPassword;
-            createMainScreen();
-            return true;
+
+            // Automatically log the user in
+            return login(newPassword);
         } else {
             std::cerr << "Failed to create master password" << std::endl;
             showMessage("Error", "Failed to create master password!", true);
@@ -144,12 +145,12 @@ bool GuiUIManager::addCredential(const std::string& platform, const std::string&
 
 void GuiUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
-    std::vector<std::string> credentials = safeGetCredentials(platform);
-    if (credentials.empty() || credentials.size() < 2) {
-        showMessage("Error", "No valid credentials found for this platform!", true);
-        return;
+    auto credsOpt = safeGetCredentials(platform);
+    if (credsOpt) {
+        createViewCredentialDialog(platform, *credsOpt);
+    } else {
+        showMessage("Info", "No credentials found for " + platform);
     }
-    createViewCredentialDialog(platform, credentials);
 }
 
 bool GuiUIManager::deleteCredential(const std::string& platform) {
@@ -176,158 +177,101 @@ void GuiUIManager::showMessage(const std::string& title, const std::string& mess
     }
 }
 
-void GuiUIManager::createLoginScreen() {
+void GuiUIManager::createScreen(const std::string& title, int w, int h, std::function<void()> populateScreen) {
     try {
-        // Clean up any existing window and components
+        // Clean up any existing main window and components before creating a new screen
         cleanupMainWindow();
-        
-        // Create main window
-        mainWindow = std::make_unique<Fl_Window>(400, 200, "Password Manager - Login");
+
+        // 1. Create the main window for the new screen
+        mainWindow = std::make_unique<Fl_Window>(w, h, title.c_str());
+        setWindowCloseHandler(mainWindow.get(), true); // Exit app on close
         mainWindow->begin();
-        
-        // Create root component (using ContainerComponent as a concrete implementation)
-        rootComponent = std::make_unique<ContainerComponent>(mainWindow.get(), 0, 0, 400, 200);
-        
-        // Add title component
-        rootComponent->addChild<TitleComponent>(mainWindow.get(), 10, 10, 380, 30, "Password Manager");
-        
-        // Add login form component
-        loginForm = rootComponent->addChild<LoginFormComponent>(
-            mainWindow.get(), 20, 60, 360, 100,
-            [this](const std::string& password) {
-                login(password);
-            }
-        );
-        
-        // Create all components
+
+        // 2. Create the root container for the screen's components
+        rootComponent = std::make_unique<ContainerComponent>(mainWindow.get(), 0, 0, w, h);
+
+        // 3. Let the caller populate the screen with specific components
+        populateScreen();
+
+        // 4. Create all components that were added to the root
         rootComponent->create();
-        
-        // Set up window close handler
+
+        // 5. End window definition and show it
         mainWindow->end();
-        setWindowCloseHandler(mainWindow.get());
-        
-        // Show the window after it's fully configured
         mainWindow->show();
-        
+
     } catch (const std::exception& e) {
-        std::cerr << "Error creating login screen: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create login screen: " + std::string(e.what()), true);
+        std::cerr << "Exception in createScreen: " << e.what() << std::endl;
+        showMessage("Error", "Failed to create screen: " + std::string(e.what()), true);
     }
 }
 
-void GuiUIManager::createSetupScreen() {
-    try {
-        // Clean up any existing window and components
-        cleanupMainWindow();
-        
-        // Create main window for first-time setup
-        mainWindow = std::make_unique<Fl_Window>(450, 280, "Password Manager - First Time Setup");
-        mainWindow->begin();
-        
-        // Create root component
-        rootComponent = std::make_unique<ContainerComponent>(mainWindow.get(), 0, 0, 450, 280);
-        
-        // Add title component
-        rootComponent->addChild<TitleComponent>(mainWindow.get(), 10, 10, 430, 30, "Password Manager Setup");
-        
-        // Add description component
-        rootComponent->addChild<DescriptionComponent>(
-            mainWindow.get(), 20, 50, 410, 30, 
-            "Welcome! Please create a master password to get started:"
+void GuiUIManager::createLoginScreen() {
+    createScreen("Login", 400, 200, [this]() {
+        loginForm = rootComponent->addChild<LoginFormComponent>(
+            mainWindow.get(), 20, 20, 360, 160, 
+            [this](const std::string& pass) { this->login(pass); }
         );
-        
-        // Add password setup component
+    });
+}
+
+void GuiUIManager::createSetupScreen() {
+    createScreen("First Time Setup", 500, 300, [this]() {
         passwordSetup = rootComponent->addChild<PasswordSetupComponent>(
-            mainWindow.get(), 0, 100, 450, 180,
-            [this](const std::string& newPassword, const std::string& confirmPassword, EncryptionType encType) {
-                setupPassword(newPassword, confirmPassword, encType);
+            mainWindow.get(), 20, 20, 460, 260,
+            [this](const std::string& newPass, const std::string& confirmPass, EncryptionType encType) {
+                this->setupPassword(newPass, confirmPass, encType);
             }
         );
-        
-        // Create all components
-        rootComponent->create();
-        
-        // Set up window close handler - first time setup is critical
-        mainWindow->end();
-        setWindowCloseHandler(mainWindow.get(), true);
-        
-        // Show the window after it's fully configured
-        mainWindow->show();
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating setup screen: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create setup screen: " + std::string(e.what()), true);
-    }
+    });
 }
 
 void GuiUIManager::createMainScreen() {
     try {
-        // Clean up any existing window and components
-        cleanupMainWindow();
-        
-        // Create main application window
-        mainWindow = std::make_unique<Fl_Window>(600, 400, "Password Manager");
-        mainWindow->begin();
-        
-        // Create root component
-        rootComponent = std::make_unique<ContainerComponent>(mainWindow.get(), 0, 0, 600, 400);
-        
-        // Add menu bar component
-        rootComponent->addChild<MenuBarComponent>(
-            mainWindow.get(), 0, 0, 600, 30,
-            [this]() { createAddCredentialDialog(); },
-            [this]() { openSettingsDialog(); },
-            []() { 
-                if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-                    exit(0);
+        createScreen("Password Manager", 600, 450, [this]() {
+            rootComponent->addChild<MenuBarComponent>(
+                mainWindow.get(), 0, 0, 600, 30,
+                [this]() { createAddCredentialDialog(); },
+                [this]() { openSettingsDialog(); },
+                []() { 
+                    if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
+                        exit(0);
+                    }
+                },
+                []() {
+                    fl_message_title("About");
+                    fl_message("Password Manager v0.4\n"
+                               "A secure, lightweight password management tool\n"
+                               "2025 - nikitasmen");
                 }
-            },
-            []() {
-                fl_message_title("About");
-                fl_message("Password Manager v0.4\n"
-                           "A secure, lightweight password management tool\n"
-                           "© 2025 - nikitasmen");
-            }
-        );
-        
-        // Add platforms display component
-        platformsDisplay = rootComponent->addChild<PlatformsDisplayComponent>(
-            mainWindow.get(), 20, 50, 560, 300
-        );
-        
-        // Add action buttons component
-        rootComponent->addChild<ActionButtonsComponent>(
-            mainWindow.get(), 20, 360, 240, 25,
-            [this]() {
-                const char* platform = fl_input("Enter platform name to view:");
-                if (platform) {
-                    viewCredential(platform);
+            );
+
+            platformsDisplay = rootComponent->addChild<PlatformsDisplayComponent>(
+                mainWindow.get(), 20, 50, 560, 300
+            );
+
+            rootComponent->addChild<ActionButtonsComponent>(
+                mainWindow.get(), 20, 360, 240, 25,
+                [this]() {
+                    const char* platform = fl_input("Enter platform name to view:");
+                    if (platform && strlen(platform) > 0) {
+                        viewCredential(platform);
+                    }
+                },
+                [this]() {
+                    const char* platform = fl_input("Enter platform name to delete:");
+                    if (platform && strlen(platform) > 0) {
+                        if (fl_choice("Are you sure you want to delete this credential?", "Cancel", "Yes", nullptr) == 1) {
+                            deleteCredential(platform);
+                        }
+                    }
                 }
-            },
-            [this]() {
-                const char* platform = fl_input("Enter platform name to delete:");
-                if (platform) {
-                    deleteCredential(platform);
-                }
-            }
-        );
-        
-        // Create all components
-        rootComponent->create();
-        
-        // Populate the platforms list
-        refreshPlatformsList();
-        
-        // Set up window close handler
-        mainWindow->end();
-        setWindowCloseHandler(mainWindow.get());
-        
-        // Show the window after it's fully configured
-        mainWindow->show();
-        
+            );
+
+        });
     } catch (const std::exception& e) {
-        std::cerr << "Exception in createMainScreen: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create main screen", true);
+        std::cerr << "Error creating main screen: " << e.what() << std::endl;
+        showMessage("Error", "Failed to create main screen: " + std::string(e.what()), true);
     }
 }
 
@@ -386,46 +330,34 @@ void GuiUIManager::createAddCredentialDialog() {
     }
 }
 
-void GuiUIManager::createViewCredentialDialog(const std::string& platform, const std::vector<std::string>& credentials) {
+void GuiUIManager::createViewCredentialDialog(const std::string& platform, const DecryptedCredential& credentials) {
     // Clean up existing dialog if it exists
     cleanupViewCredentialDialog();
-    
+
     try {
-        // Create the dialog window (increased height for new button)
+        // Create the dialog window
         viewCredentialWindow = std::make_unique<Fl_Window>(400, 240, ("Credentials for " + platform).c_str());
         viewCredentialWindow->begin();
-        
+
         // Create root component for the dialog
         viewCredentialRoot = std::make_unique<ContainerComponent>(viewCredentialWindow.get(), 0, 0, 400, 240);
-        
+
         // Add credential display component
         auto credDisplay = viewCredentialRoot->addChild<CredentialDisplayComponent>(
             viewCredentialWindow.get(), 20, 20, 360, 120
         );
-        
+
         // Format credential information
         std::stringstream ss;
         ss << "Platform: " << platform << "\n";
-        ss << "Username: " << credentials[0] << "\n";
-        ss << "Password: " << credentials[1] << "\n";
-        
-        // Add encryption type if available
-        if (credentials.size() >= 3) {
-            try {
-                int encTypeInt = std::stoi(credentials[2]);
-                EncryptionType encType = static_cast<EncryptionType>(encTypeInt);
-                std::string encTypeStr = EncryptionUtils::getDisplayName(encType);
-                ss << "Encryption: " << encTypeStr << "\n";
-            } catch (const std::exception& e) {
-                ss << "Encryption: Unknown\n";
-            }
-        }
-        
+        ss << "Username: " << credentials.username << "\n";
+        ss << "Password: " << credentials.password << "\n";
+
         // Add clipboard status
         if (ClipboardManager::getInstance().isAvailable()) {
             // Store password for clipboard operation
-            std::string password = credentials[1];
-            
+            std::string password = credentials.password;
+
             // Add Copy Password button component
             auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
                 viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
@@ -445,9 +377,7 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         } else {
             ss << "\nClipboard functionality not available on this system";
         }
-        
-       
-        
+
         // Add close button component
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
             viewCredentialWindow.get(), 210, 160, 100, 30, "Close",
@@ -455,17 +385,17 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
                 cleanupViewCredentialDialog();
             }
         );
-        
+
         // Create all components FIRST
         viewCredentialRoot->create();
-        
+
         // THEN set the text in the display
         credDisplay->setText(ss.str());
-        
+
         // Show the dialog
         viewCredentialWindow->end();
         viewCredentialWindow->show();
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Exception in createViewCredentialDialog: " << e.what() << std::endl;
         showMessage("Error", "Failed to create view credential dialog", true);
@@ -554,49 +484,29 @@ void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
 }
 
 void GuiUIManager::openSettingsDialog() {
-    ConfigManager::getInstance().loadConfig(); // Always reload config before showing settings
+    // Explicitly load from the .config file in the project root
+    ConfigManager::getInstance().loadConfig(".config");
     createSettingsDialog();
     settingsWindow->show();
 }
 
 void GuiUIManager::createSettingsDialog() {
-    // Clean up any existing dialog
-    cleanupSettingsDialog();
-    
-    // Create new settings window with larger size to accommodate scrollable content
-    settingsWindow = std::make_unique<Fl_Window>(550, 600, "Application Settings");
-    settingsWindow->begin();
-    
-    // Create root container that fills the entire window
+    if (settingsWindow) {
+        settingsWindow->show();
+        return;
+    }
+
+    settingsWindow = std::make_unique<Fl_Window>(550, 600, "Settings");
     settingsRoot = std::make_unique<ContainerComponent>(settingsWindow.get(), 0, 0, 550, 600);
-    
-    // Add a simple test to see if the window is working
-    auto testLabel = settingsRoot->addChild<TitleComponent>(
-        settingsWindow.get(), 10, 10, 530, 30, "Settings", 16
+
+    const auto& config = ConfigManager::getInstance().getConfig();
+    auto settingsDialog = settingsRoot->addChild<SettingsDialogComponent>(
+        settingsWindow.get(), 0, 0, 550, 600, masterPassword, config,
+        [this]() { cleanupSettingsDialog(); },
+        [this]() { cleanupSettingsDialog(); }
     );
-    
-    // Add settings form component with more space
-    auto settingsForm = settingsRoot->addChild<SettingsDialogComponent>(
-        settingsWindow.get(), 10, 50, 530, 500,
-        [this]() {
-            // On save callback
-            cleanupSettingsDialog();
-        },
-        [this]() {
-            // On cancel callback
-            cleanupSettingsDialog();
-        }
-    );
-    
-    // Create the components BEFORE ending the window
+
     settingsRoot->create();
-    
     settingsWindow->end();
     settingsWindow->set_modal();
-    
-    // Set close handler
-    setWindowCloseHandler(settingsWindow.get(), false);
-    
-    // Debug: Force redraw
-    settingsWindow->redraw();
 }

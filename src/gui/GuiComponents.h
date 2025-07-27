@@ -15,8 +15,49 @@
 #include <FL/fl_ask.H>
 #include <sstream>
 #include <memory>
+#include <string>
+#include <vector>
 #include "../config/GlobalConfig.h"
+#include "../config/MigrationHelper.h"
 #include <algorithm> // for std::remove_if
+#include "EncryptionUtils.h"
+
+// Base class for text display components
+class ContainerComponent : public GuiComponent {
+private:
+    std::vector<std::unique_ptr<GuiComponent>> children;
+
+public:
+    ContainerComponent(Fl_Group* parent, int x, int y, int w, int h)
+        : GuiComponent(parent, x, y, w, h) {}
+
+    void addChild(std::unique_ptr<GuiComponent> child) {
+        children.push_back(std::move(child));
+    }
+
+    template <typename T, typename... Args>
+    T* addChild(Args&&... args) {
+        auto child = std::make_unique<T>(std::forward<Args>(args)...);
+        T* ptr = child.get();
+        children.push_back(std::move(child));
+        return ptr;
+    }
+
+    void create() override {
+        for (auto& child : children) {
+            child->create();
+        }
+    }
+
+    template <typename T>
+    T* findChild() {
+        for (auto& child : children) {
+            T* result = dynamic_cast<T*>(child.get());
+            if (result) return result;
+        }
+        return nullptr;
+    }
+};
 
 // Base class for text display components
 class TextComponentBase : public GuiComponent {
@@ -471,6 +512,8 @@ public:
 // Settings dialog component for configuring application settings
 class SettingsDialogComponent : public FormComponentBase {
 private:
+    std::string masterPassword;
+    const AppConfig& config;
     Fl_Scroll* scrollArea;
     Fl_Input* dataPathInput;
     Fl_Choice* defaultEncryptionChoice;
@@ -488,290 +531,175 @@ private:
     std::function<void()> onCancel;
 
 public:
-    SettingsDialogComponent(Fl_Group* parent, int x, int y, int w, int h,
-                           std::function<void()> onSave = nullptr,
-                           std::function<void()> onCancel = nullptr)
-        : FormComponentBase(parent, x, y, w, h), onSave(onSave), onCancel(onCancel) {}
-    
+    SettingsDialogComponent(Fl_Group* parent, int x, int y, int w, int h, 
+                            const std::string& masterPassword_in, 
+                            const AppConfig& config_in,
+                            std::function<void()> onSave_in = nullptr, 
+                            std::function<void()> onCancel_in = nullptr)
+        : FormComponentBase(parent, x, y, w, h), 
+          masterPassword(masterPassword_in), 
+          config(config_in), 
+          onSave(onSave_in), 
+          onCancel(onCancel_in) {}
+
     void create() override {
-        // Create scroll area that takes most of the dialog space, leaving room for buttons
         const int buttonAreaHeight = 60;
-        scrollArea = createWidget<Fl_Scroll>(x, y, w, h - buttonAreaHeight);
+        const int contentHeight = h - buttonAreaHeight;
+        
+        scrollArea = createWidget<Fl_Scroll>(x, y, w, contentHeight);
         scrollArea->begin();
         
-        int yPos = y + 20;
-        const int labelWidth = 180;
-        const int fieldWidth = 200;
+        int yPos = y + 10;
+        const int labelWidth = 200;
+        const int fieldWidth = w - labelWidth - 40; // Adjust for padding
+        const int inputX = x + labelWidth + 20;
         const int fieldHeight = 25;
         const int spacing = 35;
-        
-        // Load current configuration
-        ConfigManager& config = ConfigManager::getInstance();
-        
-        // Add a title first to verify the dialog is working
-        auto titleBox = new Fl_Box(x + 10, yPos, w - 30, 30, "Application Settings");
-        titleBox->labelfont(FL_BOLD);
-        titleBox->labelsize(16);
-        titleBox->align(FL_ALIGN_CENTER);
-        yPos += 40;
-        
-        // Data Path
+
+        // Use the passed-in config object, NOT the singleton
         auto dataPathLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Data Path:");
-        dataPathLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        dataPathInput = new Fl_Input(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        dataPathInput->value(config.getDataPath().c_str());
+        dataPathInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        dataPathInput->value(config.dataPath.c_str());
         yPos += spacing;
-        
-        // Default Encryption
-        auto encryptionLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
-        encryptionLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        defaultEncryptionChoice = new Fl_Choice(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        defaultEncryptionChoice->add("LFSR");
-        defaultEncryptionChoice->add("AES");
-        // Preselect the value from the config file
-        defaultEncryptionChoice->value(EncryptionUtils::toDropdownIndex(config.getDefaultEncryption()));
+
+        auto defaultEncryptionLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
+        defaultEncryptionChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
+        for (const auto& type : EncryptionUtils::getAllTypes()) {
+            defaultEncryptionChoice->add(EncryptionUtils::getDisplayName(type));
+        }
+        defaultEncryptionChoice->value(EncryptionUtils::toDropdownIndex(config.defaultEncryption));
         yPos += spacing;
-        
-        // Max Login Attempts
-        auto attemptsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
-        attemptsLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        maxLoginAttemptsInput = new Fl_Input(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        maxLoginAttemptsInput->value(std::to_string(config.getMaxLoginAttempts()).c_str());
+
+        auto maxLoginAttemptsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
+        maxLoginAttemptsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        maxLoginAttemptsInput->value(std::to_string(config.maxLoginAttempts).c_str());
         yPos += spacing;
-        
-        // Clipboard Timeout
-        auto clipboardLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Clipboard Timeout (sec):");
-        clipboardLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        clipboardTimeoutInput = new Fl_Input(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        clipboardTimeoutInput->value(std::to_string(config.getClipboardTimeoutSeconds()).c_str());
+
+        auto clipboardTimeoutLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Clipboard Timeout (s):");
+        clipboardTimeoutInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        clipboardTimeoutInput->value(std::to_string(config.clipboardTimeoutSeconds).c_str());
         yPos += spacing;
-        
-        // Auto Clipboard Clear
-        autoClipboardClearCheck = new Fl_Check_Button(x + 10, yPos, w - 30, fieldHeight, "Auto Clear Clipboard");
-        autoClipboardClearCheck->value(config.getAutoClipboardClear() ? 1 : 0);
+
+        auto minPasswordLengthLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Min Password Length:");
+        minPasswordLengthInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        minPasswordLengthInput->value(std::to_string(config.minPasswordLength).c_str());
         yPos += spacing;
-        
-        // Require Password Confirmation
-        requirePasswordConfirmationCheck = new Fl_Check_Button(x + 10, yPos, w - 30, fieldHeight, "Require Password Confirmation");
-        requirePasswordConfirmationCheck->value(config.getRequirePasswordConfirmation() ? 1 : 0);
-        yPos += spacing;
-        
-        // Min Password Length
-        auto minLengthLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Min Password Length:");
-        minLengthLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        minPasswordLengthInput = new Fl_Input(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        minPasswordLengthInput->value(std::to_string(config.getMinPasswordLength()).c_str());
-        yPos += spacing;
-        
-        // Show Encryption in Credentials
-        showEncryptionInCredentialsCheck = new Fl_Check_Button(x + 10, yPos, w - 30, fieldHeight, "Show Encryption Type in Credentials");
-        showEncryptionInCredentialsCheck->value(config.getShowEncryptionInCredentials() ? 1 : 0);
-        yPos += spacing;
-        
-        // Default UI Mode
-        auto uiModeLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
-        uiModeLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        defaultUIModeChoice = new Fl_Choice(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
+
+        auto defaultUIModeLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
+        defaultUIModeChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
         defaultUIModeChoice->add("CLI");
         defaultUIModeChoice->add("GUI");
-        defaultUIModeChoice->value(config.getDefaultUIMode() == "GUI" ? 1 : 0);
-        yPos += spacing;
-        
-        // LFSR Settings Section
-        auto lfsrSectionLabel = new Fl_Box(x + 10, yPos, w - 30, fieldHeight, "LFSR Encryption Settings");
-        lfsrSectionLabel->labelfont(FL_BOLD);
-        lfsrSectionLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        yPos += spacing;
-        
-        // LFSR Taps
-        auto lfsrTapsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Taps (comma separated):");
-        lfsrTapsLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        lfsrTapsInput = new Fl_Input(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        // Convert vector to string
-        std::string tapsStr;
-        auto taps = config.getLfsrTaps();
-        for (size_t i = 0; i < taps.size(); ++i) {
-            if (i > 0) tapsStr += ",";
-            tapsStr += std::to_string(taps[i]);
+        defaultUIModeChoice->add("auto"); // should be lowercase 'auto'
+        // Correctly set the default UI mode choice
+        if (config.defaultUIMode == "CLI") {
+            defaultUIModeChoice->value(0);
+        } else if (config.defaultUIMode == "GUI") {
+            defaultUIModeChoice->value(1);
+        } else {
+            defaultUIModeChoice->value(2);
         }
-        lfsrTapsInput->value(tapsStr.c_str());
+        yPos += spacing;
+
+        autoClipboardClearCheck = new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight, "Auto-clear Clipboard");
+        autoClipboardClearCheck->value(config.autoClipboardClear);
+        yPos += spacing;
+
+        requirePasswordConfirmationCheck = new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight, "Require Password Confirmation");
+        requirePasswordConfirmationCheck->value(config.requirePasswordConfirmation);
+        yPos += spacing;
+
+        showEncryptionInCredentialsCheck = new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight, "Show Encryption in Credentials");
+        showEncryptionInCredentialsCheck->value(config.showEncryptionInCredentials);
+        yPos += spacing;
+
+        auto lfsrTapsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Taps (comma-sep):");
+        lfsrTapsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        lfsrTapsInput->value(vectorToString(config.lfsrTaps).c_str());
         yPos += spacing;
         
-        // LFSR Initial State
-        auto lfsrInitStateLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma separated):");
-        lfsrInitStateLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-        lfsrInitStateInput = new Fl_Input(x + labelWidth + 20, yPos, fieldWidth, fieldHeight);
-        // Convert vector to string
-        std::string initStateStr;
-        auto initState = config.getLfsrInitState();
-        for (size_t i = 0; i < initState.size(); ++i) {
-            if (i > 0) initStateStr += ",";
-            initStateStr += std::to_string(initState[i]);
-        }
-        lfsrInitStateInput->value(initStateStr.c_str());
+        auto lfsrInitStateLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
+        lfsrInitStateInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        lfsrInitStateInput->value(vectorToString(config.lfsrInitState).c_str());
         yPos += spacing;
-        
-        // Add some padding at the bottom of the scroll area
-        yPos += 20;
-        
-        // End scroll area
+
         scrollArea->end();
         
-        // Set scroll area size to accommodate all content
-        scrollArea->size(w, h - buttonAreaHeight);
+        int buttonY = y + h - 50;
+        Fl_Button* saveButton = createWidget<Fl_Button>(x + w/2 - 120, buttonY, 100, 30, "Save");
+        Fl_Button* cancelButton = createWidget<Fl_Button>(x + w/2 + 20, buttonY, 100, 30, "Cancel");
         
-        // Buttons outside the scroll area, at the bottom of the dialog
-        int buttonY = y + h - buttonAreaHeight + 15;
-        Fl_Button* saveButton = createWidget<Fl_Button>(x + w - 180, buttonY, 80, 30, "Save");
-        Fl_Button* cancelButton = createWidget<Fl_Button>(x + w - 90, buttonY, 80, 30, "Cancel");
-        
-        // Set up callbacks
-        CallbackHelper::setCallback(saveButton, this, [this](SettingsDialogComponent* comp) {
-            comp->saveSettings();
-        });
-        
-        CallbackHelper::setCallback(cancelButton, this, [this](SettingsDialogComponent* comp) {
-            if (comp->onCancel) comp->onCancel();
-        });
-        
-        // Force redraw
-        if (parent) {
-            parent->redraw();
-        }
+        CallbackHelper::setCallback(saveButton, this, [this](SettingsDialogComponent* comp) { comp->saveSettings(); });
+        CallbackHelper::setCallback(cancelButton, this, [this](SettingsDialogComponent* comp) { if (onCancel) onCancel(); });
+
+        if (parent) parent->redraw();
     }
-    
+
+private:
+    std::string vectorToString(const std::vector<int>& vec) {
+        std::stringstream ss;
+        for (size_t i = 0; i < vec.size(); ++i) {
+            if (i > 0) ss << ",";
+            ss << vec[i];
+        }
+        return ss.str();
+    }
+
+    std::vector<int> stringToVector(const std::string& s) {
+        std::vector<int> vec;
+        if (s.empty()) return vec;
+        std::stringstream ss(s);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            item.erase(std::remove_if(item.begin(), item.end(), isspace), item.end());
+            if (!item.empty()) {
+                try {
+                    vec.push_back(std::stoi(item));
+                } catch (const std::exception& e) {
+                    // ignore invalid numbers
+                }
+            }
+        }
+        return vec;
+    }
+
     void saveSettings() {
+        // Collect all settings from the UI
+        AppConfig newConfig;
         try {
-            ConfigManager& config = ConfigManager::getInstance();
-            
-            // Parse LFSR settings from input fields
-            std::vector<int> newTaps, newInitState;
-            
-            // Parse LFSR taps
-            std::string tapsStr = lfsrTapsInput->value();
-            std::stringstream tapsStream(tapsStr);
-            std::string tapItem;
-            while (std::getline(tapsStream, tapItem, ',')) {
-                try {
-                    newTaps.push_back(std::stoi(tapItem));
-                } catch (const std::exception&) {
-                    fl_alert("Invalid LFSR tap value: '%s'. Please enter only numbers.", tapItem.c_str());
-                    return;
-                }
-            }
-            
-            // Parse LFSR initial state
-            std::string initStateStr = lfsrInitStateInput->value();
-            std::stringstream initStateStream(initStateStr);
-            std::string stateItem;
-            while (std::getline(initStateStream, stateItem, ',')) {
-                try {
-                    newInitState.push_back(std::stoi(stateItem));
-                } catch (const std::exception&) {
-                    fl_alert("Invalid LFSR initial state value: '%s'. Please enter only numbers.", stateItem.c_str());
-                    return;
-                }
-            }
-            
-            // Check if LFSR settings changed
-            bool lfsrChanged = (newTaps != config.getLfsrTaps() || newInitState != config.getLfsrInitState());
-            
-            if (lfsrChanged) {
-                // Prompt for master password to re-encrypt existing credentials
-                const char* masterPassword = fl_password("Enter master password to re-encrypt existing LFSR credentials:", "");
-                if (!masterPassword || strlen(masterPassword) == 0) {
-                    fl_alert("Master password is required to update LFSR settings!");
-                    return;
-                }
-                
-                // Update LFSR settings with re-encryption
-                if (!config.updateLfsrSettings(newTaps, newInitState, std::string(masterPassword))) {
-                    fl_alert("Failed to update LFSR settings. Please check the console for error details.");
-                    return;
-                }
-            } else {
-                // Update LFSR settings without re-encryption if they haven't changed
-                config.setLfsrTaps(newTaps);
-                config.setLfsrInitState(newInitState);
-            }
-            
-          
-            // If encryption type changed, migrate master password
-            EncryptionType oldType = config.getDefaultEncryption();
-            EncryptionType newType = static_cast<EncryptionType>(defaultEncryptionChoice->value());
-            if (oldType != newType) {
-                // Prompt for master password
-                const char* masterPassword = fl_password("Enter master password to migrate to new encryption type:", "");
-                if (!masterPassword || strlen(masterPassword) == 0) {
-                    fl_alert("Master password is required to change encryption type!");
-                    return;
-                }
-                config.setDefaultEncryption(newType, std::string(masterPassword));
-            }
-            
-              // Update other configuration values
-            int maxLoginAttempts = 3;
-            try {
-                maxLoginAttempts = std::stoi(maxLoginAttemptsInput->value());
-            } catch (const std::exception&) {
-                fl_alert("Invalid value for Max Login Attempts. Please enter a valid number.");
-                return;
-            }
-            int clipboardTimeout = 30;
-            try {
-                clipboardTimeout = std::stoi(clipboardTimeoutInput->value());
-            } catch (const std::exception&) {
-                fl_alert("Invalid value for Clipboard Timeout. Please enter a valid number.");
-                return;
-            }
-            int minPasswordLength = 8;
-            try {
-                minPasswordLength = std::stoi(minPasswordLengthInput->value());
-            } catch (const std::exception&) {
-                fl_alert("Invalid value for Min Password Length. Please enter a valid number.");
-                return;
-            }
-            config.setDataPath(dataPathInput->value());
-            config.setMaxLoginAttempts(maxLoginAttempts);
-            config.setClipboardTimeoutSeconds(clipboardTimeout);
-            config.setAutoClipboardClear(autoClipboardClearCheck->value() == 1);
-            config.setRequirePasswordConfirmation(requirePasswordConfirmationCheck->value() == 1);
-            config.setMinPasswordLength(minPasswordLength);
-            config.setShowEncryptionInCredentials(showEncryptionInCredentialsCheck->value() == 1);
-            config.setDefaultUIMode(defaultUIModeChoice->value() == 1 ? "GUI" : "CLI");
-            
-            // Save to file
-            if (config.saveConfig(".config")) {
-                config.loadConfig(); // Reload config after saving
-                if (lfsrChanged) {
-                    fl_message("Settings saved successfully!\nExisting LFSR-encrypted credentials have been re-encrypted with new settings.");
-                } else {
-                    fl_message("Settings saved successfully!");
-                }
-            } else {
-                fl_alert("Failed to save settings to file!");
-            }
-            
-            if (onSave) onSave(); // UIManager will refresh main screen or settings
-        } catch (const std::exception& e) {
-            fl_alert("Error saving settings: %s", e.what());
+            newConfig.dataPath = dataPathInput->value();
+            newConfig.defaultEncryption = EncryptionUtils::fromDropdownIndex(defaultEncryptionChoice->value());
+            newConfig.maxLoginAttempts = std::stoi(maxLoginAttemptsInput->value());
+            newConfig.clipboardTimeoutSeconds = std::stoi(clipboardTimeoutInput->value());
+            newConfig.autoClipboardClear = autoClipboardClearCheck->value();
+            newConfig.requirePasswordConfirmation = requirePasswordConfirmationCheck->value();
+            newConfig.minPasswordLength = std::stoi(minPasswordLengthInput->value());
+            newConfig.showEncryptionInCredentials = showEncryptionInCredentialsCheck->value();
+            newConfig.defaultUIMode = defaultUIModeChoice->menu()[defaultUIModeChoice->value()].label();
+
+            newConfig.lfsrTaps = stringToVector(lfsrTapsInput->value());
+            newConfig.lfsrInitState = stringToVector(lfsrInitStateInput->value());
+        } catch (const std::invalid_argument& ia) {
+            fl_alert("Invalid number format in one of the fields.");
+            return;
+        } catch (const std::out_of_range& oor) {
+            fl_alert("Number out of range in one of the fields.");
+            return;
         }
-    }
-};
 
+        // Get current config to compare against
+        const AppConfig& oldConfig = ConfigManager::getInstance().getConfig();
 
-// A container component that doesn't create any widgets itself
-// Used as a parent for other components to create composite UIs
-class ContainerComponent : public GuiComponent {
-public:
-    ContainerComponent(Fl_Group* parent, int x, int y, int w, int h)
-        : GuiComponent(parent, x, y, w, h) {}
-    
-    // Create all child components
-    void create() override {
-        // Create all child components
-        for (auto& child : children) {
-            child->create();
+        // Apply settings and perform migrations if necessary
+        bool success = MigrationHelper::getInstance().applySettingsFromConfig(oldConfig, newConfig, masterPassword);
+
+        if (success) {
+            fl_alert("Settings saved and applied successfully!");
+            if (onSave) {
+                onSave(); // This will close the dialog
+            }
+        } else {
+            fl_alert("Failed to apply new settings. The password might be incorrect or a migration failed. Check the console for details.");
+            // Do not close the dialog on failure
         }
     }
 };
