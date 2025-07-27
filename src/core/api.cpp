@@ -21,6 +21,7 @@
 #include <openssl/buffer.h>
 #include <openssl/err.h>
 #include "../crypto/encryption_factory.h"
+#include "../crypto/rsa_encryption.h"
 
 // Use the appropriate filesystem library
 #if __has_include(<filesystem>)
@@ -241,8 +242,23 @@ bool CredentialsManager::addCredentials(const std::string& platform, const std::
             encryptedPass = credEncryptor->encrypt(pass);
         }
 
+        CredentialData credData;
+        credData.encryption_type = credEncType;
+
+        if (credEncType == EncryptionType::RSA) {
+            auto rsaEncryptor = dynamic_cast<RSAEncryption*>(credEncryptor.get());
+            if (!rsaEncryptor) {
+                throw std::runtime_error("Failed to cast to RSAEncryption for key retrieval.");
+            }
+            credData.rsa_public_key = rsaEncryptor->getPublicKey();
+            credData.rsa_private_key = rsaEncryptor->getPrivateKey();
+        }
+
+        credData.encrypted_user = encryptedUser;
+        credData.encrypted_pass = encryptedPass;
+
         // Store the credentials with encryption type
-        storage->addCredentials(platform, encryptedUser, encryptedPass, static_cast<int>(credEncType));
+        storage->addCredentials(platform, credData);
 
         return true;
     } catch (const std::exception& e) {
@@ -277,18 +293,18 @@ std::optional<DecryptedCredential> CredentialsManager::getCredentials(const std:
         DecryptedCredential decryptedCredential;
 
         std::unique_ptr<IEncryption> encryptor;
-        // if (credentialData.encryption_type == EncryptionType::RSA) {
-        //     if (!credentialData.rsa_public_key.has_value() || !credentialData.rsa_private_key.has_value()) {
-        //         throw std::runtime_error("RSA keys not found for RSA-encrypted credential.");
-        //     }
-        //     EncryptionConfigParameters params;
-        //     params.type = credentialData.encryption_type;
-        //     params.publicKey = credentialData.rsa_public_key.value();
-        //     params.privateKey = credentialData.rsa_private_key.value();
-        //     params.masterPassword = currentMasterPassword;
-        //     encryptor = EncryptionFactory::create(params);
+        if (credentialData.encryption_type == EncryptionType::RSA) {
+            if (!credentialData.rsa_public_key.has_value() || !credentialData.rsa_private_key.has_value()) {
+                throw std::runtime_error("RSA keys not found for RSA-encrypted credential.");
+            }
+            EncryptionConfigParameters params;
+            params.type = credentialData.encryption_type;
+            params.publicKey = credentialData.rsa_public_key.value();
+            params.privateKey = credentialData.rsa_private_key.value();
+            params.masterPassword = currentMasterPassword;
+            encryptor = EncryptionFactory::create(params);
 
-        // } else {
+        } else {
             // Create a temporary encryptor for the specific type
             EncryptionConfigParameters params;
             params.type = credentialData.encryption_type;
@@ -296,7 +312,7 @@ std::optional<DecryptedCredential> CredentialsManager::getCredentials(const std:
             params.lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
             params.lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
             encryptor = EncryptionFactory::create(params);
-        // }
+        }
 
         if (!encryptor) {
             throw std::runtime_error("Failed to create decryptor for credential.");
