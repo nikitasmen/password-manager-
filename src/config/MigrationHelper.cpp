@@ -248,16 +248,25 @@ bool MigrationHelper::reencryptCredential(
         }
         
         // Save back with the same encryption type
-        int encType = static_cast<int>(credentials.encryption_type);
-        
+        CredentialData newCredData;
+        newCredData.encryption_type = credentials.encryption_type; // The type itself doesn't change
+        newCredData.encrypted_user = newEncryptedUser;
+        newCredData.encrypted_pass = newEncryptedPass;
+
+        // Preserve RSA keys if they exist
+        if (credentials.encryption_type == EncryptionType::RSA) {
+            newCredData.rsa_public_key = credentials.rsa_public_key;
+            newCredData.rsa_private_key = credentials.rsa_private_key;
+        }
+
         // Delete existing credentials and add new ones
         if (!storage->deleteCredentials(platform)) {
             std::cerr << "Failed to delete old credentials for " << platform << std::endl;
             return false;
         }
         
-        if (!storage->addCredentials(platform, newEncryptedUser, newEncryptedPass, encType)) {
-            std::cerr << "Failed to save re-encrypted credentials for " << platform << std::endl;
+        if (!storage->addCredentials(platform, newCredData)) {
+            std::cerr << "Failed to update credentials for platform '" << platform << "' in storage." << std::endl;
             return false;
         }
         
