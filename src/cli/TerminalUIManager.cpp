@@ -4,6 +4,7 @@
 #include "../config/GlobalConfig.h"
 #include <iostream>
 #include <optional>
+#include "../utils/EncryptionUtils.h"
 
 TerminalUIManager::TerminalUIManager(const std::string& dataPath)
     : UIManager(dataPath) {
@@ -21,22 +22,23 @@ void TerminalUIManager::initialize() {
         
         // Show encryption options
         TerminalUI::display_message("Select encryption type:");
-        TerminalUI::display_message("1. AES-256 (Recommended)");
-        TerminalUI::display_message("2. LFSR (Less secure, for compatibility)");
-        TerminalUI::display_message("3. RSA-2048 (Public/Private key encryption)");
-        
+        const auto availableTypes = EncryptionUtils::getAllTypes();
+        for (size_t i = 0; i < availableTypes.size(); ++i) {
+            TerminalUI::display_message(std::to_string(i + 1) + ". " + EncryptionUtils::getDisplayName(availableTypes[i]));
+        }
+
         int choice = 0;
         EncryptionType encryptionType = EncryptionType::AES;
-        
+
         while (true) {
-            std::string input = TerminalUI::get_text_input("Enter your choice (1-3): ");
+            std::string input = TerminalUI::get_text_input("Enter your choice: ");
             try {
                 choice = std::stoi(input);
-                if (choice >= 1 && choice <= 3) {
-                    encryptionType = static_cast<EncryptionType>(choice - 1);
+                if (choice >= 1 && static_cast<size_t>(choice) <= availableTypes.size()) {
+                    encryptionType = availableTypes[choice - 1];
                     break;
                 }
-                TerminalUI::display_message("Invalid choice. Please enter a number between 1 and 3.", true);
+                TerminalUI::display_message("Invalid choice. Please enter a valid number.", true);
             } catch (const std::exception&) {
                 TerminalUI::display_message("Invalid input. Please enter a number.", true);
             }
@@ -226,7 +228,27 @@ int TerminalUIManager::runMenuLoop() {
             std::string username = TerminalUI::get_text_input("Enter username: ");
             std::string password = TerminalUI::get_password_input("Enter password: ");
             TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
-            EncryptionType selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
+            const auto availableTypes = EncryptionUtils::getAllTypes();
+            for (size_t i = 0; i < availableTypes.size(); ++i) {
+                TerminalUI::display_message(std::to_string(i + 1) + ". " + EncryptionUtils::getDisplayName(availableTypes[i]));
+            }
+
+            int choice = 0;
+            EncryptionType selectedEncryption = EncryptionUtils::getDefault();
+
+            while (true) {
+                std::string input = TerminalUI::get_text_input("Enter your choice: ");
+                try {
+                    choice = std::stoi(input);
+                    if (choice >= 1 && static_cast<size_t>(choice) <= availableTypes.size()) {
+                        selectedEncryption = availableTypes[choice - 1];
+                        break;
+                    }
+                    TerminalUI::display_message("Invalid choice. Please enter a valid number.", true);
+                } catch (const std::exception&) {
+                    TerminalUI::display_message("Invalid input. Please enter a number.", true);
+                }
+            }
       
             addCredential(platform, username, password, selectedEncryption);
             TerminalUI::pause_screen();
