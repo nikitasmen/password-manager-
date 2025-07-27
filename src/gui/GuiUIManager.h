@@ -2,7 +2,13 @@
 #define GUI_UI_MANAGER_H
 
 #include "../core/UIManager.h"
-#include "GuiComponents.h"
+// Forward declare component classes to avoid circular dependencies
+class ContainerComponent;
+class LoginFormComponent;
+class PasswordSetupComponent;
+class PlatformsDisplayComponent;
+class CredentialInputsComponent;
+class SettingsDialogComponent;
 #include <FL/Fl.H>
 #include <FL/Fl_Window.H>
 #include <FL/fl_message.H>
@@ -63,6 +69,9 @@ private:
     void cleanupMainWindow();
     void refreshPlatformsList();
     void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false);
+
+    // Helper to reduce boilerplate in screen creation
+    void createScreen(const std::string& title, int w, int h, std::function<void()> populateScreen);
 
 public:
     /**
