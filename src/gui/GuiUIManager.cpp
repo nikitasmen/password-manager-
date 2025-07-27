@@ -74,9 +74,9 @@ bool GuiUIManager::login(const std::string& password) {
         
         // Try to login using the credentials manager
         if (credManager->login(password)) {
+            UIManager::masterPassword = password;
             std::cout << "Login successful!" << std::endl;
             isLoggedIn = true;
-            masterPassword = password;
             createMainScreen();
             return true;
         } else {
@@ -285,7 +285,7 @@ void GuiUIManager::createMainScreen() {
                 fl_message_title("About");
                 fl_message("Password Manager v0.4\n"
                            "A secure, lightweight password management tool\n"
-                           "© 2025 - nikitasmen");
+                           "2025 - nikitasmen");
             }
         );
         
@@ -539,49 +539,29 @@ void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
 }
 
 void GuiUIManager::openSettingsDialog() {
-    ConfigManager::getInstance().loadConfig(); // Always reload config before showing settings
+    // Explicitly load from the .config file in the project root
+    ConfigManager::getInstance().loadConfig(".config");
     createSettingsDialog();
     settingsWindow->show();
 }
 
 void GuiUIManager::createSettingsDialog() {
-    // Clean up any existing dialog
-    cleanupSettingsDialog();
-    
-    // Create new settings window with larger size to accommodate scrollable content
-    settingsWindow = std::make_unique<Fl_Window>(550, 600, "Application Settings");
-    settingsWindow->begin();
-    
-    // Create root container that fills the entire window
+    if (settingsWindow) {
+        settingsWindow->show();
+        return;
+    }
+
+    settingsWindow = std::make_unique<Fl_Window>(550, 600, "Settings");
     settingsRoot = std::make_unique<ContainerComponent>(settingsWindow.get(), 0, 0, 550, 600);
-    
-    // Add a simple test to see if the window is working
-    auto testLabel = settingsRoot->addChild<TitleComponent>(
-        settingsWindow.get(), 10, 10, 530, 30, "Settings", 16
+
+    const auto& config = ConfigManager::getInstance().getConfig();
+    auto settingsDialog = settingsRoot->addChild<SettingsDialogComponent>(
+        settingsWindow.get(), 0, 0, 550, 600, masterPassword, config,
+        [this]() { cleanupSettingsDialog(); },
+        [this]() { cleanupSettingsDialog(); }
     );
-    
-    // Add settings form component with more space
-    auto settingsForm = settingsRoot->addChild<SettingsDialogComponent>(
-        settingsWindow.get(), 10, 50, 530, 500,
-        [this]() {
-            // On save callback
-            cleanupSettingsDialog();
-        },
-        [this]() {
-            // On cancel callback
-            cleanupSettingsDialog();
-        }
-    );
-    
-    // Create the components BEFORE ending the window
+
     settingsRoot->create();
-    
     settingsWindow->end();
     settingsWindow->set_modal();
-    
-    // Set close handler
-    setWindowCloseHandler(settingsWindow.get(), false);
-    
-    // Debug: Force redraw
-    settingsWindow->redraw();
 }
