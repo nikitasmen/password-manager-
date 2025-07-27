@@ -294,12 +294,10 @@ bool JsonStorage::updateMasterPassword(const std::string& password) {
 }
 
 bool JsonStorage::addCredentials(const std::string& platformName, 
-                               const std::string& userName, 
-                               const std::string& password,
-                               int encryptionType) {
+                               const CredentialData& credData) {
     try {
         // Input validation
-        if (platformName.empty() || userName.empty() || password.empty()) {
+        if (platformName.empty() || credData.encrypted_user.empty() || credData.encrypted_pass.empty()) {
             return false;
         }
         
@@ -321,18 +319,24 @@ bool JsonStorage::addCredentials(const std::string& platformName,
         }
         
         // Encode credentials in Base64 to ensure they're valid UTF-8 in JSON
-        std::string encodedUsername = Base64::encode(userName);
-        std::string encodedPassword = Base64::encode(password);
+        std::string encodedUsername = Base64::encode(credData.encrypted_user);
+        std::string encodedPassword = Base64::encode(credData.encrypted_pass);
         
         // Create platform entry with username and password
-        nlohmann::json platform = {
-            {"username", encodedUsername},
-            {"password", encodedPassword},
-            {"encryption_type", encryptionType}
-        };
+        nlohmann::json platformData;
+        platformData["username"] = encodedUsername;
+        platformData["password"] = encodedPassword;
+        platformData["encryption_type"] = static_cast<int>(credData.encryption_type);
+
+        if (credData.rsa_public_key.has_value()) {
+            platformData["rsa_public_key"] = credData.rsa_public_key.value();
+        }
+        if (credData.rsa_private_key.has_value()) {
+            platformData["rsa_private_key"] = credData.rsa_private_key.value();
+        }
         
         // Add to credentials data
-        credentialsData["platforms"][platformName] = platform;
+        credentialsData["platforms"][platformName] = platformData;
         modified = true;
         
         // Immediately save to disk for transaction safety
@@ -454,6 +458,13 @@ std::optional<CredentialData> JsonStorage::getCredentials(const std::string& pla
                                         platform["encryption_type"].get<int>() : 
                                         0; // Default to LFSR
                 data.encryption_type = static_cast<EncryptionType>(encTypeInt);
+
+                if (platform.contains("rsa_public_key")) {
+                    data.rsa_public_key = platform["rsa_public_key"].get<std::string>();
+                }
+                if (platform.contains("rsa_private_key")) {
+                    data.rsa_private_key = platform["rsa_private_key"].get<std::string>();
+                }
                 return data;
             }
         }
