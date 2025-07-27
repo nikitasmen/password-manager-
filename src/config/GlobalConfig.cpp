@@ -22,8 +22,9 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
     
     std::string line;
     while (std::getline(file, line)) {
-        // Remove whitespace and skip empty lines or comments
-        line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
+        // Trim leading and trailing whitespace
+        line.erase(0, line.find_first_not_of(" \t\n\r"));
+        line.erase(line.find_last_not_of(" \t\n\r") + 1);
         if (line.empty() || line[0] == '#') {
             continue;
         }
