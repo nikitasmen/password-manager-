@@ -17,14 +17,35 @@ void TerminalUIManager::initialize() {
     if (!hasMasterPassword) {
         // First time setup
         TerminalUI::display_message("Welcome to Password Manager!");
-        TerminalUI::display_message("Please create a master password to get started.");
+        TerminalUI::display_message("Please create a master password to get started.\n");
         
-        TerminalUI::display_message("\nUsing AES-256 or LFSR encryption for secure password storage.");
+        // Show encryption options
+        TerminalUI::display_message("Select encryption type:");
+        TerminalUI::display_message("1. AES-256 (Recommended)");
+        TerminalUI::display_message("2. LFSR (Less secure, for compatibility)");
+        TerminalUI::display_message("3. RSA-2048 (Public/Private key encryption)");
         
-        std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
+        int choice = 0;
+        EncryptionType encryptionType = EncryptionType::AES;
+        
+        while (true) {
+            std::string input = TerminalUI::get_text_input("Enter your choice (1-3): ");
+            try {
+                choice = std::stoi(input);
+                if (choice >= 1 && choice <= 3) {
+                    encryptionType = static_cast<EncryptionType>(choice - 1);
+                    break;
+                }
+                TerminalUI::display_message("Invalid choice. Please enter a number between 1 and 3.", true);
+            } catch (const std::exception&) {
+                TerminalUI::display_message("Invalid input. Please enter a number.", true);
+            }
+        }
+        
+        std::string newPassword = TerminalUI::get_password_input("\nEnter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
 
-        setupPassword(newPassword, confirmPassword, EncryptionUtils::getDefault());
+        setupPassword(newPassword, confirmPassword, encryptionType);
     } else {
         // Regular login
         TerminalUI::display_message("Welcome to Password Manager!");
