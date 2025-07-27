@@ -43,6 +43,7 @@ set(CORE_SOURCES
     src/crypto/encryption_factory.cpp
     src/crypto/aes_encryption.cpp
     src/crypto/lfsr_encryption.cpp
+    src/crypto/rsa_encryption.cpp
     src/crypto/cipher_context_raii.cpp
 )
 
