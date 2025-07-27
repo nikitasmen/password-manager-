@@ -14,6 +14,81 @@ MigrationHelper& MigrationHelper::getInstance() {
     return instance;
 }
 
+namespace {
+    // Private helper to handle moving the data file if the path changes
+    bool handleDataPathChange(const std::string& oldPath, const std::string& newPath) {
+        if (oldPath == newPath) {
+            return true; // No change needed
+        }
+
+        std::cout << "Data path changed, moving data file..." << std::endl;
+        std::ifstream oldFile(oldPath);
+        if (!oldFile.good()) {
+            std::cout << "No existing data file to move." << std::endl;
+            return true; // Not an error if the old file doesn't exist
+        }
+
+        // Ensure the destination directory exists (requires C++17 filesystem)
+        size_t lastSlash = newPath.find_last_of("/\\");
+        if (lastSlash != std::string::npos) {
+            std::filesystem::create_directories(newPath.substr(0, lastSlash));
+        }
+
+        std::ifstream src(oldPath, std::ios::binary);
+        std::ofstream dst(newPath, std::ios::binary);
+
+        if (!src || !dst) {
+            std::cerr << "Failed to move data file from '" << oldPath << "' to '" << newPath << "'" << std::endl;
+            return false;
+        }
+
+        dst << src.rdbuf();
+        src.close();
+        dst.close();
+        std::cout << "Data file successfully copied to new location." << std::endl;
+        // std::remove(oldPath.c_str()); // Optional: remove old file
+        return true;
+    }
+
+    // Private helper to handle all encryption-related migrations
+    bool handleEncryptionSettingsChange(const AppConfig& oldConfig, const AppConfig& newConfig, const std::string& masterPassword, const std::string& dataPath) {
+        const auto oldEnc = oldConfig.defaultEncryption;
+        const auto newEnc = newConfig.defaultEncryption;
+        const auto& oldTaps = oldConfig.lfsrTaps;
+        const auto& oldInit = oldConfig.lfsrInitState;
+        const auto& newTaps = newConfig.lfsrTaps;
+        const auto& newInit = newConfig.lfsrInitState;
+
+        bool lfsrParamsChanged = (oldTaps != newTaps) || (oldInit != newInit);
+
+        if (oldEnc == newEnc && !lfsrParamsChanged) {
+            return true; // No encryption changes
+        }
+
+        // If encryption type changes, master password must be migrated
+        if (oldEnc != newEnc) {
+            std::cout << "Encryption type changed, migrating master password..." << std::endl;
+            if (!MigrationHelper::getInstance().migrateMasterPasswordForEncryptionChange(oldEnc, newEnc, oldTaps, oldInit, newTaps, newInit, masterPassword, dataPath)) {
+                std::cerr << "Failed to migrate master password for encryption type change!" << std::endl;
+                return false;
+            }
+            std::cout << "Master password encryption migration completed." << std::endl;
+        }
+
+        // If LFSR settings change, all LFSR credentials must be migrated
+        if (lfsrParamsChanged) {
+            std::cout << "LFSR settings changed, migrating credentials..." << std::endl;
+            if (!MigrationHelper::getInstance().migrateCredentialsForLfsrChange(oldTaps, oldInit, newTaps, newInit, masterPassword, dataPath)) {
+                std::cerr << "Failed to migrate LFSR credentials for new taps/init state!" << std::endl;
+                return false;
+            }
+            std::cout << "LFSR credentials migration completed." << std::endl;
+        }
+
+        return true;
+    }
+} // namespace
+
 // Generate a random salt for LFSR encryption
 std::string MigrationHelper::generateRandomSalt() {
     const std::string charset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -119,45 +194,18 @@ bool MigrationHelper::updateMasterPasswordWithNewLfsr(
     const std::string& masterPassword,
     const std::string& dataPath) {
 
-    std::unique_ptr<JsonStorage> storage = std::make_unique<JsonStorage>(dataPath);
-    std::string storedPassword = storage->getMasterPassword();
-    if (storedPassword.empty()) {
-        std::cout << "No master password to migrate" << std::endl;
-        return true;
-    }
-
-    EncryptionType defaultEnc = ConfigManager::getInstance().getDefaultEncryption();
-    if (defaultEnc == EncryptionType::AES) {
-        std::cout << "Skipping master password migration (config is AES or stored password is AES-encrypted)." << std::endl;
-        return true;
-    }
-
-    std::string decryptedPassword;
-    try {
-        decryptedPassword = Encryption::decryptMasterPassword(defaultEnc, oldTaps, oldInitState, storedPassword, masterPassword);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to decrypt master password: " << e.what() << std::endl;
-        return false;
-    }
-
-    if (decryptedPassword != masterPassword) {
-        std::cerr << "Failed to migrate master password - could not decrypt with old settings" << std::endl;
-        return false;
-    }
-
-    std::string newEncryptedPassword;
-    try {
-        newEncryptedPassword = Encryption::encryptMasterPassword(defaultEnc, newTaps, newInitState, masterPassword);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to encrypt master password: " << e.what() << std::endl;
-        return false;
-    }
-
-    if (!storage->updateMasterPassword(newEncryptedPassword)) {
-        std::cerr << "Failed to update master password with new encryption" << std::endl;
-        return false;
-    }
-    std::cout << "Master password successfully migrated with LFSR encryption" << std::endl;
+    // Delegate to the more generic master password migration function.
+    // This handles the case of an LFSR -> LFSR parameter change.
+    return migrateMasterPasswordForEncryptionChange(
+        EncryptionType::LFSR, 
+        EncryptionType::LFSR, 
+        oldTaps, 
+        oldInitState, 
+        newTaps, 
+        newInitState, 
+        masterPassword, 
+        dataPath
+    );
     return true;
 }
 
@@ -366,98 +414,23 @@ bool MigrationHelper::applySettingsFromConfig(const AppConfig& oldConfig, const 
     ConfigManager& configMgr = ConfigManager::getInstance();
     
     try {
-        // Get paths for migration
-        std::string oldDataPath = oldConfig.dataPath;
-        std::string newDataPath = newConfig.dataPath;
-        EncryptionType oldEnc = oldConfig.defaultEncryption;
-        EncryptionType newEnc = newConfig.defaultEncryption;
-        const std::vector<int>& oldTaps = oldConfig.lfsrTaps;
-        const std::vector<int>& oldInit = oldConfig.lfsrInitState;
-        const std::vector<int>& newTaps = newConfig.lfsrTaps;
-        const std::vector<int>& newInit = newConfig.lfsrInitState;
-
-        // 1. Handle data path change first (move/copy data file if needed)
-        if (oldDataPath != newDataPath) {
-            std::cout << "Data path changed from '" << oldDataPath << "' to '" << newDataPath << "'" << std::endl;
-            
-            // Check if old file exists
-            std::ifstream oldFile(oldDataPath);
-            if (oldFile.good()) {
-                oldFile.close();
-                
-                // Create directory structure if it doesn't exist
-                size_t lastSlash = newDataPath.find_last_of("/\\");
-                if (lastSlash != std::string::npos) {
-                    std::string dirPath = newDataPath.substr(0, lastSlash);
-                    // Note: Directory creation would require additional system calls
-                    // For now, we'll just try to copy and let it fail if directory doesn't exist
-                }
-                
-                // Copy data file to new location
-                std::ifstream src(oldDataPath, std::ios::binary);
-                std::ofstream dst(newDataPath, std::ios::binary);
-                
-                if (!src || !dst) {
-                    std::cerr << "Failed to move/copy data file from '" << oldDataPath << "' to '" << newDataPath << "'" << std::endl;
-                    success = false;
-                } else {
-                    dst << src.rdbuf();
-                    src.close();
-                    dst.close();
-                    std::cout << "Data file successfully copied to new location" << std::endl;
-                    
-                    // Optionally remove old file (commented out for safety)
-                    // std::remove(oldDataPath.c_str());
-                }
-            } else {
-                std::cout << "No existing data file to move" << std::endl;
-            }
+        // 1. Handle data path change
+        if (!handleDataPathChange(oldConfig.dataPath, newConfig.dataPath)) {
+            success = false;
         }
 
-        // Use the new data path for all subsequent operations
-        std::string workingDataPath = newDataPath;
-
-        // 2. Handle encryption type change (migrate master password)
-        if (oldEnc != newEnc) {
-            std::cout << "Encryption type changed, migrating master password..." << std::endl;
-            
-            bool migrated = migrateMasterPasswordForEncryptionChange(
-                oldEnc, newEnc, oldTaps, oldInit, newTaps, newInit, masterPassword, workingDataPath
-            );
-            
-            if (!migrated) {
-                std::cerr << "Failed to migrate master password for encryption type change!" << std::endl;
-                success = false;
-            } else {
-                std::cout << "Master password encryption migration completed" << std::endl;
-            }
+        // 2. Handle all encryption-related changes
+        if (success && !handleEncryptionSettingsChange(oldConfig, newConfig, masterPassword, newConfig.dataPath)) {
+            success = false;
         }
 
-        // 3. Handle LFSR taps/initial state change (migrate all LFSR credentials)
-        if ((oldTaps != newTaps) || (oldInit != newInit)) {
-            std::cout << "LFSR settings changed, migrating credentials..." << std::endl;
-            
-            bool migrated = migrateCredentialsForLfsrChange(
-                oldTaps, oldInit, newTaps, newInit, masterPassword, workingDataPath
-            );
-            
-            if (!migrated) {
-                std::cerr << "Failed to migrate LFSR credentials for new taps/init state!" << std::endl;
-                success = false;
-            } else {
-                std::cout << "LFSR credentials migration completed" << std::endl;
-            }
-        }
-
-        // 4. Update all config settings in ConfigManager (atomic update)
+        // 3. Update and save the configuration if all migrations were successful
         if (success) {
             try {
                 configMgr.updateConfig(newConfig);
-                std::cout << "Configuration updated successfully" << std::endl;
-                
-                // Save the updated config to file
+                std::cout << "Configuration updated successfully." << std::endl;
                 if (!configMgr.saveConfig()) {
-                    std::cerr << "Warning: Failed to save configuration to file" << std::endl;
+                    std::cerr << "Warning: Failed to save configuration to file." << std::endl;
                 }
             } catch (const std::exception& e) {
                 std::cerr << "Failed to update configuration: " << e.what() << std::endl;
@@ -477,7 +450,7 @@ bool MigrationHelper::applySettingsFromConfig(const AppConfig& oldConfig, const 
         std::cerr << "Unexpected error during settings migration: " << e.what() << std::endl;
         return false;
     } catch (...) {
-        std::cerr << "Unknown error during settings migration" << std::endl;
+        std::cerr << "Unknown error during settings migration." << std::endl;
         return false;
     }
 }
