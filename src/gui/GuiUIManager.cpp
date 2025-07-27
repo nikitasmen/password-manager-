@@ -240,7 +240,7 @@ void GuiUIManager::createMainScreen() {
                 },
                 []() {
                     fl_message_title("About");
-                    fl_message("Password Manager v0.4\n"
+                    fl_message("Password Manager v1.5\n"
                                "A secure, lightweight password management tool\n"
                                "2025 - nikitasmen");
                 }
