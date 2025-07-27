@@ -54,9 +54,10 @@ public:
      */
     std::string getPrivateKey() const;
     
+    void loadKeys(const std::string& publicKey, const std::string& privateKey);
+    
 private:
     void generateKeyPair(int keySize);
-    void loadKeys(const std::string& publicKey, const std::string& privateKey);
     std::string rsaEncrypt(const std::string& plaintext, RSA* rsaKey);
     std::string rsaDecrypt(const std::string& ciphertext, RSA* rsaKey);
     

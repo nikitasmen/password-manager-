@@ -93,7 +93,16 @@ void RSAEncryption::loadKeys(const std::string& publicKey, const std::string& pr
         throwOpenSSLError("Failed to create BIO for private key");
     }
     
-    m_rsaPrivateKey = PEM_read_bio_RSAPrivateKey(bio, nullptr, nullptr, nullptr);
+    auto passphraseCb = [](char* buf, int size, int rwflag, void* u) -> int {
+        const std::string* pass = static_cast<const std::string*>(u);
+        if (!pass || pass->empty() || size < 1) return -1;
+        int len = std::min(static_cast<int>(pass->size()), size - 1);
+        memcpy(buf, pass->c_str(), len);
+        buf[len] = '\0';
+        return len;
+    };
+    
+    m_rsaPrivateKey = PEM_read_bio_RSAPrivateKey(bio, nullptr, passphraseCb, const_cast<std::string*>(&m_masterPassword));
     BIO_free(bio);
     
     if (!m_rsaPrivateKey) {
@@ -215,15 +224,23 @@ std::string RSAEncryption::getPrivateKey() const {
         return len;
     };
     
-    if (PEM_write_bio_RSAPrivateKey(
-            bio, 
-            m_rsaPrivateKey, 
-            m_masterPassword.empty() ? nullptr : EVP_aes_256_cbc(),
-            nullptr, 0, 
-            m_masterPassword.empty() ? nullptr : passphraseCb,
-            const_cast<std::string*>(&m_masterPassword)) != 1) {
-        BIO_free(bio);
-        throwOpenSSLError("Failed to write private key");
+    if (m_masterPassword.empty()) {
+        if (PEM_write_bio_RSAPrivateKey(bio, m_rsaPrivateKey, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
+            BIO_free(bio);
+            throwOpenSSLError("Failed to write private key");
+        }
+    } else {
+        if (PEM_write_bio_RSAPrivateKey(
+                bio, 
+                m_rsaPrivateKey, 
+                EVP_aes_256_cbc(),
+                reinterpret_cast<const unsigned char*>(m_masterPassword.c_str()),
+                static_cast<int>(m_masterPassword.length()),
+                nullptr,
+                nullptr) != 1) {
+            BIO_free(bio);
+            throwOpenSSLError("Failed to write private key");
+        }
     }
     
     BUF_MEM* mem = nullptr;
