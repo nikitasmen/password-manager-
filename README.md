@@ -1,34 +1,35 @@
 # Password Manager
 
-A secure, modular password management tool written in C++17 with multiple user interface options.
+A secure, modular password management tool written in C++17 with multiple user interface options and robust encryption support.
 
 ## Features
 
 - **Secure Local Storage**: All credentials are stored locally in an encrypted JSON format
-- **Advanced Encryption**:
-  - LFSR (Linear Feedback Shift Register) stream cipher
+- **Advanced Encryption System**:
+  - Multiple encryption backends (AES, LFSR)
+  - Pluggable encryption architecture with factory pattern
   - Salt-based encryption for stronger security
-  - Base64 encoding for safe storage of binary data
-- **Robust JSON Storage System**:
+  - Support for encryption algorithm migration
+- **Robust Storage System**:
   - Automatic file backups with timestamps
-  - RAII-based file handling for resource safety
-  - Atomic operations with proper transaction management
-  - Optimized file access patterns (open-use-close pattern)
+  - RAII-based resource management
+  - Transaction-safe operations
+  - Optimized file access patterns
 - **Multiple User Interfaces**:
   - Text-based UI (TUI) for terminal environments
   - Modern graphical UI (GUI) using FLTK
   - Shared core API for consistent functionality
-- **User-Friendly Features**:
-  - Store platform-specific credentials (username/password)
-  - View, add, and delete credentials easily
-  - Master password protection for all stored data
+- **User Management**:
+  - Secure master password protection
+  - Password strength validation
+  - Secure credential storage and retrieval
 - **Well-Architected Codebase**:
-  - DRY (Don't Repeat Yourself) design principles
-  - RAII for resource management
+  - Clean separation of concerns
+  - Factory pattern for encryption backends
   - Comprehensive error handling
   - Modular component design
-  - Helper methods for common operations
-  - Standardized dialog management
+  - Unit test coverage
+  - Modern C++17 features
 
 ## Architecture
 
@@ -36,10 +37,18 @@ The project follows a modular architecture with these key components:
 
 - **Core**: Core functionality shared across all interfaces
   - `api.cpp/h`: Main credentials management API
-  - `encryption.cpp/h`: LFSR-based encryption with salt support
   - `json_storage.cpp/h`: JSON-based credential storage
-  - `base64.cpp/h`: Base64 encoding/decoding utilities
   - `file_system.cpp/h`: File system operations
+  - `UIManager`: Interface for UI components
+  - `ConfigManager`: Application configuration
+
+- **Crypto**: Encryption subsystem
+  - `encryption_interface.h`: Base interface for all encryption backends
+  - `aes_encryption.cpp/h`: AES encryption implementation
+  - `lfsr_encryption.cpp/h`: LFSR stream cipher implementation
+  - `salted_encryption.h`: Salt-based encryption wrapper
+  - `encryption_factory.cpp/h`: Factory for creating encryption instances
+  - `cipher_context_raii.cpp/h`: RAII wrapper for encryption contexts
 
 - **Terminal UI**: Text-based interface
   - `tui_main.cpp`: Entry point for terminal application
@@ -49,9 +58,11 @@ The project follows a modular architecture with these key components:
 - **Graphical UI**: FLTK-based interface
   - `gui_main.cpp`: Entry point for graphical application
   - `gui.cpp/h`: GUI components and event handlers
+  - `dialogs/`: Various dialog implementations
 
 - **Configuration**:
   - `GlobalConfig.cpp/h`: Shared configuration settings
+  - `MigrationHelper.cpp/h`: Handles data migration between versions
 
 ## Project Structure
 
@@ -60,41 +71,49 @@ password-manager-/
 ├── build.sh              # Build script for all components
 ├── CMakeLists.txt        # CMake configuration
 ├── src/
-│   ├── config/           # Configuration settings
-│   │   ├── GlobalConfig.cpp
-│   │   └── GlobalConfig.h
-│   ├── core/             # Core functionality
-│   │   ├── api.cpp
-│   │   ├── api.h
-│   │   ├── base64.cpp
-│   │   ├── base64.h
-│   │   ├── clipboard.cpp
-│   │   ├── clipboard.h
-│   │   ├── encryption.cpp
-│   │   ├── encryption.h
-│   │   ├── json_storage.cpp
-│   │   ├── json_storage.h
-│   │   ├── terminal_ui.cpp
-│   │   ├── terminal_ui.h
-│   │   ├── UIManager.cpp
-│   │   ├── UIManager.h
-│   │   ├── UIManagerFactory.cpp
-│   │   ├── UIManagerFactory.h
-│   │   └── file_system.cpp
 │   ├── cli/              # Command-line interface
 │   │   ├── cli_ui.cpp
 │   │   └── cli_UI.h
+│   ├── config/           # Configuration settings
+│   │   ├── GlobalConfig.cpp
+│   │   ├── GlobalConfig.h
+│   │   ├── MigrationHelper.cpp
+│   │   └── MigrationHelper.h
+│   ├── core/             # Core functionality
+│   │   ├── api.cpp
+│   │   ├── api.h
+│   │   ├── json_storage.cpp
+│   │   ├── json_storage.h
+│   │   ├── UIManager.cpp
+│   │   ├── UIManager.h
+│   │   └── file_system.cpp
+│   ├── crypto/           # Encryption subsystem
+│   │   ├── aes_encryption.cpp
+│   │   ├── aes_encryption.h
+│   │   ├── cipher_context_raii.cpp
+│   │   ├── cipher_context_raii.h
+│   │   ├── encryption_factory.cpp
+│   │   ├── encryption_factory.h
+│   │   ├── encryption_interface.h
+│   │   ├── encryption_type.h
+│   │   ├── lfsr_encryption.cpp
+│   │   ├── lfsr_encryption.h
+│   │   └── salted_encryption.h
 │   ├── gui/              # Graphical user interface
+│   │   ├── dialogs/      # Dialog implementations
 │   │   ├── gui.cpp
 │   │   └── gui.h
 │   ├── gui_main.cpp      # GUI application entry point
-│   └── tui_main.cpp      # Terminal UI application entry point
+│   ├── tui_main.cpp      # Terminal UI application entry point
+│   └── utils/            # Utility functions
+│       └── string_utils.cpp
 ├── tests/                # Test files
-│   └── base64_test.cpp
-├── build/                # Build directory (created during build)
+│   ├── unit/            # Unit tests
+│   └── integration/     # Integration tests
+├── build/               # Build directory (created during build)
 │   ├── password_manager      # Terminal UI executable
 │   ├── password_manager_gui  # GUI executable
-│   └── data/                 # Data storage directory
+│   └── data/            # Data storage directory
 ├── .gitignore
 ├── LICENSE
 └── README.md
@@ -192,12 +211,27 @@ make
 
 ## Security Features
 
-This password manager implements several security measures:
+This password manager implements multiple layers of security:
 
-1. **LFSR Stream Cipher**: Custom encryption using Linear Feedback Shift Register
-2. **Salt-Based Security**: Random salt added to encrypted values to prevent rainbow table attacks
-3. **Base64 Encoding**: Safe storage of binary data in JSON format
-4. **Automatic Backups**: Timestamped backups created before data modifications
+1. **Multiple Encryption Backends**:
+   - AES-256 for strong cryptographic protection
+   - LFSR (Linear Feedback Shift Register) for lightweight encryption
+   - Pluggable architecture for future encryption algorithms
+
+2. **Secure Key Management**:
+   - Master password hashing with salt
+   - Secure key derivation
+   - Encryption context management with RAII
+
+3. **Data Protection**:
+   - Salt-based encryption to prevent rainbow table attacks
+   - Secure memory handling
+   - Automatic data migration between encryption types
+
+4. **Operational Security**:
+   - Automatic backups before critical operations
+   - Secure file handling
+   - Transaction-safe storage operations
 5. **Secure File Handling**: Proper file resource management with immediate closing after operations
 6. **Memory Management**: Smart pointers to prevent memory leaks
 7. **Error Handling**: Comprehensive exception handling throughout the codebase
