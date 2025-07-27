@@ -1,5 +1,8 @@
 #include "MigrationHelper.h"
+#include "../crypto/lfsr_encryption.h"
+#include "../core/api.h"
 #include "../crypto/encryption_factory.h"
+#include <openssl/rand.h>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -301,13 +304,18 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
         }
         newSalt = std::string(reinterpret_cast<const char*>(saltBytes), sizeof(saltBytes));
         newEncryptor = std::make_unique<LFSREncryption>(newTaps, newInitState, newSalt);
-    } else {
-        // For AES and others, use the factory
+    } else { // For AES and others
+        // Generate a new salt for AES encryption for better security
+        unsigned char saltBytes[16];
+        if (RAND_bytes(saltBytes, sizeof(saltBytes)) != 1) {
+            std::cerr << "Failed to generate random salt for new AES encryption" << std::endl;
+            return false;
+        }
+        newSalt = std::string(reinterpret_cast<const char*>(saltBytes), sizeof(saltBytes));
+
+        // For AES and others, use the factory. The salt is not passed directly but will be used to store the final value.
         newEncryptor = EncryptionFactory::createForMasterPassword(
             newType, masterPassword, newTaps, newInitState);
-        
-        // For non-LFSR, we'll use the same salt format as the old one for consistency
-        newSalt = salt;
     }
     
     if (!newEncryptor) {
@@ -341,14 +349,21 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
 
 bool MigrationHelper::applySettingsFromConfig(const AppConfig& oldConfig, const AppConfig& newConfig, const std::string& masterPassword) {
     if (masterPassword.empty()) {
-        std::cerr << "Error: Master password is required for settings migration" << std::endl;
+        std::cerr << "Error: Master password is required for migration but was not provided." << std::endl;
         return false;
     }
 
+    // Verify master password before proceeding
+    CredentialsManager verifier(oldConfig.dataPath);
+    if (!verifier.login(masterPassword)) {
+        std::cerr << "Error: Incorrect master password provided. Settings will not be applied." << std::endl;
+        return false;
+    }
+
+    std::cout << "Starting settings migration..." << std::endl;
+
     bool success = true;
     ConfigManager& configMgr = ConfigManager::getInstance();
-    
-    std::cout << "Starting settings migration..." << std::endl;
     
     try {
         // Get paths for migration
