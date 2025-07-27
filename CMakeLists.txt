@@ -66,6 +66,7 @@ function(link_common target)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/core 
         ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto 
         ${CMAKE_CURRENT_SOURCE_DIR}/src/config 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
         ${JSON_INCLUDE_DIR}
     )
     if(FILESYSTEM_LIB)
@@ -85,6 +86,17 @@ target_compile_definitions(password_manager_cli PRIVATE ENABLE_CLI)
 # GUI application
 add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} src/gui_main.cpp)
 target_compile_definitions(password_manager_gui PRIVATE ENABLE_GUI)
+
+target_include_directories(password_manager_gui PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/config
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gui
+    ${JSON_INCLUDE_DIR}
+)
+
 target_link_libraries(password_manager_gui PRIVATE ${FLTK_LIBRARIES})
 link_common(password_manager_gui)
 
