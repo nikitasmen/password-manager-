@@ -1,75 +1,51 @@
 #include "./encryption.h"
-#include "../crypto/cipher_context_raii.h"
+#include "../crypto/encryption_factory.h"
+#include "../crypto/aes_encryption.h"
+#include "../crypto/lfsr_encryption.h"
 #include <stdexcept>
-#include <algorithm>
 #include <sstream>
 #include <iomanip>
 #include <vector>
-#include <cstring>
-#include <random>
-#include <chrono>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/kdf.h>
-#include <openssl/sha.h>
+#include <memory>
 
 using namespace std;
-
-// CipherContextRAII implementation has been moved to cipher_context_raii.h/cpp
-
-// Helper function to convert bytes to hex
-static string bytesToHex(const vector<unsigned char>& bytes) {
-    stringstream ss;
-    ss << hex << setfill('0');
-    for(unsigned char b : bytes) {
-        ss << setw(2) << static_cast<unsigned>(b);
-    }
-    return ss.str();
-}
-
-// Helper function to convert hex string to bytes
-static vector<unsigned char> hexToBytes(const string& hex) {
-    vector<unsigned char> bytes;
-    for (size_t i = 0; i < hex.length(); i += 2) {
-        string byteString = hex.substr(i, 2);
-        unsigned char byte = static_cast<unsigned char>(stoi(byteString, nullptr, 16));
-        bytes.push_back(byte);
-    }
-    return bytes;
-}
-
-// Generate random bytes
-vector<unsigned char> generateRandomBytes(size_t length) {
-    vector<unsigned char> bytes(length);
-    if (RAND_bytes(bytes.data(), static_cast<int>(length)) != 1) {
-        throw runtime_error("Failed to generate random bytes");
-    }
-    return bytes;
-}
 
 // Encryption class implementation
 Encryption::Encryption(EncryptionType algorithm, 
                      const vector<int>& taps,
                      const vector<int>& initState,
                      const string& password)
-    : algorithm_(algorithm), taps_(taps), 
-      initialState_(initState), masterPassword_(password) {
-    // Initialize OpenSSL algorithms
-    OpenSSL_add_all_algorithms();
+    : algorithm_(algorithm), taps_(taps), initialState_(initState), masterPassword_(password) {
     
-    // If no initial state is provided for LFSR, use a default one
-    if (algorithm_ == EncryptionType::LFSR && initialState_.empty()) {
-        initialState_ = {1, 0, 1, 1, 0, 1, 0, 1}; // Default initial state
+    if (algorithm_ == EncryptionType::LFSR) {
+        if (taps_.empty()) {
+            taps_ = {0, 2};  // Default taps for LFSR
+        }
+        if (initialState_.empty()) {
+            initialState_ = {1, 0, 1};  // Default initial state
+        }
     }
     
-    // If no taps are provided for LFSR, use a default one
-    if (algorithm_ == EncryptionType::LFSR && taps_.empty()) {
-        taps_ = {0, 2}; // Default taps for LFSR
-    }
+    // Initialize the encryptor
+    updateEncryptor();
+}
+
+void Encryption::updateEncryptor() {
+    EncryptionConfigParameters params;
+    params.type = algorithm_;
+    params.masterPassword = masterPassword_;
+    params.lfsrTaps = taps_;
+    params.lfsrInitState = initialState_;
+    
+    encryptor_ = EncryptionFactory::create(params);
+    needsRecreation_ = false;
 }
 
 void Encryption::setMasterPassword(const string& password) {
-    masterPassword_ = password;
+    if (masterPassword_ != password) {
+        masterPassword_ = password;
+        needsRecreation_ = true;
+    }
 }
 
 string Encryption::encrypt(const string& plaintext) {
@@ -77,9 +53,12 @@ string Encryption::encrypt(const string& plaintext) {
         throw runtime_error("Master password not set");
     }
     
+    if (needsRecreation_ || !encryptor_) {
+        updateEncryptor();
+    }
+    
     try {
-        auto encryptor = EncryptionFactory::createForMasterPassword(algorithm_, masterPassword_, taps_, initialState_);
-        return encryptor->encrypt(plaintext);
+        return encryptor_->encrypt(plaintext);
     } catch (const exception& e) {
         throw runtime_error(string("Encryption failed: ") + e.what());
     }
@@ -90,25 +69,80 @@ string Encryption::decrypt(const string& ciphertext) {
         throw runtime_error("Master password not set");
     }
     
+    if (needsRecreation_ || !encryptor_) {
+        updateEncryptor();
+    }
+    
     try {
-        auto decryptor = EncryptionFactory::createForMasterPassword(algorithm_, masterPassword_, taps_, initialState_);
-        return decryptor->decrypt(ciphertext);
+        return encryptor_->decrypt(ciphertext);
     } catch (const exception& e) {
         throw runtime_error(string("Decryption failed: ") + e.what());
     }
 }
 
-// Salt-based encryption/decryption helpers
+vector<string> Encryption::encryptWithSalt(const vector<string>& plaintexts) {
+    if (needsRecreation_ || !encryptor_) {
+        updateEncryptor();
+    }
+    
+    try {
+        if (auto saltedEncryptor = dynamic_cast<ISaltedEncryption*>(encryptor_.get())) {
+            // Use the salted encryption if available
+            return saltedEncryptor->encryptWithSalt(plaintexts);
+        }
+        
+        // Fallback to regular encryption if not a salted encryptor
+        vector<string> results;
+        results.reserve(plaintexts.size());
+        for (const auto& plaintext : plaintexts) {
+            results.push_back(encrypt(plaintext));
+        }
+        return results;
+    } catch (const exception& e) {
+        throw runtime_error(string("Salted encryption failed: ") + e.what());
+    }
+}
+
+vector<string> Encryption::decryptWithSalt(const vector<string>& ciphertexts) {
+    if (needsRecreation_ || !encryptor_) {
+        updateEncryptor();
+    }
+    
+    try {
+        if (auto saltedDecryptor = dynamic_cast<ISaltedEncryption*>(encryptor_.get())) {
+            // Use the salted decryption if available
+            return saltedDecryptor->decryptWithSalt(ciphertexts);
+        }
+        
+        // Fallback to regular decryption if not a salted decryptor
+        vector<string> results;
+        results.reserve(ciphertexts.size());
+        for (const auto& ciphertext : ciphertexts) {
+            results.push_back(decrypt(ciphertext));
+        }
+        return results;
+    } catch (const exception& e) {
+        throw runtime_error(string("Salted decryption failed: ") + e.what());
+    }
+}
+
 string Encryption::encryptWithSalt(const string& plaintext) {
-    // Use the standard encrypt method which now includes per-record salt for LFSR
-    return encrypt(plaintext);
+    vector<string> plaintexts = {plaintext};
+    auto results = encryptWithSalt(plaintexts);
+    if (!results.empty()) {
+        return results[0];
+    }
+    throw runtime_error("Failed to encrypt with salt: empty result");
 }
 
 string Encryption::decryptWithSalt(const string& ciphertext) {
-    // Use the standard decrypt method which now handles both old and new salt formats for LFSR
-    return decrypt(ciphertext);
+    vector<string> ciphertexts = {ciphertext};
+    auto results = decryptWithSalt(ciphertexts);
+    if (!results.empty()) {
+        return results[0];
+    }
+    throw runtime_error("Failed to decrypt with salt: empty result");
 }
-
 
 
 // Static methods for master password encryption/decryption
@@ -118,11 +152,15 @@ string Encryption::decryptMasterPassword(EncryptionType type,
                                        const string& encrypted, 
                                        const string& masterPassword) {
     try {
+        // Create an encryption instance with the provided parameters
         Encryption decryptor(type, taps, initState, masterPassword);
-        // For master password, we use decryptWithSalt which handles the salt properly
+        
+        // Use the salted decryption method which properly handles the salt
         return decryptor.decryptWithSalt(encrypted);
     } catch (const exception& e) {
-        throw runtime_error(string("Failed to decrypt master password: ") + e.what());
+        // Provide detailed error information while avoiding potential information leakage
+        throw runtime_error("Failed to decrypt master password: " + 
+                          string(e.what() ? e.what() : "Unknown error"));
     }
 }
 
@@ -131,10 +169,14 @@ string Encryption::encryptMasterPassword(EncryptionType type,
                                        const vector<int>& initState, 
                                        const string& masterPassword) {
     try {
+        // Create an encryption instance with the provided parameters
         Encryption encryptor(type, taps, initState, masterPassword);
-        // For master password, we use encryptWithSalt which adds a random salt
+        
+        // Use the salted encryption method which adds a random salt
         return encryptor.encryptWithSalt(masterPassword);
     } catch (const exception& e) {
-        throw runtime_error(string("Failed to encrypt master password: ") + e.what());
+        // Provide detailed error information while avoiding potential information leakage
+        throw runtime_error("Failed to encrypt master password: " + 
+                          string(e.what() ? e.what() : "Unknown error"));
     }
 }
