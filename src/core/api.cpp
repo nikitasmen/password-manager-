@@ -251,7 +251,7 @@ bool CredentialsManager::addCredentials(const std::string& platform, const std::
                 throw std::runtime_error("Failed to cast to RSAEncryption for key retrieval.");
             }
             credData.rsa_public_key = rsaEncryptor->getPublicKey();
-            credData.rsa_private_key = rsaEncryptor->getPrivateKey();
+            credData.rsa_private_key = rsaEncryptor->getEncryptedPrivateKeyData();
         }
 
         credData.encrypted_user = encryptedUser;
