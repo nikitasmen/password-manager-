@@ -202,14 +202,17 @@ std::vector<std::string> LFSREncryption::decryptWithSalt(const std::vector<std::
         }
     } else {
         // Legacy format: each ciphertext has its own salt
-        // We still need to create new instances here as each has a different salt
+        // Reuse a single instance and update its salt for each ciphertext
+        LFSREncryption decryptor(taps_, originalState_, "");
+        decryptor.setMasterPassword(masterPassword_);
+        
         for (const auto& ciphertext : ciphertexts) {
             std::string salt = ciphertext.substr(0, 16);
             std::string actualCiphertext = ciphertext.substr(16);
             
-            // Create a decryptor for this specific salt
-            LFSREncryption decryptor(taps_, originalState_, salt);
-            decryptor.setMasterPassword(masterPassword_);
+            // Update the salt and reset the state for this ciphertext
+            decryptor.updateSalt(salt);
+            decryptor.resetState();
             plaintexts.push_back(decryptor.process(actualCiphertext));
         }
     }
