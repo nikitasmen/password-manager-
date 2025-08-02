@@ -4,7 +4,7 @@
 #include "encryption_interface.h"
 #include <string>
 #include <memory>
-#include <openssl/rsa.h>
+#include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
 
@@ -24,9 +24,7 @@ public:
      * @param publicKey Optional public key in PEM format. If not provided, a new key pair will be generated.
      * @param privateKey Optional private key in PEM format. Must be provided if publicKey is provided.
      */
-    explicit RSAEncryption(int keySize = 2048, 
-                         const std::string& publicKey = "", 
-                         const std::string& privateKey = "");
+    explicit RSAEncryption(int keySize = 2048);
     
     ~RSAEncryption() override;
     
@@ -55,14 +53,12 @@ public:
     std::string getPrivateKey() const;
     
     void loadKeys(const std::string& publicKey, const std::string& privateKey);
+    void generateKeyPair(int keySize);
     
 private:
-    void generateKeyPair(int keySize);
-    std::string rsaEncrypt(const std::string& plaintext, RSA* rsaKey);
-    std::string rsaDecrypt(const std::string& ciphertext, RSA* rsaKey);
-    
-    RSA* m_rsaPublicKey;
-    RSA* m_rsaPrivateKey;
+    [[noreturn]] void throwOpenSSLError(const std::string& message) const;
+
+    EVP_PKEY* m_pkey;
     std::string m_masterPassword;
     int m_keySize;
 };
