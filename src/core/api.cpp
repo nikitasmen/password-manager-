@@ -39,7 +39,12 @@ void CredentialsManager::createEncryptor(EncryptionType type, const std::string&
     lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
     lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
     
-    encryptor = EncryptionFactory::createForMasterPassword(type, password, lfsrTaps, lfsrInitState);
+    EncryptionConfigParameters params;
+    params.type = type;
+    params.masterPassword = password;
+    params.lfsrTaps = lfsrTaps;
+    params.lfsrInitState = lfsrInitState;
+    encryptor = EncryptionFactory::create(params);
 }
 
 CredentialsManager::CredentialsManager(const std::string& dataPath, EncryptionType encryptionType)
@@ -98,12 +103,12 @@ bool CredentialsManager::login(const std::string& password) {
             tempEncryptor = std::make_unique<LFSREncryption>(configTaps, configInitState, salt);
         } else {
             // For other types, the factory is sufficient
-            tempEncryptor = EncryptionFactory::createForMasterPassword(
-                masterEncType,
-                password,
-                configTaps,
-                configInitState
-            );
+            EncryptionConfigParameters params;
+            params.type = masterEncType;
+            params.masterPassword = password;
+            params.lfsrTaps = configTaps;
+            params.lfsrInitState = configInitState;
+            tempEncryptor = EncryptionFactory::create(params);
         }
 
         if (!tempEncryptor) {
@@ -159,8 +164,12 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
             masterEncryptor->setMasterPassword(newPassword);
         } else {
             // For other encryption types, use the factory
-            masterEncryptor = EncryptionFactory::createForMasterPassword(
-                masterEncType, newPassword, configTaps, configInitState);
+            EncryptionConfigParameters params;
+            params.type = masterEncType;
+            params.masterPassword = newPassword;
+            params.lfsrTaps = configTaps;
+            params.lfsrInitState = configInitState;
+            masterEncryptor = EncryptionFactory::create(params);
         }
         
         if (!masterEncryptor) {
@@ -184,28 +193,36 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
 
 bool CredentialsManager::addCredentials(const std::string& platform, const std::string& user, 
                                       const std::string& pass, std::optional<EncryptionType> encryptionType) {
-    if (platform.empty() || user.empty() || pass.empty()) {
-        return false;
-    }
-
-    if (currentMasterPassword.empty()) {
-        if (hasMasterPassword()) {
-            throw std::runtime_error("User not logged in. Please log in before adding credentials.");
-        } else {
-            throw std::runtime_error("Master password not set. Please set up a master password first.");
-        }
-    }
-    
-    // Use provided encryption type or default to instance type
-    EncryptionType credEncType = encryptionType.value_or(this->encryptionType);
-    
     try {
-        auto credEncryptor = EncryptionFactory::createForMasterPassword(
-            credEncType, 
-            currentMasterPassword,
-            ConfigManager::getInstance().getLfsrTaps(),
-            ConfigManager::getInstance().getLfsrInitState()
-        );
+        // Enhanced input validation
+        if (platform.empty()) {
+            std::cerr << "Error: Platform name cannot be empty\n";
+            return false;
+        }
+        if (user.empty()) {
+            std::cerr << "Error: Username cannot be empty\n";
+            return false;
+        }
+        if (pass.empty()) {
+            std::cerr << "Error: Password cannot be empty\n";
+            return false;
+        }
+        
+        // Check if user is logged in
+        if (currentMasterPassword.empty()) {
+            std::cerr << "Error: Must be logged in to add credentials\n";
+            return false;
+        }
+    
+        // Use provided encryption type or default to instance type
+        EncryptionType credEncType = encryptionType.value_or(this->encryptionType);
+    
+        EncryptionConfigParameters params;
+        params.type = credEncType;
+        params.masterPassword = currentMasterPassword;
+        params.lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
+        params.lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
+        auto credEncryptor = EncryptionFactory::create(params);
 
         if (!credEncryptor) {
             throw std::runtime_error("Failed to create encryptor for type: " + std::to_string(static_cast<int>(credEncType)));
@@ -259,13 +276,31 @@ std::optional<DecryptedCredential> CredentialsManager::getCredentials(const std:
         CredentialData credentialData = *credentialDataOpt;
         DecryptedCredential decryptedCredential;
 
-        // Create a temporary encryptor for the specific type
-        auto encryptor = EncryptionFactory::createForMasterPassword(
-            credentialData.encryption_type, 
-            currentMasterPassword,
-            ConfigManager::getInstance().getLfsrTaps(),
-            ConfigManager::getInstance().getLfsrInitState()
-        );
+        std::unique_ptr<IEncryption> encryptor;
+        // if (credentialData.encryption_type == EncryptionType::RSA) {
+        //     if (!credentialData.rsa_public_key.has_value() || !credentialData.rsa_private_key.has_value()) {
+        //         throw std::runtime_error("RSA keys not found for RSA-encrypted credential.");
+        //     }
+        //     EncryptionConfigParameters params;
+        //     params.type = credentialData.encryption_type;
+        //     params.publicKey = credentialData.rsa_public_key.value();
+        //     params.privateKey = credentialData.rsa_private_key.value();
+        //     params.masterPassword = currentMasterPassword;
+        //     encryptor = EncryptionFactory::create(params);
+
+        // } else {
+            // Create a temporary encryptor for the specific type
+            EncryptionConfigParameters params;
+            params.type = credentialData.encryption_type;
+            params.masterPassword = currentMasterPassword;
+            params.lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
+            params.lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
+            encryptor = EncryptionFactory::create(params);
+        // }
+
+        if (!encryptor) {
+            throw std::runtime_error("Failed to create decryptor for credential.");
+        }
 
         if (auto saltedDecryptor = dynamic_cast<ISaltedEncryption*>(encryptor.get())) {
             std::vector<std::string> encrypted_data = {credentialData.encrypted_user, credentialData.encrypted_pass};
