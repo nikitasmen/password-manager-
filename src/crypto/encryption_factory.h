@@ -6,39 +6,30 @@
 #include <vector>
 
 /**
+ * @brief Parameters for creating an encryption instance
+ */
+struct EncryptionConfigParameters {
+    EncryptionType type;
+    std::string masterPassword;
+    std::string publicKey;
+    std::string privateKey;
+    std::vector<int> lfsrTaps;
+    std::vector<int> lfsrInitState;
+    std::string salt;
+};
+
+/**
  * @brief Factory class for creating encryption instances
  */
 class EncryptionFactory {
 public:
     /**
-     * @brief Creates an encryption instance based on the specified type
+     * @brief Creates an encryption instance based on the specified parameters
      * 
-     * @param type The type of encryption to create
-     * @param taps Taps for LFSR (only used if type is LFSR)
-     * @param initState Initial state for LFSR (only used if type is LFSR)
-     * @param salt Optional salt for key derivation (used by LFSR)
+     * @param params The parameters for creating the encryption instance
      * @return std::unique_ptr<IEncryption> The encryption instance
      */
-    static std::unique_ptr<IEncryption> create(
-        EncryptionType type,
-        const std::vector<int>& taps = {},
-        const std::vector<int>& initState = {},
-        const std::string& salt = "");
-    
-    /**
-     * @brief Creates an encryption instance for the master password
-     * 
-     * @param type The type of encryption to create
-     * @param masterPassword The master password to use
-     * @param taps Taps for LFSR (only used if type is LFSR)
-     * @param initState Initial state for LFSR (only used if type is LFSR)
-     * @return std::unique_ptr<IEncryption> The encryption instance
-     */
-    static std::unique_ptr<IEncryption> createForMasterPassword(
-        EncryptionType type,
-        const std::string& masterPassword,
-        const std::vector<int>& taps = {},
-        const std::vector<int>& initState = {});
+    static std::unique_ptr<IEncryption> create(const EncryptionConfigParameters& params);
 };
 
 #endif // ENCRYPTION_FACTORY_H
