@@ -10,7 +10,9 @@
 
 GuiUIManager::GuiUIManager(const std::string& dataPath)
     : UIManager(dataPath),
-      loginForm(nullptr), passwordSetup(nullptr), platformsDisplay(nullptr), credentialInputs(nullptr) {
+      loginForm(nullptr), passwordSetup(nullptr), 
+      platformsDisplay(nullptr), clickablePlatformsDisplay(nullptr), 
+      credentialInputs(nullptr) {
 }
 
 GuiUIManager::~GuiUIManager() {
@@ -34,6 +36,10 @@ void GuiUIManager::cleanupMainWindow() {
     passwordSetup = nullptr;
     platformsDisplay = nullptr;
     credentialInputs = nullptr;
+    
+    // Clean up the clickable platforms display
+    // Note: clickablePlatformsDisplay is a child of mainWindow and will be deleted by FLTK
+    clickablePlatformsDisplay = nullptr;
     
     // Finally, destroy the main window
     if (mainWindow) {
@@ -144,12 +150,17 @@ bool GuiUIManager::addCredential(const std::string& platform, const std::string&
 }
 
 void GuiUIManager::viewCredential(const std::string& platform) {
-    if (!isLoggedIn) return;
-    auto credsOpt = safeGetCredentials(platform);
-    if (credsOpt) {
-        createViewCredentialDialog(platform, *credsOpt);
-    } else {
-        showMessage("Info", "No credentials found for " + platform);
+    if (!isLoggedIn) {
+        showMessage("Error", "You must be logged in to view credentials", true);
+        return;
+    }
+    
+    try {
+        auto credsOpt = safeGetCredentials(platform);
+        createViewCredentialDialog(platform, credsOpt);
+    } catch (const std::exception& e) {
+        std::cerr << "Error in viewCredential: " << e.what() << std::endl;
+        showMessage("Error", "Failed to retrieve credentials: " + std::string(e.what()), true);
     }
 }
 
@@ -246,8 +257,17 @@ void GuiUIManager::createMainScreen() {
                 }
             );
 
-            platformsDisplay = rootComponent->addChild<PlatformsDisplayComponent>(
-                mainWindow.get(), 20, 50, 560, 300
+            // Create the clickable platforms display directly in the main window
+            clickablePlatformsDisplay = new ClickablePlatformsDisplay(
+                20, 50, 560, 300
+            );
+            mainWindow->add(clickablePlatformsDisplay);
+            
+            // Set up click callback
+            clickablePlatformsDisplay->setClickCallback(
+                [this](ClickablePlatformsDisplay*, const std::string& platform) {
+                    this->viewCredential(platform);
+                }
             );
 
             rootComponent->addChild<ActionButtonsComponent>(
@@ -330,7 +350,7 @@ void GuiUIManager::createAddCredentialDialog() {
     }
 }
 
-void GuiUIManager::createViewCredentialDialog(const std::string& platform, const DecryptedCredential& credentials) {
+void GuiUIManager::createViewCredentialDialog(const std::string& platform, const std::optional<DecryptedCredential>& credentials) {
     // Clean up existing dialog if it exists
     cleanupViewCredentialDialog();
 
@@ -350,37 +370,43 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         // Format credential information
         std::stringstream ss;
         ss << "Platform: " << platform << "\n";
-        ss << "Username: " << credentials.username << "\n";
-        ss << "Password: " << credentials.password << "\n";
+        
+        if (credentials) {
+            ss << "Username: " << credentials->username << "\n";
+            ss << "Password: " << credentials->password << "\n";
 
-        // Add clipboard status
-        if (ClipboardManager::getInstance().isAvailable()) {
-            // Store password for clipboard operation
-            std::string password = credentials.password;
+            // Add clipboard status
+            if (ClipboardManager::getInstance().isAvailable()) {
+                // Store password for clipboard operation
+                std::string password = credentials->password;
 
-            // Add Copy Password button component
-            auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
-                viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
-                [password]() {
-                    try {
-                        if (ClipboardManager::getInstance().isAvailable()) {
-                            ClipboardManager::getInstance().copyToClipboard(password);
-                            fl_message("Password copied to clipboard!");
-                        } else {
-                            fl_alert("Clipboard functionality not available on this system.");
+                // Add Copy Password button component
+                auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
+                    viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
+                    [password]() {
+                        try {
+                            if (ClipboardManager::getInstance().isAvailable()) {
+                                ClipboardManager::getInstance().copyToClipboard(password);
+                                fl_message("Password copied to clipboard!");
+                            } else {
+                                fl_alert("Clipboard functionality not available on this system.");
+                            }
+                        } catch (const ClipboardError& e) {
+                            fl_alert("Failed to copy password to clipboard: %s", e.what());
                         }
-                    } catch (const ClipboardError& e) {
-                        fl_alert("Failed to copy password to clipboard: %s", e.what());
                     }
-                }
-            );
+                );
+            } else {
+                ss << "\nClipboard functionality not available on this system";
+            }
         } else {
-            ss << "\nClipboard functionality not available on this system";
+            ss << "\nNo credentials found for this platform";
         }
 
         // Add close button component
+        int closeButtonY = credentials ? 160 : 100; // Adjust Y position based on content
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), 210, 160, 100, 30, "Close",
+            viewCredentialWindow.get(), 150, closeButtonY, 100, 30, "Close",
             [this]() {
                 cleanupViewCredentialDialog();
             }
@@ -398,7 +424,7 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
 
     } catch (const std::exception& e) {
         std::cerr << "Exception in createViewCredentialDialog: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create view credential dialog", true);
+        showMessage("Error", "Failed to create view credential dialog: " + std::string(e.what()), true);
     }
 }
 
@@ -444,7 +470,7 @@ void GuiUIManager::cleanupSettingsDialog() {
 }
 
 void GuiUIManager::refreshPlatformsList() {
-    if (!isLoggedIn || !mainWindow || !platformsDisplay) {
+    if (!isLoggedIn || !mainWindow || !clickablePlatformsDisplay) {
         return;
     }
     
@@ -453,18 +479,18 @@ void GuiUIManager::refreshPlatformsList() {
         auto tempCredManager = getFreshCredManager();
         std::vector<std::string> platforms = tempCredManager->getAllPlatforms();
         
-        // Format platform information
-        std::stringstream ss;
-        ss << "Double-click a platform to view credentials:\n\n";
+        // Update the clickable platforms display
+        clickablePlatformsDisplay->setPlatforms(platforms);
         
-        for (const auto& platform : platforms) {
-            ss << "• " << platform << "\n";
+        // The click callback is already set up in createMainScreen
+        
+        // Force a redraw to update the display
+        if (clickablePlatformsDisplay->window()) {
+            clickablePlatformsDisplay->window()->redraw();
         }
-        
-        // Set the text in the display
-        platformsDisplay->setText(ss.str());
     } catch (const std::exception& e) {
         std::cerr << "Exception in refreshPlatformsList: " << e.what() << std::endl;
+        showMessage("Error", std::string("Failed to refresh platforms: ") + e.what(), true);
     }
 }
 
