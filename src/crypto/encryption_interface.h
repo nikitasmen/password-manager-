@@ -46,4 +46,14 @@ public:
     virtual void setMasterPassword(const std::string& password) = 0;
 };
 
+// Extended interface for salted encryption/decryption
+class ISaltedEncryption : public IEncryption {
+public:
+    virtual ~ISaltedEncryption() = default;
+    
+    // Batch encryption/decryption with salt
+    virtual std::vector<std::string> encryptWithSalt(const std::vector<std::string>& plaintexts) = 0;
+    virtual std::vector<std::string> decryptWithSalt(const std::vector<std::string>& ciphertexts) = 0;
+};
+
 #endif // ENCRYPTION_INTERFACE_H

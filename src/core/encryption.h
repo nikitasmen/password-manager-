@@ -4,23 +4,9 @@
 #include <vector>
 #include <string>
 #include <memory>
-#include <stdexcept>
-#include <array>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/kdf.h>
-#include <openssl/sha.h>
 #include "../crypto/encryption_interface.h"
 #include "../crypto/encryption_factory.h"
-#include "../crypto/cipher_context_raii.h"
 #include "../config/GlobalConfig.h"
-
-// Constants for encryption
-constexpr size_t AES_BLOCK_SIZE = 16;    // AES uses 128-bit (16-byte) blocks
-constexpr size_t AES_KEY_SIZE = 32;      // 256 bits
-constexpr size_t AES_IV_SIZE = 16;       // 128 bits
-constexpr size_t PBKDF2_ITERATIONS = 10000;
-constexpr size_t PBKDF2_SALT_SIZE = 16;
 
 /**
  * @brief Implementation of IEncryption that provides encryption/decryption
@@ -32,21 +18,13 @@ private:
     std::vector<int> initialState_;
     std::string masterPassword_;
     EncryptionType algorithm_;
+    std::unique_ptr<IEncryption> encryptor_;  // Cached encryptor instance
+    bool needsRecreation_ = false;  // Flag to track when encryptor needs recreation
 
-    // Helper methods
-    std::string lfsrProcess(const std::string& input);
-    std::string aesEncrypt(const std::string& plaintext, const std::string& key);
-    std::string aesDecrypt(const std::string& ciphertext, const std::string& key);
-    std::array<unsigned char, PBKDF2_SALT_SIZE> generateSalt();
-    std::array<unsigned char, AES_KEY_SIZE> deriveKey(
-        const std::string& password, 
-        const std::array<unsigned char, PBKDF2_SALT_SIZE>& salt);
+    // Updates the encryptor instance based on current settings
+    void updateEncryptor();
 
 public:
-    // Salt-based encryption/decryption methods
-    std::string encryptWithSalt(const std::string& plaintext);
-    std::string decryptWithSalt(const std::string& ciphertext);
-
     /**
      * @brief Get the current encryption algorithm
      */
@@ -54,14 +32,43 @@ public:
     
     /**
      * @brief Set the encryption algorithm
+     * @param newAlgorithm The new encryption algorithm to use
      */
-    void setAlgorithm(EncryptionType newAlgorithm) { algorithm_ = newAlgorithm; }
+    void setAlgorithm(EncryptionType newAlgorithm);
 
     // IEncryption interface implementation
     std::string encrypt(const std::string& plaintext) override;
     std::string decrypt(const std::string& ciphertext) override;
     EncryptionType getType() const override { return algorithm_; }
     void setMasterPassword(const std::string& password) override;
+    
+    /**
+     * @brief Encrypt multiple strings with salt
+     * @param plaintexts Vector of strings to encrypt
+     * @return Vector of encrypted strings
+     */
+    std::vector<std::string> encryptWithSalt(const std::vector<std::string>& plaintexts);
+    
+    /**
+     * @brief Decrypt multiple strings with salt
+     * @param ciphertexts Vector of encrypted strings
+     * @return Vector of decrypted strings
+     */
+    std::vector<std::string> decryptWithSalt(const std::vector<std::string>& ciphertexts);
+    
+    /**
+     * @brief Encrypt a single string with salt
+     * @param plaintext String to encrypt
+     * @return Encrypted string
+     */
+    std::string encryptWithSalt(const std::string& plaintext);
+    
+    /**
+     * @brief Decrypt a single string with salt
+     * @param ciphertext String to decrypt
+     * @return Decrypted string
+     */
+    std::string decryptWithSalt(const std::string& ciphertext);
 
     /**
      * @brief Construct a new Encryption object
