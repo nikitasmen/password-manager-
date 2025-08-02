@@ -312,6 +312,241 @@ public:
 };
 
 // Component for platforms display
+#include <functional>
+
+// Forward declaration for click handler
+class ClickablePlatformsDisplay;
+using PlatformClickCallback = std::function<void(ClickablePlatformsDisplay*, const std::string& platform)>;
+
+class ClickablePlatformsDisplay : public Fl_Group {
+private:
+    Fl_Text_Display* display;
+    Fl_Text_Buffer* buffer;
+    std::vector<std::string> platforms;
+    PlatformClickCallback clickCallback;
+    int handle(int event) override {
+        // Always let the base class handle events first
+        int result = Fl_Group::handle(event);
+        
+        // Get the coordinates relative to our widget
+        int relX = Fl::event_x() - x();
+        int relY = Fl::event_y() - y();
+        
+        // Check if the event is inside our widget
+        bool inside = (relX >= 0 && relX < w() && relY >= 0 && relY < h());
+        
+        switch (event) {
+            case FL_PUSH:
+                // Take focus when clicked
+                take_focus();
+                // Let the text display handle selection if we're inside it
+                if (Fl::event_inside(display)) {
+                    return display->handle(FL_PUSH);
+                }
+                return 1; // We handled the event
+                
+            case FL_RELEASE:
+                // Handle double-clicks
+                if (Fl::event_clicks() > 0) {
+                    // Calculate line height based on font size
+                    int lineHeight = display->textsize() + 2; // Add some spacing between lines
+                    
+                    // Calculate the click position relative to the text display
+                    // We need to account for the display's position and any internal padding
+                    const int topPadding = 4; // Additional padding at the top of the text area
+                    
+                    // Calculate textY relative to the top of the text display
+                    int textY = relY - display->y();
+                    
+                    // Debug: Print raw values before calculations
+                    std::cout << "\n--- Click Position Analysis ---\n";
+                    std::cout << "  Raw click: (" << Fl::event_x() << "," << Fl::event_y() << ") in window\n";
+                    std::cout << "  Widget position: (" << x() << "," << y() << ") size: " << w() << "x" << h() << "\n";
+                    std::cout << "  Display position: (" << display->x() << "," << display->y() << ") size: " << display->w() << "x" << display->h() << "\n";
+                    std::cout << "  Relative to widget: (" << relX << "," << relY << ")\n";
+                    std::cout << "  textY = " << relY << " - " << display->y() << " = " << textY << "\n";
+                    
+                    // Calculate which line was clicked (0-based)
+                    int line = textY / lineHeight;
+                    
+                    std::cout << "  Line calculation: " << textY << " / " << lineHeight << " = " << line << "\n";
+                    
+                    // Adjust for any header lines (if needed)
+                    // No need to subtract 1 if there's no actual header line in the text buffer
+                    
+                    // Check if click is outside the display area
+                    if (relY < 0 || relY > display->h() || relX < 0 || relX > display->w()) {
+                        std::cout << "  Click outside display area, ignoring\n";
+                        return 1;
+                    }
+                    
+                    // Ensure line is within valid range
+                    if (line < 0) {
+                        line = 0;  // First line
+                    } else if (line >= static_cast<int>(platforms.size())) {
+                        line = platforms.size() - 1;  // Last line
+                    }
+                    
+                    // Debug: Print the platform that will be selected
+                    if (!platforms.empty()) {
+                        std::cout << "  Will select platform: " << platforms[line] 
+                                 << " (index " << line << " of " << (platforms.size() - 1) << ")\n";
+                    } else {
+                        std::cout << "  No platforms available to select\n";
+                        return 1;
+                    }
+                    
+                    // Debug output to help with click position troubleshooting
+                    std::cout << "\n--- Double-click debug info ---\n"
+                             << "  Raw click position:\n"
+                             << "    - Window: (" << Fl::event_x() << "," << Fl::event_y() << ")\n"
+                             << "    - Widget: (" << relX << "," << relY << ") relative to widget\n"
+                             << "  Display metrics:\n"
+                             << "    - Position: (" << display->x() << "," << display->y() << ") size: " 
+                             << display->w() << "x" << display->h() << "\n"
+                             << "    - Text size: " << display->textsize() << "px\n"
+                             << "    - Line height: " << lineHeight << "px (textsize + 2)\n"
+                             << "  Click calculation:\n"
+                             << "    - textY = relY - display->y() - padding = " 
+                             << relY << " - " << display->y() << " - " << topPadding 
+                             << " = " << textY << "\n"
+                             << "    - Raw line: " << textY << " / " << lineHeight 
+                             << "    - After header adjustment (-1): line " << line << "\n"
+                             << "  Platform mapping (first 5):\n";
+                    
+                    // Ensure we stay within bounds
+                    if (line < 0) line = 0;
+                    if (line >= static_cast<int>(platforms.size())) line = platforms.size() - 1;
+                    
+                    // Print first few platforms with their indices for reference
+                    int count = std::min(5, static_cast<int>(platforms.size()));
+                    for (int i = 0; i < count; ++i) {
+                        std::string marker = (i == line) ? " <<<" : "";
+                        std::cout << "    [" << i << "] " << platforms[i] << marker << "\n";
+                    }
+                    if (platforms.size() > count) {
+                        std::cout << "    ... and " << (platforms.size() - count) << " more\n";
+                    }
+                    std::cout << "--------------------------------\n";
+                    
+                    if (line >= 0 && line < static_cast<int>(platforms.size())) {
+                        const std::string& platform = platforms[line];
+                        std::cout << "Platform selected: " << platform << std::endl;
+                        if (clickCallback) {
+                            clickCallback(this, platform);
+                        } else {
+                            std::cerr << "No click callback set!" << std::endl;
+                        }
+                    } else {
+                        std::cerr << "Clicked outside platform list (line: " << line << ")" << std::endl;
+                    }
+                    Fl::event_clicks(0);
+                    return 1; // We handled this event
+                }
+                break;
+                
+            case FL_ENTER:
+                window()->cursor(FL_CURSOR_HAND);
+                return 1;
+                
+            case FL_LEAVE:
+                window()->cursor(FL_CURSOR_DEFAULT);
+                return 1;
+        }
+        
+        return result;
+    }
+    
+public:
+    ClickablePlatformsDisplay(int x, int y, int w, int h, const char* label = "Stored Platforms:")
+        : Fl_Group(x, y, w, h, label), display(nullptr), buffer(nullptr) {
+        try {
+            // Create a buffer for the text
+            buffer = new Fl_Text_Buffer();
+            if (!buffer) throw std::bad_alloc();
+            
+            // Create the text display
+            display = new Fl_Text_Display(x, y, w, h);
+            if (!display) {
+                delete buffer;
+                buffer = nullptr;
+                throw std::bad_alloc();
+            }
+            
+            // Configure the display
+            display->buffer(buffer);
+            display->box(FL_DOWN_BOX);
+            display->textfont(FL_HELVETICA);
+            display->textsize(12);
+            display->selection_color(FL_SELECTION_COLOR);
+            display->color(FL_WHITE);
+            display->textcolor(FL_BLACK);
+            display->cursor_color(FL_BLACK);
+            display->set_output();
+            display->clear_visible_focus();
+            
+            // Add the display to our group
+            begin();
+            add(display);
+            end();
+            
+            // Configure the group
+            box(FL_DOWN_BOX);
+            clear_visible_focus();
+            
+        } catch (...) {
+            // Clean up in case of any exception
+            if (buffer) {
+                delete buffer;
+                buffer = nullptr;
+            }
+            // display will be cleaned up by FLTK if it was added to the group
+            throw; // Re-throw the exception
+        }
+    }
+    
+
+    
+    void setPlatforms(const std::vector<std::string>& newPlatforms) {
+        if (!display || !buffer) {
+            std::cerr << "Error: Display or buffer not initialized" << std::endl;
+            return;
+        }
+        
+        platforms = newPlatforms;
+        
+        try {
+            // Update the display text
+            std::string text = "Double-click a platform to view credentials:\n\n";
+            for (const auto& platform : platforms) {
+                text += platform + "\n";
+            }
+            
+            buffer->text(text.c_str());
+            redraw();
+        } catch (const std::exception& e) {
+            std::cerr << "Error updating platforms display: " << e.what() << std::endl;
+            // Try to show an error message in the display
+            buffer->text("Error: Failed to update platforms");
+            redraw();
+        }
+    }
+    
+    void setClickCallback(PlatformClickCallback cb) {
+        clickCallback = std::move(cb);
+    }
+    
+    ~ClickablePlatformsDisplay() {
+        // Clean up resources in reverse order of creation
+        if (buffer) {
+            delete buffer;
+            buffer = nullptr;
+        }
+        // display is deleted by FLTK parent destructor
+    }
+};
+
+// Keep the old component for backward compatibility
 class PlatformsDisplayComponent : public BufferedTextDisplayBase {
 public:
     PlatformsDisplayComponent(Fl_Group* parent, int x, int y, int w, int h)
