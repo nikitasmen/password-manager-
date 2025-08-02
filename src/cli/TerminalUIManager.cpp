@@ -4,6 +4,7 @@
 #include "../config/GlobalConfig.h"
 #include <iostream>
 #include <optional>
+#include "../utils/EncryptionUtils.h"
 
 TerminalUIManager::TerminalUIManager(const std::string& dataPath)
     : UIManager(dataPath) {
@@ -17,14 +18,36 @@ void TerminalUIManager::initialize() {
     if (!hasMasterPassword) {
         // First time setup
         TerminalUI::display_message("Welcome to Password Manager!");
-        TerminalUI::display_message("Please create a master password to get started.");
+        TerminalUI::display_message("Please create a master password to get started.\n");
         
-        TerminalUI::display_message("\nUsing AES-256 or LFSR encryption for secure password storage.");
+        // Show encryption options
+        TerminalUI::display_message("Select encryption type:");
+        const auto availableTypes = EncryptionUtils::getAllTypes();
+        for (size_t i = 0; i < availableTypes.size(); ++i) {
+            TerminalUI::display_message(std::to_string(i + 1) + ". " + EncryptionUtils::getDisplayName(availableTypes[i]));
+        }
+
+        int choice = 0;
+        EncryptionType encryptionType = EncryptionType::AES;
+
+        while (true) {
+            std::string input = TerminalUI::get_text_input("Enter your choice: ");
+            try {
+                choice = std::stoi(input);
+                if (choice >= 1 && static_cast<size_t>(choice) <= availableTypes.size()) {
+                    encryptionType = availableTypes[choice - 1];
+                    break;
+                }
+                TerminalUI::display_message("Invalid choice. Please enter a valid number.", true);
+            } catch (const std::exception&) {
+                TerminalUI::display_message("Invalid input. Please enter a number.", true);
+            }
+        }
         
-        std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
+        std::string newPassword = TerminalUI::get_password_input("\nEnter new master password: ");
         std::string confirmPassword = TerminalUI::get_password_input("Confirm master password: ");
 
-        setupPassword(newPassword, confirmPassword, EncryptionUtils::getDefault());
+        setupPassword(newPassword, confirmPassword, encryptionType);
     } else {
         // Regular login
         TerminalUI::display_message("Welcome to Password Manager!");
@@ -204,8 +227,50 @@ int TerminalUIManager::runMenuLoop() {
             std::string platform = TerminalUI::get_text_input("Enter platform name: ");
             std::string username = TerminalUI::get_text_input("Enter username: ");
             std::string password = TerminalUI::get_password_input("Enter password: ");
-            TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
-            EncryptionType selectedEncryption = TerminalUI::selectEncryptionAlgorithm();
+            
+            TerminalUI::display_message("\n+---------------------------------------+");
+            
+            TerminalUI::display_message("|    SELECT ENCRYPTION ALGORITHM       |");
+            TerminalUI::display_message("+---------------------------------------+");
+            const auto availableTypes = EncryptionUtils::getAllTypes();
+            for (size_t i = 0; i < availableTypes.size(); ++i) {
+                TerminalUI::display_message(std::to_string(i + 1) + ". " + EncryptionUtils::getDisplayName(availableTypes[i]));
+                
+                // Add detailed descriptions for each encryption type
+                if (availableTypes[i] == EncryptionType::AES) {
+                    TerminalUI::display_message("   • Industry-standard symmetric encryption");
+                    TerminalUI::display_message("   • Fast and secure for most use cases");
+                    TerminalUI::display_message("   • Recommended for general use");
+                } else if (availableTypes[i] == EncryptionType::LFSR) {
+                    TerminalUI::display_message("   • Linear Feedback Shift Register");
+                    TerminalUI::display_message("   • Lightweight stream cipher");
+                    TerminalUI::display_message("   • Faster but less secure than AES");
+                } else if (availableTypes[i] == EncryptionType::RSA) {
+                    TerminalUI::display_message("   • RSA-2048 asymmetric encryption");
+                    TerminalUI::display_message("   • ⚠️  WARNING: Key generation takes time!");
+                    TerminalUI::display_message("   • Uses public/private key pairs");
+                    TerminalUI::display_message("   • Slower than symmetric encryption");
+                    TerminalUI::display_message("   • Best for high-security requirements");
+                }
+                TerminalUI::display_message("");
+            }
+
+            int choice = 0;
+            EncryptionType selectedEncryption = EncryptionUtils::getDefault();
+
+            while (true) {
+                std::string input = TerminalUI::get_text_input("Enter your choice: ");
+                try {
+                    choice = std::stoi(input);
+                    if (choice >= 1 && static_cast<size_t>(choice) <= availableTypes.size()) {
+                        selectedEncryption = availableTypes[choice - 1];
+                        break;
+                    }
+                    TerminalUI::display_message("Invalid choice. Please enter a valid number.", true);
+                } catch (const std::exception&) {
+                    TerminalUI::display_message("Invalid input. Please enter a number.", true);
+                }
+            }
       
             addCredential(platform, username, password, selectedEncryption);
             TerminalUI::pause_screen();

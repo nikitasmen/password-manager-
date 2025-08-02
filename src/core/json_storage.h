@@ -113,9 +113,7 @@ public:
      * @return bool True if credentials were added successfully
      */
     bool addCredentials(const std::string& platformName, 
-                       const std::string& userName, 
-                       const std::string& password,
-                       int encryptionType);
+                       const CredentialData& credData);
     
     /**
      * @brief Delete stored credentials for a platform

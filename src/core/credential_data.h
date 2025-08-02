@@ -3,12 +3,15 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 #include "GlobalConfig.h"
 
 struct CredentialData {
     std::string encrypted_user;
     std::string encrypted_pass;
     EncryptionType encryption_type;
+    std::optional<std::string> rsa_public_key;
+    std::optional<std::string> rsa_private_key;
 };
 
 struct DecryptedCredential {

@@ -357,6 +357,8 @@ EncryptionType ConfigManager::parseEncryptionType(const std::string& value) cons
         return EncryptionType::LFSR;
     } else if (value == "AES" || value == "1") {
         return EncryptionType::AES;
+    } else if (value == "RSA" || value == "2") {
+        return EncryptionType::RSA;
     }
     return EncryptionType::AES; // Default fallback
 }
@@ -367,6 +369,8 @@ std::string ConfigManager::encryptionTypeToString(EncryptionType type) const {
             return "LFSR";
         case EncryptionType::AES:
             return "AES";
+        case EncryptionType::RSA:
+            return "RSA";
         default:
             return "Unknown";
     }
@@ -414,6 +418,8 @@ namespace EncryptionUtils {
                 return "LFSR (Basic)";
             case EncryptionType::AES:
                 return "AES-256 (Strong)";
+            case EncryptionType::RSA:
+                return "RSA-2048 (Strongest)";
             default:
                 return "Unknown";
         }

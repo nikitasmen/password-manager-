@@ -281,20 +281,20 @@ void GuiUIManager::createAddCredentialDialog() {
     
     try {
         // Create the dialog window with more height to accommodate the encryption dropdown
-        addCredentialWindow = std::make_unique<Fl_Window>(400, 300, "Add New Credentials");
+        addCredentialWindow = std::make_unique<Fl_Window>(450, 400, "Add New Credentials");
         addCredentialWindow->begin();
         
         // Create root component for the dialog
-        addCredentialRoot = std::make_unique<ContainerComponent>(addCredentialWindow.get(), 0, 0, 400, 300);
+        addCredentialRoot = std::make_unique<ContainerComponent>(addCredentialWindow.get(), 0, 0, 450, 400);
         
-        // Add credential inputs component with more height for encryption dropdown
+        // Add credential inputs component with more height and space for encryption dropdown
         credentialInputs = addCredentialRoot->addChild<CredentialInputsComponent>(
-            addCredentialWindow.get(), 0, 30, 400, 220
+            addCredentialWindow.get(), 25, 20, 400, 300
         );
         
-        // Add dialog buttons component positioned lower for the larger dialog
+        // Add dialog buttons component positioned at the bottom of the dialog
         addCredentialRoot->addChild<CredentialDialogButtonsComponent>(
-            addCredentialWindow.get(), 100, 250, 200, 30,
+            addCredentialWindow.get(), 125, 340, 200, 30,
             [this]() {
                 // Get inputs
                 std::string platform = credentialInputs->getPlatform();
