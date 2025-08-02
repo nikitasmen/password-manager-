@@ -310,8 +310,12 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
         oldEncryptor = std::make_unique<LFSREncryption>(oldTaps, oldInitState, salt);
     } else {
         // For AES and others, use the factory
-        oldEncryptor = EncryptionFactory::createForMasterPassword(
-            oldType, masterPassword, oldTaps, oldInitState);
+        EncryptionConfigParameters oldParams;
+        oldParams.type = oldType;
+        oldParams.masterPassword = masterPassword;
+        oldParams.lfsrTaps = oldTaps;
+        oldParams.lfsrInitState = oldInitState;
+        oldEncryptor = EncryptionFactory::create(oldParams);  
     }
     
     if (!oldEncryptor) {
@@ -362,8 +366,12 @@ bool MigrationHelper::migrateMasterPasswordForEncryptionChange(
         newSalt = std::string(reinterpret_cast<const char*>(saltBytes), sizeof(saltBytes));
 
         // For AES and others, use the factory. The salt is not passed directly but will be used to store the final value.
-        newEncryptor = EncryptionFactory::createForMasterPassword(
-            newType, masterPassword, newTaps, newInitState);
+        EncryptionConfigParameters newParams;
+        newParams.type = newType;
+        newParams.masterPassword = masterPassword;
+        newParams.lfsrTaps = newTaps;
+        newParams.lfsrInitState = newInitState;
+        newEncryptor = EncryptionFactory::create(newParams);  
     }
     
     if (!newEncryptor) {
