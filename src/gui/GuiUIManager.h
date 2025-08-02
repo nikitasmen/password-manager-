@@ -9,6 +9,7 @@ class PasswordSetupComponent;
 class PlatformsDisplayComponent;
 class CredentialInputsComponent;
 class SettingsDialogComponent;
+class ClickablePlatformsDisplay;
 #include <FL/Fl.H>
 #include <FL/Fl_Window.H>
 #include <FL/fl_message.H>
@@ -45,7 +46,8 @@ private:
     // Component references
     LoginFormComponent* loginForm;
     PasswordSetupComponent* passwordSetup;
-    PlatformsDisplayComponent* platformsDisplay;
+    PlatformsDisplayComponent* platformsDisplay; // Kept for backward compatibility
+    ClickablePlatformsDisplay* clickablePlatformsDisplay;
     CredentialInputsComponent* credentialInputs;
     
     // Current credential being updated
@@ -57,7 +59,7 @@ private:
     void createSetupScreen();
     void createMainScreen();
     void createAddCredentialDialog();
-    void createViewCredentialDialog(const std::string& platform, const DecryptedCredential& credentials);
+    void createViewCredentialDialog(const std::string& platform, const std::optional<DecryptedCredential>& credentials);
     void createUpdatePasswordDialog();  // Added for update password dialog
     void createSettingsDialog();
     
