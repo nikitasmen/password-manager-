@@ -227,10 +227,32 @@ int TerminalUIManager::runMenuLoop() {
             std::string platform = TerminalUI::get_text_input("Enter platform name: ");
             std::string username = TerminalUI::get_text_input("Enter username: ");
             std::string password = TerminalUI::get_password_input("Enter password: ");
-            TerminalUI::display_message("\nSelect encryption algorithm for this credential:");
+            
+            TerminalUI::display_message("\n+---------------------------------------+");
+            
+            TerminalUI::display_message("|    SELECT ENCRYPTION ALGORITHM       |");
+            TerminalUI::display_message("+---------------------------------------+");
             const auto availableTypes = EncryptionUtils::getAllTypes();
             for (size_t i = 0; i < availableTypes.size(); ++i) {
                 TerminalUI::display_message(std::to_string(i + 1) + ". " + EncryptionUtils::getDisplayName(availableTypes[i]));
+                
+                // Add detailed descriptions for each encryption type
+                if (availableTypes[i] == EncryptionType::AES) {
+                    TerminalUI::display_message("   • Industry-standard symmetric encryption");
+                    TerminalUI::display_message("   • Fast and secure for most use cases");
+                    TerminalUI::display_message("   • Recommended for general use");
+                } else if (availableTypes[i] == EncryptionType::LFSR) {
+                    TerminalUI::display_message("   • Linear Feedback Shift Register");
+                    TerminalUI::display_message("   • Lightweight stream cipher");
+                    TerminalUI::display_message("   • Faster but less secure than AES");
+                } else if (availableTypes[i] == EncryptionType::RSA) {
+                    TerminalUI::display_message("   • RSA-2048 asymmetric encryption");
+                    TerminalUI::display_message("   • ⚠️  WARNING: Key generation takes time!");
+                    TerminalUI::display_message("   • Uses public/private key pairs");
+                    TerminalUI::display_message("   • Slower than symmetric encryption");
+                    TerminalUI::display_message("   • Best for high-security requirements");
+                }
+                TerminalUI::display_message("");
             }
 
             int choice = 0;
