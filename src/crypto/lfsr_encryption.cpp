@@ -86,6 +86,21 @@ void LFSREncryption::resetState() {
     state_ = initialState_;
 }
 
+void LFSREncryption::updateSalt(const std::string& newSalt) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    salt_ = newSalt;
+    // Reset to original state and reapply salt and password
+    state_ = originalState_;
+    if (!salt_.empty()) {
+        applySaltToState(salt_);
+    }
+    if (!masterPassword_.empty()) {
+        applySaltToState(masterPassword_);
+    }
+    // Update the initial state to the new salted state
+    initialState_ = state_;
+}
+
 std::string LFSREncryption::process(const std::string& input) {
     std::lock_guard<std::mutex> lock(stateMutex_);
     std::string output;
@@ -176,17 +191,18 @@ std::vector<std::string> LFSREncryption::decryptWithSalt(const std::vector<std::
     
     if (sharedSalt) {
         // New format: all ciphertexts share the same salt
-        LFSREncryption decryptor(taps_, originalState_, firstSalt);
-        decryptor.setMasterPassword(masterPassword_);
+        // Reuse the current instance with the new salt
+        updateSalt(firstSalt);
         
         for (const auto& ciphertext : ciphertexts) {
             std::string actualCiphertext = ciphertext.substr(16);
             // Reset state for each ciphertext to ensure consistency
-            decryptor.resetState();
-            plaintexts.push_back(decryptor.process(actualCiphertext));
+            resetState();
+            plaintexts.push_back(process(actualCiphertext));
         }
     } else {
         // Legacy format: each ciphertext has its own salt
+        // We still need to create new instances here as each has a different salt
         for (const auto& ciphertext : ciphertexts) {
             std::string salt = ciphertext.substr(0, 16);
             std::string actualCiphertext = ciphertext.substr(16);

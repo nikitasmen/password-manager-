@@ -23,6 +23,7 @@ public:
     
     // Additional methods
     void resetState();
+    void updateSalt(const std::string& newSalt);
     std::string process(const std::string& input);
     std::string generateRandomSalt(size_t length = 16);
 
