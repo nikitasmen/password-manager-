@@ -8,6 +8,11 @@
 #include <openssl/kdf.h>
 #include <openssl/crypto.h>
 
+// Safe view of a string as unsigned char*
+static const unsigned char* toUnsignedCharView(const std::string& str) {
+    return reinterpret_cast<const unsigned char*>(str.data());
+}
+
 // Helper function to convert bytes to hex string
 static std::string bytesToHex(const unsigned char* data, size_t len) {
     std::stringstream ss;
@@ -20,13 +25,47 @@ static std::string bytesToHex(const unsigned char* data, size_t len) {
 
 // Helper function to convert hex string to bytes
 static std::string hexToBytes(const std::string& hex) {
+    // Ensure the hex string has an even length
+    if (hex.length() % 2 != 0) {
+        throw std::invalid_argument("Hex string must have an even number of characters");
+    }
+    
     std::string result;
+    result.reserve(hex.length() / 2);
+    
     for (size_t i = 0; i < hex.length(); i += 2) {
         std::string byteString = hex.substr(i, 2);
-        unsigned char byte = static_cast<unsigned char>(strtol(byteString.c_str(), nullptr, 16));
-        result.push_back(byte);
+        
+        // Validate hex digits
+        if (!std::isxdigit(byteString[0]) || !std::isxdigit(byteString[1])) {
+            throw std::invalid_argument("Invalid hex character in string: " + byteString);
+        }
+        
+        try {
+            // Convert hex string to byte using std::stoul with base 16
+            unsigned long byteValue = std::stoul(byteString, nullptr, 16);
+            // Ensure the value fits in a byte
+            if (byteValue > 0xFF) {
+                throw std::out_of_range("Hex value too large for a single byte: " + byteString);
+            }
+            result.push_back(static_cast<unsigned char>(byteValue));
+        } catch (const std::invalid_argument&) {
+            throw std::invalid_argument("Invalid hex string: " + byteString);
+        } catch (const std::out_of_range&) {
+            throw std::out_of_range("Hex value out of range: " + byteString);
+        }
     }
+    
     return result;
+}
+
+// Helper function to safely handle OpenSSL's non-const API requirements
+static int setAuthTag(EVP_CIPHER_CTX* ctx, const std::string& authTag) {
+    // Create a non-const copy of the auth tag data
+    std::vector<unsigned char> tagBuffer(authTag.begin(), authTag.end());
+    return EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 
+                             static_cast<int>(authTag.length()),
+                             tagBuffer.data());
 }
 
 [[noreturn]] void RSAEncryption::throwOpenSSLError(const std::string& message) const {
@@ -154,7 +193,7 @@ std::string RSAEncryption::encryptPrivateKey() const {
     
     // Serialize: salt + iv + encrypted_data + auth_tag
     std::string result;
-    result += bytesToHex(reinterpret_cast<const unsigned char*>(m_keySalt.c_str()), m_keySalt.length()) + "|";
+    result += bytesToHex(toUnsignedCharView(m_keySalt), m_keySalt.length()) + "|";
     result += bytesToHex(iv, sizeof(iv)) + "|";
     result += bytesToHex(encrypted.data(), len + finalLen) + "|";
     result += bytesToHex(tag, sizeof(tag));
@@ -207,9 +246,8 @@ void RSAEncryption::decryptPrivateKey(const std::string& encryptedData) {
         throwOpenSSLError("Failed to decrypt private key");
     }
     
-    // Set authentication tag
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, authTag.length(),
-                           const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(authTag.c_str()))) != 1) {
+    // Set authentication tag using safe helper function
+    if (setAuthTag(ctx, authTag) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         throwOpenSSLError("Failed to set authentication tag");
     }
@@ -428,9 +466,8 @@ std::string RSAEncryption::decryptWithAES(const HybridData& data, const std::str
         throwOpenSSLError("Failed to decrypt data with AES");
     }
     
-    // Set authentication tag
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, data.authTag.length(),
-                           const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(data.authTag.c_str()))) != 1) {
+    // Set authentication tag using safe helper function
+    if (setAuthTag(ctx, data.authTag) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         throwOpenSSLError("Failed to set AES authentication tag");
     }
@@ -447,10 +484,10 @@ std::string RSAEncryption::decryptWithAES(const HybridData& data, const std::str
 
 std::string RSAEncryption::serializeHybridData(const HybridData& data) const {
     std::string result;
-    result += bytesToHex(reinterpret_cast<const unsigned char*>(data.encryptedAESKey.c_str()), data.encryptedAESKey.length()) + "|";
-    result += bytesToHex(reinterpret_cast<const unsigned char*>(data.iv.c_str()), data.iv.length()) + "|";
-    result += bytesToHex(reinterpret_cast<const unsigned char*>(data.encryptedData.c_str()), data.encryptedData.length()) + "|";
-    result += bytesToHex(reinterpret_cast<const unsigned char*>(data.authTag.c_str()), data.authTag.length());
+    result += bytesToHex(toUnsignedCharView(data.encryptedAESKey), data.encryptedAESKey.length()) + "|";
+    result += bytesToHex(toUnsignedCharView(data.iv), data.iv.length()) + "|";
+    result += bytesToHex(toUnsignedCharView(data.encryptedData), data.encryptedData.length()) + "|";
+    result += bytesToHex(toUnsignedCharView(data.authTag), data.authTag.length());
     return result;
 }
 
