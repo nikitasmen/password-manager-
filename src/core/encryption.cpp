@@ -159,8 +159,7 @@ string Encryption::decryptMasterPassword(EncryptionType type,
         return decryptor.decryptWithSalt(encrypted);
     } catch (const exception& e) {
         // Provide detailed error information while avoiding potential information leakage
-        throw runtime_error("Failed to decrypt master password: " + 
-                          string(e.what() ? e.what() : "Unknown error"));
+        throw runtime_error("Failed to decrypt master password: " + string(e.what()));
     }
 }
 
@@ -176,7 +175,6 @@ string Encryption::encryptMasterPassword(EncryptionType type,
         return encryptor.encryptWithSalt(masterPassword);
     } catch (const exception& e) {
         // Provide detailed error information while avoiding potential information leakage
-        throw runtime_error("Failed to encrypt master password: " + 
-                          string(e.what() ? e.what() : "Unknown error"));
+        throw runtime_error("Failed to encrypt master password: " + string(e.what()));
     }
 }
