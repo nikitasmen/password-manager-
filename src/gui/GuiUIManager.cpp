@@ -147,6 +147,8 @@ void GuiUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
     auto credsOpt = safeGetCredentials(platform);
     if (credsOpt) {
+        currentPlatform = platform;
+        currentCredential = *credsOpt;
         createViewCredentialDialog(platform, *credsOpt);
     } else {
         showMessage("Info", "No credentials found for " + platform);
@@ -353,14 +355,19 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         ss << "Username: " << credentials.username << "\n";
         ss << "Password: " << credentials.password << "\n";
 
-        // Add clipboard status
+        // Add buttons
+        int buttonY = 160;
+        int buttonWidth = 120;
+        int buttonSpacing = 10;
+        
+        // Add Copy Password button if clipboard is available
         if (ClipboardManager::getInstance().isAvailable()) {
             // Store password for clipboard operation
             std::string password = credentials.password;
 
             // Add Copy Password button component
             auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
-                viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
+                viewCredentialWindow.get(), 20, buttonY, buttonWidth, 30, "Copy Password",
                 [password]() {
                     try {
                         if (ClipboardManager::getInstance().isAvailable()) {
@@ -377,10 +384,22 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         } else {
             ss << "\nClipboard functionality not available on this system";
         }
+        
+        // Add Update Password button
+        auto updateButton = viewCredentialRoot->addChild<ButtonComponent>(
+            viewCredentialWindow.get(), 150, buttonY, buttonWidth, 30, "Update Password",
+            [this, platform, credentials]() {
+                // Store the current platform and credential for later use
+                currentPlatform = platform;  
+                currentCredential.username = credentials.username;
+                currentCredential.password = credentials.password;
+                createUpdatePasswordDialog();
+            }
+        );
 
         // Add close button component
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), 210, 160, 100, 30, "Close",
+            viewCredentialWindow.get(), 280, buttonY, 100, 30, "Close",
             [this]() {
                 cleanupViewCredentialDialog();
             }
