@@ -46,6 +46,17 @@ private:
     PasswordSetupComponent* passwordSetup;
     PlatformsDisplayComponent* platformsDisplay;
     CredentialInputsComponent* credentialInputs;
+    
+    // Current credential being viewed/updated
+    std::string currentPlatform;
+    DecryptedCredential currentCredential;
+    
+    // Update password dialog
+    std::unique_ptr<Fl_Window> updatePasswordWindow;
+    CredentialInputsComponent* updatePasswordCredentialInputs = nullptr;
+    
+    // Clean up update password dialog resources
+    void cleanupUpdatePasswordDialog();
 
     // Private helper methods
     void createLoginScreen();
@@ -53,7 +64,9 @@ private:
     void createMainScreen();
     void createAddCredentialDialog();
     void createViewCredentialDialog(const std::string& platform, const DecryptedCredential& credentials);
+    void createUpdatePasswordDialog();
     void createSettingsDialog();
+    bool updateCredential(const std::string& platform, const std::string& newPassword);
     /**
      * @brief Clean up the add credential dialog (uses generic helper)
      */
