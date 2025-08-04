@@ -125,6 +125,19 @@ public:
      * @return std::vector<std::string> Vector of platform names
      */
     std::vector<std::string> getAllPlatforms() const;
+    
+    /**
+     * @brief Update existing credentials for a platform
+     * 
+     * This method differs from addCredentials by ensuring the credential already exists
+     * before updating it, and preserving the original encryption type.
+     * 
+     * @param platform The platform/service name (e.g., "GitHub", "Gmail")
+     * @param user The username/email for the platform (can be unchanged)
+     * @param pass The new password to store (will be encrypted)
+     * @return true if the credentials were updated successfully, false otherwise
+     */
+    bool updateCredentials(const std::string& platform, const std::string& user, const std::string& pass);
 };
 
 

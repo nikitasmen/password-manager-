@@ -368,3 +368,91 @@ std::vector<std::string> CredentialsManager::getAllPlatforms() const {
         return {};
     }
 }
+
+bool CredentialsManager::updateCredentials(const std::string& platform, const std::string& user, const std::string& pass) {
+    try {
+        // Enhanced input validation
+        if (platform.empty()) {
+            std::cerr << "Error: Platform name cannot be empty\n";
+            return false;
+        }
+        if (user.empty()) {
+            std::cerr << "Error: Username cannot be empty\n";
+            return false;
+        }
+        if (pass.empty()) {
+            std::cerr << "Error: Password cannot be empty\n";
+            return false;
+        }
+        
+        // Check if user is logged in
+        if (currentMasterPassword.empty()) {
+            std::cerr << "Error: Must be logged in to update credentials\n";
+            return false;
+        }
+        
+        // First check if credentials exist
+        auto existingCredentialData = storage->getCredentials(platform);
+        if (!existingCredentialData) {
+            std::cerr << "Error: No credentials found for platform: " << platform << "\n";
+            return false;
+        }
+        
+        // Use the existing encryption type
+        EncryptionType credEncType = existingCredentialData->encryption_type;
+        
+        EncryptionConfigParameters params;
+        params.type = credEncType;
+        params.masterPassword = currentMasterPassword;
+        params.lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
+        params.lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
+        
+        // For RSA encryption, we need to preserve the keys
+        if (credEncType == EncryptionType::RSA) {
+            if (!existingCredentialData->rsa_public_key.has_value() || !existingCredentialData->rsa_private_key.has_value()) {
+                throw std::runtime_error("RSA keys not found for RSA-encrypted credential.");
+            }
+            params.publicKey = existingCredentialData->rsa_public_key.value();
+            params.privateKey = existingCredentialData->rsa_private_key.value();
+        }
+        
+        auto credEncryptor = EncryptionFactory::create(params);
+        
+        if (!credEncryptor) {
+            throw std::runtime_error("Failed to create encryptor for type: " + std::to_string(static_cast<int>(credEncType)));
+        }
+        
+        credEncryptor->setMasterPassword(currentMasterPassword);
+        
+        std::string encryptedUser, encryptedPass;
+        if (auto saltedEncryptor = dynamic_cast<ISaltedEncryption*>(credEncryptor.get())) {
+            std::vector<std::string> plaintexts = {user, pass};
+            std::vector<std::string> ciphertexts = saltedEncryptor->encryptWithSalt(plaintexts);
+            encryptedUser = ciphertexts[0];
+            encryptedPass = ciphertexts[1];
+        } else {
+            encryptedUser = credEncryptor->encrypt(user);
+            encryptedPass = credEncryptor->encrypt(pass);
+        }
+        
+        CredentialData credData;
+        credData.encryption_type = credEncType;
+        
+        // For RSA encryption, preserve the existing keys
+        if (credEncType == EncryptionType::RSA) {
+            credData.rsa_public_key = existingCredentialData->rsa_public_key;
+            credData.rsa_private_key = existingCredentialData->rsa_private_key;
+        }
+        
+        credData.encrypted_user = encryptedUser;
+        credData.encrypted_pass = encryptedPass;
+        
+        // Store the credentials with encryption type
+        storage->addCredentials(platform, credData);  // This replaces the existing entry
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error updating credentials: " << e.what() << std::endl;
+        return false;
+    }
+}
