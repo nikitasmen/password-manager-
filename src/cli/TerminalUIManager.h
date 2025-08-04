@@ -79,6 +79,17 @@ bool setupPassword(const std::string& newPassword,
     bool deleteCredential(const std::string& platform) override;
     
     /**
+     * @brief Update existing credentials for a platform through terminal
+     * @param platform Platform name
+     * @param username Username (unchanged)
+     * @param password New password
+     * @return True if credentials were updated successfully
+     */
+    bool updateCredential(const std::string& platform, 
+                         const std::string& username, 
+                         const std::string& password) override;
+    
+    /**
      * @brief Display a message in terminal
      * @param title Message title
      * @param message Message content
