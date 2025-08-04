@@ -38,6 +38,7 @@ private:
     std::unique_ptr<ContainerComponent> addCredentialRoot;
     std::unique_ptr<Fl_Window> viewCredentialWindow;
     std::unique_ptr<ContainerComponent> viewCredentialRoot;
+    std::unique_ptr<Fl_Window> updatePasswordWindow;  // Added for update password dialog
     std::unique_ptr<Fl_Window> settingsWindow;
     std::unique_ptr<ContainerComponent> settingsRoot;
     
@@ -47,16 +48,9 @@ private:
     PlatformsDisplayComponent* platformsDisplay;
     CredentialInputsComponent* credentialInputs;
     
-    // Current credential being viewed/updated
+    // Current credential being updated
     std::string currentPlatform;
     DecryptedCredential currentCredential;
-    
-    // Update password dialog
-    std::unique_ptr<Fl_Window> updatePasswordWindow;
-    CredentialInputsComponent* updatePasswordCredentialInputs = nullptr;
-    
-    // Clean up update password dialog resources
-    void cleanupUpdatePasswordDialog();
 
     // Private helper methods
     void createLoginScreen();
@@ -64,9 +58,9 @@ private:
     void createMainScreen();
     void createAddCredentialDialog();
     void createViewCredentialDialog(const std::string& platform, const DecryptedCredential& credentials);
-    void createUpdatePasswordDialog();
+    void createUpdatePasswordDialog();  // Added for update password dialog
     void createSettingsDialog();
-    bool updateCredential(const std::string& platform, const std::string& newPassword);
+    
     /**
      * @brief Clean up the add credential dialog (uses generic helper)
      */
@@ -75,6 +69,10 @@ private:
      * @brief Clean up the view credential dialog (uses generic helper)
      */
     void cleanupViewCredentialDialog();
+    /**
+     * @brief Clean up the update password dialog
+     */
+    void cleanupUpdatePasswordDialog();  // Added for update password dialog
     /**
      * @brief Clean up the settings dialog (uses generic helper)
      */
@@ -152,7 +150,18 @@ bool setupPassword(const std::string& newPassword,
      * @return True if credentials were deleted successfully
      */
     bool deleteCredential(const std::string& platform) override;
-    
+
+    /**
+     * @brief Update existing credentials for a platform
+     * @param platform Platform name
+     * @param username Username (unchanged)
+     * @param password New password
+     * @return True if credentials were updated successfully
+     */
+    bool updateCredential(const std::string& platform, 
+                         const std::string& username,
+                         const std::string& password) override;
+
     /**
      * @brief Display a message in GUI
      * @param title Message title

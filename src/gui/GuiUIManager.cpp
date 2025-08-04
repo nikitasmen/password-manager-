@@ -1,10 +1,13 @@
 #include "GuiUIManager.h"
 #include "GuiComponents.h"
+#include "EditCredentialDialog.h"
 #include "../core/api.h"
 #include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
 #include <FL/fl_ask.H>
 #include <FL/Fl_Button.H>
+#include <FL/Fl_Secret_Input.H>  // Add this for password input
+#include <FL/Fl_Box.H>           // Add this for labels
 #include <sstream>
 #include <filesystem>
 
@@ -147,8 +150,6 @@ void GuiUIManager::viewCredential(const std::string& platform) {
     if (!isLoggedIn) return;
     auto credsOpt = safeGetCredentials(platform);
     if (credsOpt) {
-        currentPlatform = platform;
-        currentCredential = *credsOpt;
         createViewCredentialDialog(platform, *credsOpt);
     } else {
         showMessage("Info", "No credentials found for " + platform);
@@ -367,7 +368,7 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
 
             // Add Copy Password button component
             auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
-                viewCredentialWindow.get(), 20, buttonY, buttonWidth, 30, "Copy Password",
+                viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
                 [password]() {
                     try {
                         if (ClipboardManager::getInstance().isAvailable()) {
@@ -385,21 +386,49 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
             ss << "\nClipboard functionality not available on this system";
         }
         
-        // Add Update Password button
-        auto updateButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), 150, buttonY, buttonWidth, 30, "Update Password",
-            [this, platform, credentials]() {
-                // Store the current platform and credential for later use
-                currentPlatform = platform;  
-                currentCredential.username = credentials.username;
-                currentCredential.password = credentials.password;
-                createUpdatePasswordDialog();
+        // Add Edit button that will open the EditCredentialDialog
+        auto editButton = viewCredentialRoot->addChild<ButtonComponent>(
+            viewCredentialWindow.get(), 150, buttonY, buttonWidth, 30, "Edit Credentials",
+            [this, platform = platform, username = credentials.username]() {
+                try {
+                    // Use the existing logged-in credential manager
+                    if (!credManager) {
+                        throw std::runtime_error("Not logged in");
+                    }
+                    
+                    // Create and show the edit dialog with the existing manager
+                    auto dialog = std::make_unique<EditCredentialDialog>(
+                        platform,
+                        username,
+                        credManager.get(),  // Use the logged-in manager
+                        [this, platform](bool success) {
+                            if (success) {
+                                // Refresh the view with updated credentials
+                                cleanupViewCredentialDialog();
+                                auto updatedCreds = safeGetCredentials(platform);
+                                if (updatedCreds) {
+                                    createViewCredentialDialog(platform, *updatedCreds);
+                                }
+                            }
+                        }
+                    );
+                    
+                    // Show the dialog
+                    dialog->show();
+                    
+                    // The dialog will manage its own lifetime
+                    dialog.release();
+                    
+                } catch (const std::exception& e) {
+                    std::cerr << "Error in edit credentials handler: " << e.what() << std::endl;
+                    showMessage("Error", std::string("Failed to edit credentials: ") + e.what(), true);
+                }
             }
         );
 
         // Add close button component
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), 280, buttonY, 100, 30, "Close",
+            viewCredentialWindow.get(), 210, 160, 100, 30, "Close",
             [this]() {
                 cleanupViewCredentialDialog();
             }
@@ -455,187 +484,64 @@ void GuiUIManager::cleanupAddCredentialDialog() {
 }
 
 void GuiUIManager::cleanupViewCredentialDialog() {
-    if (viewCredentialWindow) {
-        viewCredentialWindow->hide();
-        viewCredentialRoot.reset();
-        viewCredentialWindow.reset();
-    }
+    cleanupDialog(viewCredentialWindow, viewCredentialRoot);
 }
 
-void GuiUIManager::cleanupUpdatePasswordDialog() {
-    if (updatePasswordWindow) {
-        updatePasswordWindow->hide();
-        updatePasswordCredentialInputs = nullptr;
-        updatePasswordWindow.reset();
-    }
-}
-
-bool GuiUIManager::updateCredential(const std::string& platform, const std::string& newPassword) {
-    if (!isLoggedIn) {
-        showMessage("Error", "You must be logged in to update credentials", true);
-        return false;
-    }
-    
-    if (platform.empty() || newPassword.empty()) {
-        showMessage("Error", "Platform and password cannot be empty", true);
-        return false;
-    }
-    
+bool GuiUIManager::updateCredential(const std::string& platform, 
+                                  const std::string& username,
+                                  const std::string& password) {
     try {
+        // Input validation
+        if (platform.empty() || username.empty() || password.empty()) {
+            showMessage("Error", "Platform, username, and password cannot be empty", true);
+            return false;
+        }
+
+        // Get a fresh credential manager instance
         auto tempCredManager = getFreshCredManager();
-        
-        // Get the current credential to preserve the username
-        auto credsOpt = tempCredManager->getCredentials(platform);
-        if (!credsOpt) {
-            showMessage("Error", "Failed to find credential to update", true);
+        if (!tempCredManager) {
+            showMessage("Error", "Failed to initialize credential manager", true);
             return false;
         }
-        
-        // Get the current credential
-        const auto& currentCred = credsOpt.value();
-        
-        // Update the credential using addCredentials (which will overwrite existing)
-        bool success = tempCredManager->addCredentials(
-            platform, 
-            currentCred.username, 
-            newPassword,
-            tempCredManager->getEncryptionType()
-        );
-        
-        if (!success) {
-            showMessage("Error", "Failed to update credential", true);
+
+        // Get the current credential to check if it exists
+        auto existingCreds = tempCredManager->getCredentials(platform);
+        if (!existingCreds) {
+            showMessage("Error", "No credentials found for platform: " + platform, true);
             return false;
         }
-        
-        showMessage("Success", "Password updated successfully");
+
+        // Check if anything actually changed
+        if (existingCreds->username == username && existingCreds->password == password) {
+            showMessage("Info", "No changes detected");
+            return true;
+        }
+
+        // Use the new CredentialsManager::updateCredentials method
+        if (!tempCredManager->updateCredentials(platform, username, password)) {
+            showMessage("Error", "Failed to update credentials", true);
+            return false;
+        }
+
+        // Refresh the UI if we're currently viewing the updated credential
+        if (viewCredentialWindow && viewCredentialWindow->shown()) {
+            cleanupViewCredentialDialog();
+            auto updatedCreds = tempCredManager->getCredentials(platform);
+            if (updatedCreds) {
+                createViewCredentialDialog(platform, *updatedCreds);
+            }
+        }
+
+        // Refresh the platforms list in case the update affects sorting
+        refreshPlatformsList();
+
+        showMessage("Success", "Credentials updated successfully");
         return true;
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Error updating credential: " << e.what() << std::endl;
-        showMessage("Error", std::string("Failed to update credential: ") + e.what(), true);
+        showMessage("Error", std::string("Failed to update credentials: ") + e.what(), true);
         return false;
-    }
-}
-
-void GuiUIManager::createUpdatePasswordDialog() {
-    // Clean up any existing dialog first
-    if (viewCredentialWindow) {
-        viewCredentialWindow->hide();
-    }
-    
-    try {
-        // Create a new window for the update password dialog
-        viewCredentialWindow = std::make_unique<Fl_Window>(400, 200, "Update Password");
-        viewCredentialRoot = std::make_unique<ContainerComponent>(
-            viewCredentialWindow.get(), 0, 0, 400, 200);
-        
-        // Store the current window position
-        int x = viewCredentialWindow->x();
-        int y = viewCredentialWindow->y();
-        
-        // Set window position to be centered
-        viewCredentialWindow->position(
-            (Fl::w() - viewCredentialWindow->w()) / 2,
-            (Fl::h() - viewCredentialWindow->h()) / 2
-        );
-        
-        // Create a new window for the update password dialog if it doesn't exist
-        if (!updatePasswordWindow) {
-            updatePasswordWindow = std::make_unique<Fl_Window>(400, 200, "Update Password");
-            
-            // Set window position to be centered
-            updatePasswordWindow->position(
-                (Fl::w() - updatePasswordWindow->w()) / 2,
-                (Fl::h() - updatePasswordWindow->h()) / 2
-            );
-            
-            // Create a group for the dialog content
-            Fl_Group* contentGroup = new Fl_Group(10, 10, 380, 180);
-            
-            // Add a label
-            Fl_Box* title = new Fl_Box(20, 20, 360, 30, 
-                ("Update password for " + currentPlatform).c_str());
-            title->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-            title->box(FL_NO_BOX);
-            
-            // Add password input using CredentialInputsComponent
-            updatePasswordCredentialInputs = new CredentialInputsComponent(
-                contentGroup, 20, 50, 360, 40);
-            
-            // Hide all inputs except password
-            if (auto platformInput = updatePasswordCredentialInputs->getPlatformInput()) {
-                platformInput->hide();
-            }
-            if (auto usernameInput = updatePasswordCredentialInputs->getUsernameInput()) {
-                usernameInput->hide();
-            }
-            if (auto encryptionChoice = updatePasswordCredentialInputs->getEncryptionChoice()) {
-                encryptionChoice->hide();
-            }
-            
-            // Position the password input
-            if (auto passwordInput = updatePasswordCredentialInputs->getPasswordInput()) {
-                // Use Fl_Widget::position() instead of the deprecated position() method
-                passwordInput->Fl_Widget::position(120, 60);
-                passwordInput->copy_label("New Password:");
-                passwordInput->when(FL_WHEN_CHANGED);
-            }
-            
-            // Create buttons
-            Fl_Button* updateBtn = new Fl_Button(100, 120, 100, 30, "Update");
-            updateBtn->callback([](Fl_Widget* w, void* data) {
-                auto self = static_cast<GuiUIManager*>(data);
-                if (self->updatePasswordCredentialInputs) {
-                    if (auto passwordInput = self->updatePasswordCredentialInputs->getPasswordInput()) {
-                        std::string newPassword = passwordInput->value() ? passwordInput->value() : "";
-                        if (newPassword.empty()) {
-                            fl_alert("Password cannot be empty");
-                            return;
-                        }
-                        
-                        if (self->updateCredential(self->currentPlatform, newPassword)) {
-                            // Success - close the dialog and refresh the view
-                            self->cleanupUpdatePasswordDialog();
-                            
-                            // Reopen the view credential dialog with updated info
-                            DecryptedCredential updatedCred = self->currentCredential;
-                            updatedCred.password = newPassword;
-                            self->createViewCredentialDialog(
-                                self->currentPlatform, updatedCred);
-                        }
-                    }
-                }
-            }, this);
-            
-            Fl_Button* cancelBtn = new Fl_Button(220, 120, 100, 30, "Cancel");
-            cancelBtn->callback([](Fl_Widget* w, void* data) {
-                auto self = static_cast<GuiUIManager*>(data);
-                self->cleanupUpdatePasswordDialog();
-            }, this);
-            
-            // Add widgets to the content group
-            contentGroup->end();
-            
-            // Store the window for later use
-            updatePasswordWindow->end();
-        }
-        
-        // Show the window
-        updatePasswordWindow->show();
-        
-        // Clear any previous password
-        if (updatePasswordCredentialInputs && updatePasswordCredentialInputs->getPasswordInput()) {
-            updatePasswordCredentialInputs->getPasswordInput()->value("");
-        }
-        
-        // Show the window
-        viewCredentialWindow->end();
-        viewCredentialWindow->show();
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating update password dialog: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create update password dialog", true);
-        cleanupViewCredentialDialog();
     }
 }
 
