@@ -307,12 +307,6 @@ bool JsonStorage::addCredentials(const std::string& platformName,
             return false;
         }
         
-        // Check if platform already exists
-        if (credentialsData.contains("platforms") && 
-            credentialsData["platforms"].contains(platformName)) {
-            return false;
-        }
-        
         // Initialize platforms object if it doesn't exist
         if (!credentialsData.contains("platforms")) {
             credentialsData["platforms"] = nlohmann::json::object();
@@ -348,6 +342,47 @@ bool JsonStorage::addCredentials(const std::string& platformName,
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error adding credentials: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool JsonStorage::updateCredentials(const std::string& platform, const CredentialData& credData) {
+    try {
+        if (platform.empty() || credData.encrypted_user.empty() || credData.encrypted_pass.empty()) {
+            return false;
+        }
+
+        // Reload data to ensure latest version
+        if (!loadData()) {
+            std::cerr << "Failed to reload data before updating credentials" << std::endl;
+            return false;
+        }
+
+        // Check if platforms and the specific platform exist
+        if (!credentialsData.contains("platforms") ||
+            !credentialsData["platforms"].contains(platform)) {
+            return false;
+        }
+
+        // Update platform entry
+        std::string encodedUsername = Base64::encode(credData.encrypted_user);
+        std::string encodedPassword = Base64::encode(credData.encrypted_pass);
+
+        credentialsData["platforms"][platform]["username"] = encodedUsername;
+        credentialsData["platforms"][platform]["password"] = encodedPassword;
+        credentialsData["platforms"][platform]["encryption_type"] = static_cast<int>(credData.encryption_type);
+
+        if (credData.rsa_public_key.has_value()) {
+            credentialsData["platforms"][platform]["rsa_public_key"] = credData.rsa_public_key.value();
+        }
+        if (credData.rsa_private_key.has_value()) {
+            credentialsData["platforms"][platform]["rsa_private_key"] = credData.rsa_private_key.value();
+        }
+
+        modified = true;
+        return saveData();
+    } catch (const std::exception& e) {
+        std::cerr << "Error updating credentials: " << e.what() << std::endl;
         return false;
     }
 }
