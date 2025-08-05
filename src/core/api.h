@@ -144,14 +144,16 @@ public:
      * @brief Update existing credentials for a platform
      * 
      * This method differs from addCredentials by ensuring the credential already exists
-     * before updating it, and preserving the original encryption type.
+     * before updating it. Can optionally change the encryption type.
      * 
      * @param platform The platform/service name (e.g., "GitHub", "Gmail")
      * @param user The username/email for the platform (can be updated or unchanged)
      * @param pass The password to store (can be updated or unchanged, will be encrypted)
+     * @param encryptionType Optional new encryption type to use (if not specified, preserves existing type)
      * @return true if the credentials were updated successfully, false otherwise
      */
-    bool updateCredentials(const std::string& platform, const std::string& user, const std::string& pass);
+    bool updateCredentials(const std::string& platform, const std::string& user, const std::string& pass, 
+                          std::optional<EncryptionType> encryptionType = std::nullopt);
 };
 
 
