@@ -369,41 +369,43 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         auto credDisplay = viewCredentialRoot->addChild<CredentialDisplayComponent>(
             viewCredentialWindow.get(), 20, 20, 360, 120
         );
-
+        // If credentials are not available, throw an error
+        if (!credentials) {
+            throw std::runtime_error("No credentials found for platform: " + platform);
+        }
         // Format credential information
         std::stringstream ss;
         ss << "Platform: " << platform << "\n";
         
-        if (credentials) {
-            ss << "Username: " << credentials->username << "\n";
-            ss << "Password: " << credentials->password << "\n";
-
-            // Add buttons
+        ss << "Username: " << credentials->username << "\n";
+        ss << "Password: " << credentials->password << "\n";
+        
+        // Add buttons
         int buttonY = 160;
         int buttonWidth = 120;
         int buttonSpacing = 10;
         
         // Add Copy Password button if clipboard is available
-            if (ClipboardManager::getInstance().isAvailable()) {
-                // Store password for clipboard operation
-                std::string password = credentials->password;
+        if (ClipboardManager::getInstance().isAvailable()) {
+            // Store password for clipboard operation
+            std::string password = credentials->password;
 
-            // Add Copy Password button component
-            auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
-                viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
-                [password]() {
-                    try {
-                        if (ClipboardManager::getInstance().isAvailable()) {
-                            ClipboardManager::getInstance().copyToClipboard(password);
-                            fl_message("Password copied to clipboard!");
-                        } else {
-                            fl_alert("Clipboard functionality not available on this system.");
-                        }
-                    } catch (const ClipboardError& e) {
-                        fl_alert("Failed to copy password to clipboard: %s", e.what());
+        // Add Copy Password button component
+        auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
+            viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
+            [password]() {
+                try {
+                    if (ClipboardManager::getInstance().isAvailable()) {
+                        ClipboardManager::getInstance().copyToClipboard(password);
+                        fl_message("Password copied to clipboard!");
+                    } else {
+                        fl_alert("Clipboard functionality not available on this system.");
                     }
+                } catch (const ClipboardError& e) {
+                    fl_alert("Failed to copy password to clipboard: %s", e.what());
                 }
-            );
+            }
+        );
         } else {
             ss << "\nClipboard functionality not available on this system";
         }
@@ -411,7 +413,7 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         // Add Edit button that will open the EditCredentialDialog
         auto editButton = viewCredentialRoot->addChild<ButtonComponent>(
             viewCredentialWindow.get(), 150, buttonY, buttonWidth, 30, "Edit Credentials",
-            [this, platform = platform, username = credentials.username]() {
+            [this, platform = platform, username = credentials->username]() {
                 try {
                     // Use the existing logged-in credential manager
                     if (!credManager) {
