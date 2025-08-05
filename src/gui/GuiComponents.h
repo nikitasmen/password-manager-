@@ -356,27 +356,20 @@ private:
                     const int topPadding = 4; // Additional padding at the top of the text area
                     
                     // Calculate textY relative to the top of the text display
-                    int textY = relY - display->y();
-                    
-                    // Debug: Print raw values before calculations
-                    std::cout << "\n--- Click Position Analysis ---\n";
-                    std::cout << "  Raw click: (" << Fl::event_x() << "," << Fl::event_y() << ") in window\n";
-                    std::cout << "  Widget position: (" << x() << "," << y() << ") size: " << w() << "x" << h() << "\n";
-                    std::cout << "  Display position: (" << display->x() << "," << display->y() << ") size: " << display->w() << "x" << display->h() << "\n";
-                    std::cout << "  Relative to widget: (" << relX << "," << relY << ")\n";
-                    std::cout << "  textY = " << relY << " - " << display->y() << " = " << textY << "\n";
-                    
+                    // Since display is positioned at the same coordinates as the widget,
+                    int textY = relY; 
+    
                     // Calculate which line was clicked (0-based)
-                    int line = textY / lineHeight;
-                    
-                    std::cout << "  Line calculation: " << textY << " / " << lineHeight << " = " << line << "\n";
-                    
-                    // Adjust for any header lines (if needed)
-                    // No need to subtract 1 if there's no actual header line in the text buffer
+                    int rawLine = textY / lineHeight; 
+                    int line = rawLine - 2;
                     
                     // Check if click is outside the display area
                     if (relY < 0 || relY > display->h() || relX < 0 || relX > display->w()) {
-                        std::cout << "  Click outside display area, ignoring\n";
+                        return 1;
+                    }
+                    
+                    // Check if we have platforms available
+                    if (platforms.empty()) {
                         return 1;
                     }
                     
@@ -386,59 +379,13 @@ private:
                     } else if (line >= static_cast<int>(platforms.size())) {
                         line = platforms.size() - 1;  // Last line
                     }
-                    
-                    // Debug: Print the platform that will be selected
-                    if (!platforms.empty()) {
-                        std::cout << "  Will select platform: " << platforms[line] 
-                                 << " (index " << line << " of " << (platforms.size() - 1) << ")\n";
-                    } else {
-                        std::cout << "  No platforms available to select\n";
-                        return 1;
-                    }
-                    
-                    // Debug output to help with click position troubleshooting
-                    std::cout << "\n--- Double-click debug info ---\n"
-                             << "  Raw click position:\n"
-                             << "    - Window: (" << Fl::event_x() << "," << Fl::event_y() << ")\n"
-                             << "    - Widget: (" << relX << "," << relY << ") relative to widget\n"
-                             << "  Display metrics:\n"
-                             << "    - Position: (" << display->x() << "," << display->y() << ") size: " 
-                             << display->w() << "x" << display->h() << "\n"
-                             << "    - Text size: " << display->textsize() << "px\n"
-                             << "    - Line height: " << lineHeight << "px (textsize + 2)\n"
-                             << "  Click calculation:\n"
-                             << "    - textY = relY - display->y() - padding = " 
-                             << relY << " - " << display->y() << " - " << topPadding 
-                             << " = " << textY << "\n"
-                             << "    - Raw line: " << textY << " / " << lineHeight 
-                             << "    - After header adjustment (-1): line " << line << "\n"
-                             << "  Platform mapping (first 5):\n";
-                    
-                    // Ensure we stay within bounds
-                    if (line < 0) line = 0;
-                    if (line >= static_cast<int>(platforms.size())) line = platforms.size() - 1;
-                    
-                    // Print first few platforms with their indices for reference
-                    int count = std::min(5, static_cast<int>(platforms.size()));
-                    for (int i = 0; i < count; ++i) {
-                        std::string marker = (i == line) ? " <<<" : "";
-                        std::cout << "    [" << i << "] " << platforms[i] << marker << "\n";
-                    }
-                    if (platforms.size() > count) {
-                        std::cout << "    ... and " << (platforms.size() - count) << " more\n";
-                    }
-                    std::cout << "--------------------------------\n";
-                    
+ 
+                    // Execute the click callback
                     if (line >= 0 && line < static_cast<int>(platforms.size())) {
                         const std::string& platform = platforms[line];
-                        std::cout << "Platform selected: " << platform << std::endl;
                         if (clickCallback) {
                             clickCallback(this, platform);
-                        } else {
-                            std::cerr << "No click callback set!" << std::endl;
                         }
-                    } else {
-                        std::cerr << "Clicked outside platform list (line: " << line << ")" << std::endl;
                     }
                     Fl::event_clicks(0);
                     return 1; // We handled this event
