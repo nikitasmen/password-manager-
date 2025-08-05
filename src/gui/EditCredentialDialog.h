@@ -6,8 +6,10 @@
 #include <FL/Fl_Window.H>
 #include <FL/Fl_Input.H>
 #include <FL/Fl_Secret_Input.H>
+#include <FL/Fl_Choice.H>
 #include <memory>
 #include <string>
+#include "../utils/EncryptionUtils.h"
 
 class EditCredentialDialog {
 private:
@@ -15,6 +17,7 @@ private:
     std::unique_ptr<ContainerComponent> rootComponent;
     Fl_Input* usernameField;         // Store username field for cleanup
     Fl_Secret_Input* passwordField;  // Store password field for cleanup
+    Fl_Choice* encryptionChoice;     // Store encryption choice for cleanup
     std::string platform;
     std::function<void(bool)> onComplete;
     std::string username;
@@ -23,7 +26,7 @@ private:
 public:
     EditCredentialDialog(const std::string& platform, const std::string& username, 
                         CredentialsManager* credManager, std::function<void(bool)> onComplete)
-        : window(nullptr), rootComponent(nullptr), usernameField(nullptr), passwordField(nullptr),
+        : window(nullptr), rootComponent(nullptr), usernameField(nullptr), passwordField(nullptr), encryptionChoice(nullptr),
           platform(platform), onComplete(onComplete), username(username), credManager(credManager) {}
 
     ~EditCredentialDialog() {
@@ -37,10 +40,10 @@ public:
         }
 
         try {
-            window = std::make_unique<Fl_Window>(450, 280, ("Update Credentials for " + platform).c_str());
+            window = std::make_unique<Fl_Window>(450, 320, ("Update Credentials for " + platform).c_str());
             window->begin();
 
-            rootComponent = std::make_unique<ContainerComponent>(window.get(), 0, 0, 450, 280);
+            rootComponent = std::make_unique<ContainerComponent>(window.get(), 0, 0, 450, 320);
             
             // Display platform name (read-only)
             auto platformDisplay = rootComponent->addChild<DescriptionComponent>(
@@ -75,19 +78,48 @@ public:
             } else {
                 passwordField->show();
             }
+            
+            // Encryption type label
+            auto encryptionLabel = rootComponent->addChild<DescriptionComponent>(
+                window.get(), 25, 130, 100, 25, "Encryption:"
+            );
+            
+            // Create encryption choice dropdown
+            if (!encryptionChoice) {
+                encryptionChoice = new Fl_Choice(130, 130, 295, 30);
+                // Add encryption options
+                auto availableTypes = EncryptionUtils::getAllTypes();
+                for (const auto& type : availableTypes) {
+                    encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+                }
+                // Get current credential's encryption type and set as default
+                auto existingCreds = credManager->getCredentials(platform);
+                if (existingCreds) {
+                    // We need to get the stored credential data to check encryption type
+                    // This is a bit tricky since we don't have direct access to the storage
+                    // For now, set to default and let user change if needed
+                    encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));
+                } else {
+                    encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));
+                }
+                window->add(encryptionChoice);
+            } else {
+                encryptionChoice->show();
+            }
 
-            // Add buttons
+            // Add buttons (moved down to accommodate encryption dropdown)
             rootComponent->addChild<CredentialDialogButtonsComponent>(
-                window.get(), 125, 210, 200, 30,
+                window.get(), 125, 250, 200, 30,
                 [this]() {
                     // Save button callback
-                    if (!usernameField || !passwordField) {
+                    if (!usernameField || !passwordField || !encryptionChoice) {
                         fl_alert("Input fields not initialized!");
                         return;
                     }
                     
                     std::string newUsername = usernameField->value();
                     std::string newPassword = passwordField->value();
+                    EncryptionType newEncryptionType = EncryptionUtils::fromDropdownIndex(encryptionChoice->value());
                     
                     if (newUsername.empty()) {
                         fl_alert("Username cannot be empty!");
@@ -99,7 +131,7 @@ public:
                         return;
                     }
                     
-                    if (credManager->updateCredentials(platform, newUsername, newPassword)) {
+                    if (credManager->updateCredentials(platform, newUsername, newPassword, newEncryptionType)) {
                         fl_message("Credentials updated successfully!");
                         cleanup();
                         if (onComplete) onComplete(true);
@@ -140,6 +172,11 @@ public:
                 window->remove(passwordField);
                 delete passwordField;
                 passwordField = nullptr;
+            }
+            if (encryptionChoice) {
+                window->remove(encryptionChoice);
+                delete encryptionChoice;
+                encryptionChoice = nullptr;
             }
             window->hide();
             window.reset();
