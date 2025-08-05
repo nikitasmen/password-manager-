@@ -99,11 +99,13 @@ public:
      * @param platform Platform name
      * @param username Username (can be updated or unchanged)
      * @param password Password (can be updated or unchanged)
+     * @param encryptionType Optional new encryption type (if not specified, preserves existing type)
      * @return True if credentials were updated successfully
      */
     virtual bool updateCredential(const std::string& platform, 
                                  const std::string& username, 
-                                 const std::string& password) = 0;
+                                 const std::string& password,
+                                 std::optional<EncryptionType> encryptionType = std::nullopt) = 0;
     
     /**
      * @brief Display a message to the user
