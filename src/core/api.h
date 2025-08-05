@@ -8,7 +8,6 @@
 #include <stdexcept>
 #include <optional>
 #include <memory>
-#include "./encryption.h"
 #include "./json_storage.h"
 #include "../crypto/encryption_factory.h"
 
@@ -31,7 +30,22 @@ private:
     
     // Create a new encryptor with current settings
     void createEncryptor(EncryptionType type, const std::string& password);
-    
+
+    // Helper methods to reduce code duplication
+    bool validateCredentialInputs(const std::string& platform, const std::string& user, const std::string& pass) const;
+    std::unique_ptr<IEncryption> createCredentialEncryptor(const CredentialData& credData) const;
+    std::unique_ptr<IEncryption> createCredentialEncryptor(EncryptionType type,
+                                                         const std::optional<std::string>& publicKey = std::nullopt,
+                                                         const std::optional<std::string>& privateKey = std::nullopt) const;
+    std::pair<std::string, std::string> encryptCredentialPair(IEncryption* encryptor,
+                                                            const std::string& user,
+                                                            const std::string& pass) const;
+    CredentialData createCredentialData(EncryptionType type,
+                                       const std::string& encryptedUser,
+                                       const std::string& encryptedPass,
+                                       const std::optional<std::string>& publicKey = std::nullopt,
+                                       const std::optional<std::string>& privateKey = std::nullopt) const;
+
 public:
     /**
      * @brief Construct a new Credentials Manager object
