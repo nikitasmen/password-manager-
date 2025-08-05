@@ -517,7 +517,8 @@ void GuiUIManager::cleanupViewCredentialDialog() {
 
 bool GuiUIManager::updateCredential(const std::string& platform, 
                                   const std::string& username,
-                                  const std::string& password) {
+                                  const std::string& password,
+                                  std::optional<EncryptionType> encryptionType) {
     try {
         // Input validation
         if (platform.empty() || username.empty() || password.empty()) {
@@ -545,8 +546,8 @@ bool GuiUIManager::updateCredential(const std::string& platform,
             return true;
         }
 
-        // Use the new CredentialsManager::updateCredentials method
-        if (!tempCredManager->updateCredentials(platform, username, password)) {
+        // Use the new CredentialsManager::updateCredentials method with optional encryption type
+        if (!tempCredManager->updateCredentials(platform, username, password, encryptionType)) {
             showMessage("Error", "Failed to update credentials", true);
             return false;
         }
