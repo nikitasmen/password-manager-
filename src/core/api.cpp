@@ -397,9 +397,25 @@ bool CredentialsManager::updateCredentials(const std::string& platform, const st
             std::cerr << "Error: No credentials found for platform: " << platform << "\n";
             return false;
         }
-        
+
         // Use the existing encryption type
         EncryptionType credEncType = existingCredentialData->encryption_type;
+        
+        // Get the existing decrypted credentials to compare
+        auto existingDecryptedCreds = getCredentials(platform);
+        if (!existingDecryptedCreds) {
+            std::cerr << "Error: Failed to decrypt existing credentials for comparison\n";
+            return false;
+        }
+        
+        // Check if username or password has actually changed
+        bool usernameChanged = (user != existingDecryptedCreds->username);
+        bool passwordChanged = (pass != existingDecryptedCreds->password);
+        
+        // If nothing changed, return success without doing work
+        if (!usernameChanged && !passwordChanged) {
+            return true;
+        }
         
         EncryptionConfigParameters params;
         params.type = credEncType;

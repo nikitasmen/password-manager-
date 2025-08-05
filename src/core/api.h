@@ -133,8 +133,8 @@ public:
      * before updating it, and preserving the original encryption type.
      * 
      * @param platform The platform/service name (e.g., "GitHub", "Gmail")
-     * @param user The username/email for the platform (can be unchanged)
-     * @param pass The new password to store (will be encrypted)
+     * @param user The username/email for the platform (can be updated or unchanged)
+     * @param pass The password to store (can be updated or unchanged, will be encrypted)
      * @return true if the credentials were updated successfully, false otherwise
      */
     bool updateCredentials(const std::string& platform, const std::string& user, const std::string& pass);
