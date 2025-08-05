@@ -447,10 +447,8 @@ bool CredentialsManager::updateCredentials(const std::string& platform, const st
         credData.encrypted_user = encryptedUser;
         credData.encrypted_pass = encryptedPass;
         
-        // Store the credentials with encryption type
-        storage->addCredentials(platform, credData);  // This replaces the existing entry
-        
-        return true;
+        // Update the credentials using the dedicated update method
+        return storage->updateCredentials(platform, credData);
     } catch (const std::exception& e) {
         std::cerr << "Error updating credentials: " << e.what() << std::endl;
         return false;
