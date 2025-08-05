@@ -95,6 +95,17 @@ public:
     virtual bool deleteCredential(const std::string& platform) = 0;
     
     /**
+     * @brief Update existing credentials for a platform
+     * @param platform Platform name
+     * @param username Username (can be updated or unchanged)
+     * @param password Password (can be updated or unchanged)
+     * @return True if credentials were updated successfully
+     */
+    virtual bool updateCredential(const std::string& platform, 
+                                 const std::string& username, 
+                                 const std::string& password) = 0;
+    
+    /**
      * @brief Display a message to the user
      * @param title Message title
      * @param message Message content

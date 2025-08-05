@@ -116,6 +116,16 @@ public:
                        const CredentialData& credData);
     
     /**
+     * @brief Update existing credentials for a platform
+     * 
+     * @param platformName Name of the platform
+     * @param credData The credential data to update
+     * @return bool True if credentials were updated successfully
+     */
+    bool updateCredentials(const std::string& platformName, 
+                          const CredentialData& credData);
+    
+    /**
      * @brief Delete stored credentials for a platform
      * 
      * @param platformName Name of the platform to delete

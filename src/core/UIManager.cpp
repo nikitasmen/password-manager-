@@ -55,3 +55,16 @@ bool UIManager::safeDeleteCredential(const std::string& platform) {
         return false;
     }
 }
+// Add implementation for updateCredential method
+bool UIManager::updateCredential(const std::string& platform, const std::string& username, const std::string& password) {
+    // Default implementation
+    try {
+        if (!isLoggedIn) return false;
+        if (!credManager) return false;
+        
+        return credManager->updateCredentials(platform, username, password);
+    } catch (const std::exception& e) {
+        std::cerr << "Error updating credentials: " << e.what() << std::endl;
+        return false;
+    }
+}

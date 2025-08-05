@@ -1,10 +1,13 @@
 #include "GuiUIManager.h"
 #include "GuiComponents.h"
+#include "EditCredentialDialog.h"
 #include "../core/api.h"
 #include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
 #include <FL/fl_ask.H>
 #include <FL/Fl_Button.H>
+#include <FL/Fl_Secret_Input.H>  // Add this for password input
+#include <FL/Fl_Box.H>           // Add this for labels
 #include <sstream>
 #include <filesystem>
 
@@ -353,7 +356,12 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         ss << "Username: " << credentials.username << "\n";
         ss << "Password: " << credentials.password << "\n";
 
-        // Add clipboard status
+        // Add buttons
+        int buttonY = 160;
+        int buttonWidth = 120;
+        int buttonSpacing = 10;
+        
+        // Add Copy Password button if clipboard is available
         if (ClipboardManager::getInstance().isAvailable()) {
             // Store password for clipboard operation
             std::string password = credentials.password;
@@ -377,6 +385,46 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         } else {
             ss << "\nClipboard functionality not available on this system";
         }
+        
+        // Add Edit button that will open the EditCredentialDialog
+        auto editButton = viewCredentialRoot->addChild<ButtonComponent>(
+            viewCredentialWindow.get(), 150, buttonY, buttonWidth, 30, "Edit Credentials",
+            [this, platform = platform, username = credentials.username]() {
+                try {
+                    // Use the existing logged-in credential manager
+                    if (!credManager) {
+                        throw std::runtime_error("Not logged in");
+                    }
+                    
+                    // Create and show the edit dialog with the existing manager
+                    auto dialog = std::make_unique<EditCredentialDialog>(
+                        platform,
+                        username,
+                        credManager.get(),  // Use the logged-in manager
+                        [this, platform](bool success) {
+                            if (success) {
+                                // Refresh the view with updated credentials
+                                cleanupViewCredentialDialog();
+                                auto updatedCreds = safeGetCredentials(platform);
+                                if (updatedCreds) {
+                                    createViewCredentialDialog(platform, *updatedCreds);
+                                }
+                            }
+                        }
+                    );
+                    
+                    // Show the dialog
+                    dialog->show();
+                    
+                    // The dialog will manage its own lifetime
+                    dialog.release();
+                    
+                } catch (const std::exception& e) {
+                    std::cerr << "Error in edit credentials handler: " << e.what() << std::endl;
+                    showMessage("Error", std::string("Failed to edit credentials: ") + e.what(), true);
+                }
+            }
+        );
 
         // Add close button component
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
@@ -437,6 +485,64 @@ void GuiUIManager::cleanupAddCredentialDialog() {
 
 void GuiUIManager::cleanupViewCredentialDialog() {
     cleanupDialog(viewCredentialWindow, viewCredentialRoot);
+}
+
+bool GuiUIManager::updateCredential(const std::string& platform, 
+                                  const std::string& username,
+                                  const std::string& password) {
+    try {
+        // Input validation
+        if (platform.empty() || username.empty() || password.empty()) {
+            showMessage("Error", "Platform, username, and password cannot be empty", true);
+            return false;
+        }
+
+        // Get a fresh credential manager instance
+        auto tempCredManager = getFreshCredManager();
+        if (!tempCredManager) {
+            showMessage("Error", "Failed to initialize credential manager", true);
+            return false;
+        }
+
+        // Get the current credential to check if it exists
+        auto existingCreds = tempCredManager->getCredentials(platform);
+        if (!existingCreds) {
+            showMessage("Error", "No credentials found for platform: " + platform, true);
+            return false;
+        }
+
+        // Check if anything actually changed
+        if (existingCreds->username == username && existingCreds->password == password) {
+            showMessage("Info", "No changes detected");
+            return true;
+        }
+
+        // Use the new CredentialsManager::updateCredentials method
+        if (!tempCredManager->updateCredentials(platform, username, password)) {
+            showMessage("Error", "Failed to update credentials", true);
+            return false;
+        }
+
+        // Refresh the UI if we're currently viewing the updated credential
+        if (viewCredentialWindow && viewCredentialWindow->shown()) {
+            cleanupViewCredentialDialog();
+            auto updatedCreds = tempCredManager->getCredentials(platform);
+            if (updatedCreds) {
+                createViewCredentialDialog(platform, *updatedCreds);
+            }
+        }
+
+        // Refresh the platforms list in case the update affects sorting
+        refreshPlatformsList();
+
+        showMessage("Success", "Credentials updated successfully");
+        return true;
+
+    } catch (const std::exception& e) {
+        std::cerr << "Error updating credential: " << e.what() << std::endl;
+        showMessage("Error", std::string("Failed to update credentials: ") + e.what(), true);
+        return false;
+    }
 }
 
 void GuiUIManager::cleanupSettingsDialog() {
