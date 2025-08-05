@@ -83,13 +83,11 @@ bool setupPassword(const std::string& newPassword,
      * @param platform Platform name
      * @param username Username (unchanged)
      * @param password New password
-     * @param encryptionType Optional new encryption type (if not specified, preserves existing type)
      * @return True if credentials were updated successfully
      */
     bool updateCredential(const std::string& platform, 
                          const std::string& username, 
-                         const std::string& password,
-                         std::optional<EncryptionType> encryptionType = std::nullopt) override;
+                         const std::string& password) override;
     
     /**
      * @brief Display a message in terminal

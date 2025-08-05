@@ -379,7 +379,7 @@ std::vector<std::string> CredentialsManager::getAllPlatforms() const {
     }
 }
 
-bool CredentialsManager::updateCredentials(const std::string& platform, const std::string& user, const std::string& pass, std::optional<EncryptionType> encryptionType) {
+bool CredentialsManager::updateCredentials(const std::string& platform, const std::string& user, const std::string& pass) {
     try {
         // Validate inputs using helper method
         if (!validateCredentialInputs(platform, user, pass)) {
@@ -400,25 +400,22 @@ bool CredentialsManager::updateCredentials(const std::string& platform, const st
             return false;
         }
         
-        // Check if username, password, or encryption type has actually changed
+        // Check if username or password has actually changed
         bool usernameChanged = (user != existingDecryptedCreds->username);
         bool passwordChanged = (pass != existingDecryptedCreds->password);
-        bool encryptionChanged = encryptionType.has_value() && (encryptionType.value() != existingCredentialData->encryption_type);
         
         // If nothing changed, return success without doing work
-        if (!usernameChanged && !passwordChanged && !encryptionChanged) {
+        if (!usernameChanged && !passwordChanged) {
             return true;
         }
 
-// Check if encryption type needs to be changed
-EncryptionType finalEncType = encryptionType.value_or(existingCredentialData->encryption_type);
-// Use the specified or existing encryption type to create encryptor and encrypt new data
-auto credEncryptor = createCredentialEncryptor(finalEncType);
-auto encryptedPair = encryptCredentialPair(credEncryptor.get(), user, pass);
+        // Use existing credential data to create encryptor and encrypt new data
+        auto credEncryptor = createCredentialEncryptor(*existingCredentialData);
+        auto encryptedPair = encryptCredentialPair(credEncryptor.get(), user, pass);
 
         // Create updated credential data preserving existing keys
         CredentialData credData = createCredentialData(
-            finalEncType,
+            existingCredentialData->encryption_type,
             encryptedPair.first,
             encryptedPair.second,
             existingCredentialData->rsa_public_key,

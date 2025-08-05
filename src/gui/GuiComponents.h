@@ -373,7 +373,14 @@ private:
                         return 1;
                     }
                     
-                    // Do not clamp - reject clicks outside the actual content
+                    // Ensure line is within valid range
+                    if (line < 0) {
+                        line = 0;  // First line
+                    } else if (line >= static_cast<int>(platforms.size())) {
+                        line = platforms.size() - 1;  // Last line
+                    }
+ 
+                    // Execute the click callback
                     if (line >= 0 && line < static_cast<int>(platforms.size())) {
                         const std::string& platform = platforms[line];
                         if (clickCallback) {
@@ -381,7 +388,7 @@ private:
                         }
                     }
                     Fl::event_clicks(0);
-                    return 1;
+                    return 1; // We handled this event
                 }
                 break;
                 

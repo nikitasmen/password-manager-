@@ -401,14 +401,14 @@ int TerminalUIManager::runMenuLoop() {
     
     return 0;
 }
-bool TerminalUIManager::updateCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
+bool TerminalUIManager::updateCredential(const std::string& platform, const std::string& username, const std::string& password) {
     if (!isLoggedIn) {
         showMessage("Error", "You must log in first.", true);
         return false;
     }
     
     try {
-        if (credManager->updateCredentials(platform, username, password, encryptionType)) {
+        if (credManager->updateCredentials(platform, username, password)) {
             showMessage("Success", "Credentials updated successfully!");
             return true;
         } else {
