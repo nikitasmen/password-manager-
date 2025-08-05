@@ -97,8 +97,8 @@ public:
     /**
      * @brief Update existing credentials for a platform
      * @param platform Platform name
-     * @param username Username (unchanged)
-     * @param password New password
+     * @param username Username (can be updated or unchanged)
+     * @param password Password (can be updated or unchanged)
      * @return True if credentials were updated successfully
      */
     virtual bool updateCredential(const std::string& platform, 
