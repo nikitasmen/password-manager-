@@ -71,11 +71,12 @@ std::unique_ptr<IEncryption> CredentialsManager::createCredentialEncryptor(Encry
     params.lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
 
     if (type == EncryptionType::RSA) {
-        if (!publicKey.has_value() || !privateKey.has_value()) {
-            throw std::runtime_error("RSA keys not found for RSA-encrypted credential.");
+        // For RSA, keys are optional - if not provided, new keys will be generated
+        if (publicKey.has_value() && privateKey.has_value()) {
+            params.publicKey = publicKey.value();
+            params.privateKey = privateKey.value();
         }
-        params.publicKey = publicKey.value();
-        params.privateKey = privateKey.value();
+        // If keys are not provided, the factory will generate new ones
     }
 
     auto encryptor = EncryptionFactory::create(params);
