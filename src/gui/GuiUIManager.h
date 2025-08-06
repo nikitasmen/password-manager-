@@ -10,6 +10,7 @@ class PlatformsDisplayComponent;
 class CredentialInputsComponent;
 class SettingsDialogComponent;
 class ClickablePlatformsDisplay;
+class UpdateDialog;
 #include <FL/Fl.H>
 #include <FL/Fl_Window.H>
 #include <FL/fl_message.H>
@@ -42,6 +43,9 @@ private:
     std::unique_ptr<Fl_Window> updatePasswordWindow;  // Added for update password dialog
     std::unique_ptr<Fl_Window> settingsWindow;
     std::unique_ptr<ContainerComponent> settingsRoot;
+    
+    // Update dialog
+    std::unique_ptr<UpdateDialog> updateDialog;
     
     // Component references
     LoginFormComponent* loginForm;
@@ -178,6 +182,11 @@ bool setupPassword(const std::string& newPassword,
      * @brief Open the settings dialog
      */
     void openSettingsDialog();
+    
+    /**
+     * @brief Open the update dialog
+     */
+    void openUpdateDialog();
 };
 
 #endif // GUI_UI_MANAGER_H

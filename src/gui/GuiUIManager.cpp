@@ -1,6 +1,7 @@
 #include "GuiUIManager.h"
 #include "GuiComponents.h"
 #include "EditCredentialDialog.h"
+#include "UpdateDialog.h"
 #include "../core/api.h"
 #include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
@@ -16,6 +17,8 @@ GuiUIManager::GuiUIManager(const std::string& dataPath)
       loginForm(nullptr), passwordSetup(nullptr), 
       platformsDisplay(nullptr), clickablePlatformsDisplay(nullptr), 
       credentialInputs(nullptr) {
+    // Initialize update dialog (GitHub repository info should be configured here)
+    updateDialog = std::make_unique<UpdateDialog>("nikitasmen", "password-manager-");
 }
 
 GuiUIManager::~GuiUIManager() {
@@ -247,6 +250,7 @@ void GuiUIManager::createMainScreen() {
                 mainWindow.get(), 0, 0, 600, 30,
                 [this]() { createAddCredentialDialog(); },
                 [this]() { openSettingsDialog(); },
+                [this]() { openUpdateDialog(); },
                 []() { 
                     if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
                         exit(0);
@@ -623,6 +627,12 @@ void GuiUIManager::openSettingsDialog() {
     ConfigManager::getInstance().loadConfig(".config");
     createSettingsDialog();
     settingsWindow->show();
+}
+
+void GuiUIManager::openUpdateDialog() {
+    if (updateDialog) {
+        updateDialog->show();
+    }
 }
 
 void GuiUIManager::createSettingsDialog() {
