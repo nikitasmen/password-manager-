@@ -6,6 +6,8 @@
 #include <sstream>
 #include <regex>
 #include <cstdlib>
+#include <random>
+#include <chrono>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -21,6 +23,158 @@
 #endif
 
 using json = nlohmann::json;
+
+// Helper functions for cross-platform temporary file handling
+namespace {
+    std::string getSystemTempDirectory() {
+#ifdef _WIN32
+        char tempPath[MAX_PATH];
+        DWORD result = GetTempPathA(MAX_PATH, tempPath);
+        if (result > 0 && result < MAX_PATH) {
+            return std::string(tempPath);
+        }
+        return "C:\\temp\\"; // Fallback
+#else
+        // Try environment variables first
+        const char* tmpDir = std::getenv("TMPDIR");
+        if (tmpDir) return std::string(tmpDir);
+        
+        tmpDir = std::getenv("TMP");
+        if (tmpDir) return std::string(tmpDir);
+        
+        tmpDir = std::getenv("TEMP");
+        if (tmpDir) return std::string(tmpDir);
+        
+        // Fallback to /tmp
+        return "/tmp/";
+#endif
+    }
+    
+    std::string generateUniqueId() {
+        // Generate a unique ID using timestamp and random number
+        auto now = std::chrono::system_clock::now();
+        auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dis(1000, 9999);
+        
+        return std::to_string(timestamp) + "_" + std::to_string(dis(gen));
+    }
+    
+    std::string createUniqueDirectory(const std::string& prefix) {
+        std::string tempDir = getSystemTempDirectory();
+        if (tempDir.back() != '/' && tempDir.back() != '\\') {
+            tempDir += PATH_SEPARATOR;
+        }
+        
+        std::string uniqueDir = tempDir + prefix + "_" + generateUniqueId();
+        
+#ifdef _WIN32
+        if (_mkdir(uniqueDir.c_str()) != 0) {
+#else
+        if (mkdir(uniqueDir.c_str(), 0755) != 0) {
+#endif
+            std::cerr << "Warning: Could not create temp directory: " << uniqueDir << std::endl;
+            // Try to use the system temp directory directly
+            return tempDir;
+        }
+        
+        return uniqueDir;
+    }
+    
+    std::string createUniqueFilePath(const std::string& prefix, const std::string& extension = "") {
+        std::string tempDir = getSystemTempDirectory();
+        if (tempDir.back() != '/' && tempDir.back() != '\\') {
+            tempDir += PATH_SEPARATOR;
+        }
+        
+        std::string fileName = prefix + "_" + generateUniqueId();
+        if (!extension.empty()) {
+            fileName += "." + extension;
+        }
+        
+        return tempDir + fileName;
+    }
+    
+    void cleanupDirectory(const std::string& dirPath) {
+        // Validate path to prevent directory traversal attacks
+        if (dirPath.empty() || dirPath.find("..") != std::string::npos) {
+            std::cerr << "Error: Invalid directory path for cleanup" << std::endl;
+            return;
+        }
+        
+#ifdef _WIN32
+        // Windows directory removal - more secure approach
+        std::string command = "rmdir /s /q \"" + dirPath + "\" 2>nul";
+        int result = system(command.c_str());
+        if (result != 0) {
+            std::cerr << "Warning: Failed to clean up directory: " << dirPath << std::endl;
+        }
+#else
+        // Unix directory removal - more secure approach
+        std::string command = "rm -rf \"" + dirPath + "\" 2>/dev/null";
+        int result = system(command.c_str());
+        if (result != 0) {
+            std::cerr << "Warning: Failed to clean up directory: " << dirPath << std::endl;
+        }
+#endif
+    }
+    
+    bool copyFile(const std::string& source, const std::string& destination) {
+        // Validate paths
+        if (source.empty() || destination.empty() || 
+            source.find("..") != std::string::npos || 
+            destination.find("..") != std::string::npos) {
+            std::cerr << "Error: Invalid file paths for copy operation" << std::endl;
+            return false;
+        }
+        
+#ifdef _WIN32
+        return CopyFileA(source.c_str(), destination.c_str(), FALSE) != 0;
+#else
+        std::ifstream src(source, std::ios::binary);
+        if (!src.is_open()) {
+            std::cerr << "Error: Cannot open source file: " << source << std::endl;
+            return false;
+        }
+        
+        std::ofstream dst(destination, std::ios::binary);
+        if (!dst.is_open()) {
+            std::cerr << "Error: Cannot create destination file: " << destination << std::endl;
+            return false;
+        }
+        
+        dst << src.rdbuf();
+        
+        bool success = src.good() && dst.good();
+        src.close();
+        dst.close();
+        
+        if (success) {
+            // Set executable permissions on Unix
+            chmod(destination.c_str(), 0755);
+        }
+        
+        return success;
+#endif
+    }
+    
+#ifndef _WIN32
+    void configureCurlCommon(CURL* curl, const std::string& url) {
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "PasswordManager/1.0");
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+        
+        // SSL/TLS configuration
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+    }
+#endif
+}
 
 // Helper struct for HTTP response
 struct HttpResponse {
@@ -131,13 +285,8 @@ void AppUpdater::downloadUpdate(const VersionInfo& versionInfo,
                                ProgressCallback progressCallback,
                                CompletionCallback completionCallback) {
     try {
-        // Create temporary download directory using basic C functions
-        std::string tempDir = "/tmp/password_manager_update";
-        #ifdef _WIN32
-        _mkdir(tempDir.c_str());
-        #else
-        mkdir(tempDir.c_str(), 0755);
-        #endif
+        // Create unique temporary download directory
+        std::string tempDir = createUniqueDirectory("password_manager_update");
         
         // Determine download filename
         std::string filename = getPlatformBinaryName();
@@ -160,6 +309,9 @@ void AppUpdater::downloadUpdate(const VersionInfo& versionInfo,
         } else {
             completionCallback(false, "Failed to download update.");
         }
+        
+        // Clean up temporary directory
+        cleanupDirectory(tempDir);
         
     } catch (const std::exception& e) {
         completionCallback(false, "Error during update: " + std::string(e.what()));
@@ -208,18 +360,9 @@ std::string AppUpdater::makeHttpRequest(const std::string& url) {
     if (curl) {
         HttpResponse response;
         
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        configureCurlCommon(curl, url);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "PasswordManager/1.0");
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-        
-        // SSL/TLS configuration
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
         
         CURLcode res = curl_easy_perform(curl);
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.responseCode);
@@ -236,8 +379,8 @@ std::string AppUpdater::makeHttpRequest(const std::string& url) {
     // Fallback to system curl command
     std::cout << "Falling back to system curl command..." << std::endl;
     
-    // Create a temporary file for the response
-    std::string tempFile = "/tmp/pm_http_response.tmp";
+    // Create a unique temporary file for the response
+    std::string tempFile = createUniqueFilePath("pm_http_response", "tmp");
     
     // Build curl command
     std::string command = "curl -s -L -A \"PasswordManager/1.0\" --connect-timeout 10 --max-time 30 \"" + url + "\" -o \"" + tempFile + "\"";
@@ -282,11 +425,9 @@ bool AppUpdater::downloadFile(const std::string& url, const std::string& outputP
         return false;
     }
     
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    configureCurlCommon(curl, url);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "PasswordManager/1.0");
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L); // 5 minute timeout
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L); // 5 minute timeout for downloads
     
     // Progress reporting
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
@@ -376,24 +517,17 @@ bool AppUpdater::installUpdate(const std::string& downloadedPath) {
         // Create backup of current executable
         std::string backupPath = currentPath + ".backup";
         
-        // Copy current file to backup using system commands
-        std::string copyCommand = "cp \"" + currentPath + "\" \"" + backupPath + "\"";
-        if (system(copyCommand.c_str()) != 0) {
+        // Copy current file to backup using safe file operations
+        if (!copyFile(currentPath, backupPath)) {
             std::cerr << "Failed to create backup" << std::endl;
             return false;
         }
         
         // Replace current executable with downloaded one
-        std::string replaceCommand = "cp \"" + downloadedPath + "\" \"" + currentPath + "\"";
-        if (system(replaceCommand.c_str()) != 0) {
+        if (!copyFile(downloadedPath, currentPath)) {
             std::cerr << "Failed to replace executable" << std::endl;
             return false;
         }
-        
-        // Make executable on Unix systems
-#ifndef _WIN32
-        chmod(currentPath.c_str(), 0755);
-#endif
         
         // Clean up downloaded file
         remove(downloadedPath.c_str());
