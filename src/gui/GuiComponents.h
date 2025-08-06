@@ -205,6 +205,7 @@ private:
     struct MenuActions {
         ButtonCallback onAddCredential;
         ButtonCallback onSettings;
+        ButtonCallback onCheckUpdates;
         ButtonCallback onExit;
         ButtonCallback onAbout;
     };
@@ -222,8 +223,9 @@ private:
         switch(actionId) {
             case 0: comp->actions.onAddCredential(); break;
             case 1: comp->actions.onSettings(); break;
-            case 2: comp->actions.onExit(); break;
-            case 3: comp->actions.onAbout(); break;
+            case 2: comp->actions.onCheckUpdates(); break;
+            case 3: comp->actions.onExit(); break;
+            case 4: comp->actions.onAbout(); break;
         }
     }
 
@@ -231,10 +233,11 @@ public:
     MenuBarComponent(Fl_Group* parent, int x, int y, int w, int h,
                     ButtonCallback onAddCredential,
                     ButtonCallback onSettings,
+                    ButtonCallback onCheckUpdates,
                     ButtonCallback onExit,
                     ButtonCallback onAbout)
         : GuiComponent(parent, x, y, w, h),
-          actions{onAddCredential, onSettings, onExit, onAbout},
+          actions{onAddCredential, onSettings, onCheckUpdates, onExit, onAbout},
           menuBar(nullptr) {}
     
     void create() override {
@@ -243,8 +246,9 @@ public:
         // Add menu items with standardized callback approach
         addMenuItem("File/Add Credential", 0); // Action ID 0
         addMenuItem("File/Settings", 1);       // Action ID 1
-        addMenuItem("File/Exit", 2);           // Action ID 2 
-        addMenuItem("Help/About", 3);          // Action ID 3
+        addMenuItem("Help/Check for Updates", 2); // Action ID 2
+        addMenuItem("File/Exit", 3);           // Action ID 3 
+        addMenuItem("Help/About", 4);          // Action ID 4
     }
     
     // Helper method to add menu items with consistent handling
