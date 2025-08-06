@@ -105,6 +105,9 @@ password-manager-/
 │   │   └── gui.h
 │   ├── gui_main.cpp      # GUI application entry point
 │   ├── tui_main.cpp      # Terminal UI application entry point
+│   ├── updater/          # Auto-update system
+│   │   ├── AppUpdater.cpp
+│   │   └── AppUpdater.h
 │   └── utils/            # Utility functions
 │       └── string_utils.cpp
 ├── tests/                # Test files
@@ -274,6 +277,32 @@ The codebase has undergone significant improvements:
 - **GUI Stability**: Fixed crashes when viewing credentials multiple times
 - **Resource Management**: Proper cleanup of FLTK widgets and buffers
 - **Standardized Dialogs**: Consistent patterns for all user interactions
+- **Auto-Update System**: Added GitHub integration for automatic updates
+
+## Auto-Update System
+
+The GUI version includes a built-in update system that allows you to:
+
+- **Check for Updates**: Access via the Help menu → Check for Updates
+- **Automatic Download**: Download and install updates with progress reporting
+- **Version Comparison**: Compare current version with latest GitHub release
+- **Release Notes**: View what's new in each version
+- **Cross-Platform**: Works on Windows, macOS, and Linux
+- **Secure Updates**: Downloads from official GitHub releases
+
+### How to Use Updates
+
+1. Open the GUI application
+2. Go to Help → Check for Updates
+3. Click "Check for Updates" to see if a new version is available
+4. If an update is found, click "Download Update" to install it
+5. Restart the application when prompted
+
+The updater will:
+- Download the latest release from the GitHub repository
+- Create a backup of your current version
+- Replace the executable with the new version
+- Maintain all your existing data and settings
 
 ## Future Enhancements
 
