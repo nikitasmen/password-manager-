@@ -1,4 +1,6 @@
 #include "rsa_encryption.h"
+#include "cipher_context_raii.h"
+#include "pkey_ctx_raii.h"
 #include <sstream>
 #include <stdexcept>
 #include <iomanip>
@@ -91,25 +93,21 @@ RSAEncryption::~RSAEncryption() {
 }
 
 void RSAEncryption::generateKeyPair(int keySize) {
-    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+    PKEYContextRAII ctx(EVP_PKEY_RSA);
     if (!ctx) throwOpenSSLError("Failed to create EVP_PKEY_CTX");
 
-    if (EVP_PKEY_keygen_init(ctx) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_keygen_init(ctx.get()) <= 0) {
         throwOpenSSLError("Failed to initialize keygen");
     }
 
-    if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, keySize) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx.get(), keySize) <= 0) {
         throwOpenSSLError("Failed to set RSA key size");
     }
 
-    if (EVP_PKEY_keygen(ctx, &m_pkey) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_keygen(ctx.get(), &m_pkey) <= 0) {
         throwOpenSSLError("Failed to generate RSA key pair");
     }
 
-    EVP_PKEY_CTX_free(ctx);
     m_keySize = keySize;
     m_initialized = true;
 }
@@ -151,45 +149,38 @@ std::string RSAEncryption::encryptPrivateKey() const {
     std::string kek = deriveKEK(m_masterPassword, m_keySalt);
     
     // Encrypt private key with AES-256-GCM
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) throwOpenSSLError("Failed to create cipher context");
+    CipherContextRAII ctx;
+    if (!ctx.get()) throwOpenSSLError("Failed to create cipher context");
     
     // Generate random IV
     unsigned char iv[12]; // GCM recommended IV size
     if (RAND_bytes(iv, sizeof(iv)) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throwOpenSSLError("Failed to generate IV");
     }
     
-    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr,
+    if (EVP_EncryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr,
                           reinterpret_cast<const unsigned char*>(kek.c_str()), iv) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throwOpenSSLError("Failed to initialize encryption");
     }
     
     std::vector<unsigned char> encrypted(privateKeyPEM.length() + 16);
     int len;
-    if (EVP_EncryptUpdate(ctx, encrypted.data(), &len,
+    if (EVP_EncryptUpdate(ctx.get(), encrypted.data(), &len,
                          reinterpret_cast<const unsigned char*>(privateKeyPEM.c_str()),
                          privateKeyPEM.length()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throwOpenSSLError("Failed to encrypt private key");
     }
     
     int finalLen;
-    if (EVP_EncryptFinal_ex(ctx, encrypted.data() + len, &finalLen) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
+    if (EVP_EncryptFinal_ex(ctx.get(), encrypted.data() + len, &finalLen) != 1) {
         throwOpenSSLError("Failed to finalize encryption");
     }
     
     // Get authentication tag
     unsigned char tag[16];
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
+    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag) != 1) {
         throwOpenSSLError("Failed to get authentication tag");
     }
-    
-    EVP_CIPHER_CTX_free(ctx);
     
     // Serialize: salt + iv + encrypted_data + auth_tag
     std::string result;
@@ -227,38 +218,32 @@ void RSAEncryption::decryptPrivateKey(const std::string& encryptedData) {
     std::string kek = deriveKEK(m_masterPassword, salt);
     
     // Decrypt private key
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) throwOpenSSLError("Failed to create cipher context");
+    CipherContextRAII ctx;
+    if (!ctx.get()) throwOpenSSLError("Failed to create cipher context");
     
-    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr,
+    if (EVP_DecryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr,
                           reinterpret_cast<const unsigned char*>(kek.c_str()),
                           reinterpret_cast<const unsigned char*>(iv.c_str())) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throwOpenSSLError("Failed to initialize decryption");
     }
     
     std::vector<unsigned char> decrypted(encrypted.length());
     int len;
-    if (EVP_DecryptUpdate(ctx, decrypted.data(), &len,
+    if (EVP_DecryptUpdate(ctx.get(), decrypted.data(), &len,
                          reinterpret_cast<const unsigned char*>(encrypted.c_str()),
                          encrypted.length()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throwOpenSSLError("Failed to decrypt private key");
     }
     
     // Set authentication tag using safe helper function
-    if (setAuthTag(ctx, authTag) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
+    if (setAuthTag(ctx.get(), authTag) != 1) {
         throwOpenSSLError("Failed to set authentication tag");
     }
     
     int finalLen;
-    if (EVP_DecryptFinal_ex(ctx, decrypted.data() + len, &finalLen) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
+    if (EVP_DecryptFinal_ex(ctx.get(), decrypted.data() + len, &finalLen) != 1) {
         throwOpenSSLError("Failed to verify authentication or decrypt private key");
     }
-    
-    EVP_CIPHER_CTX_free(ctx);
     
     // Load decrypted private key
     std::string privateKeyPEM(reinterpret_cast<char*>(decrypted.data()), len + finalLen);
@@ -328,72 +313,62 @@ std::string RSAEncryption::generateAESKey() const {
 std::string RSAEncryption::encryptAESKeyWithRSA(const std::string& aesKey) const {
     if (!m_pkey) throw std::runtime_error("RSA key not initialized");
     
-    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(m_pkey, nullptr);
+    PKEYContextRAII ctx(m_pkey);
     if (!ctx) throwOpenSSLError("Failed to create EVP_PKEY_CTX for RSA encryption");
     
-    if (EVP_PKEY_encrypt_init(ctx) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_encrypt_init(ctx.get()) <= 0) {
         throwOpenSSLError("Failed to initialize RSA encryption");
     }
     
-    if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) <= 0) {
         throwOpenSSLError("Failed to set RSA padding");
     }
     
     size_t outLen;
-    if (EVP_PKEY_encrypt(ctx, nullptr, &outLen,
+    if (EVP_PKEY_encrypt(ctx.get(), nullptr, &outLen,
                         reinterpret_cast<const unsigned char*>(aesKey.c_str()),
                         aesKey.length()) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
         throwOpenSSLError("Failed to determine RSA encrypted length");
     }
     
     std::vector<unsigned char> encrypted(outLen);
-    if (EVP_PKEY_encrypt(ctx, encrypted.data(), &outLen,
+    if (EVP_PKEY_encrypt(ctx.get(), encrypted.data(), &outLen,
                         reinterpret_cast<const unsigned char*>(aesKey.c_str()),
                         aesKey.length()) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
         throwOpenSSLError("RSA encryption of AES key failed");
     }
     
-    EVP_PKEY_CTX_free(ctx);
     return std::string(reinterpret_cast<char*>(encrypted.data()), outLen);
 }
 
 std::string RSAEncryption::decryptAESKeyWithRSA(const std::string& encryptedAESKey) const {
     if (!m_pkey) throw std::runtime_error("RSA key not initialized");
     
-    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(m_pkey, nullptr);
+    PKEYContextRAII ctx(m_pkey);
     if (!ctx) throwOpenSSLError("Failed to create EVP_PKEY_CTX for RSA decryption");
     
-    if (EVP_PKEY_decrypt_init(ctx) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_decrypt_init(ctx.get()) <= 0) {
         throwOpenSSLError("Failed to initialize RSA decryption");
     }
     
-    if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) <= 0) {
         throwOpenSSLError("Failed to set RSA padding");
     }
     
     size_t outLen;
-    if (EVP_PKEY_decrypt(ctx, nullptr, &outLen,
+    if (EVP_PKEY_decrypt(ctx.get(), nullptr, &outLen,
                         reinterpret_cast<const unsigned char*>(encryptedAESKey.c_str()),
                         encryptedAESKey.length()) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
         throwOpenSSLError("Failed to determine RSA decrypted length");
     }
     
     std::vector<unsigned char> decrypted(outLen);
-    if (EVP_PKEY_decrypt(ctx, decrypted.data(), &outLen,
+    if (EVP_PKEY_decrypt(ctx.get(), decrypted.data(), &outLen,
                         reinterpret_cast<const unsigned char*>(encryptedAESKey.c_str()),
                         encryptedAESKey.length()) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
         throwOpenSSLError("RSA decryption of AES key failed");
     }
     
-    EVP_PKEY_CTX_free(ctx);
     return std::string(reinterpret_cast<char*>(decrypted.data()), outLen);
 }
 
