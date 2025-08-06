@@ -22,11 +22,9 @@ include_directories(${JSON_INCLUDE_DIR})
 
 # --- Find FLTK ---
 find_package(FLTK REQUIRED)
-include_directories(${FLTK_INCLUDE_DIR})
 
 # --- Find OpenSSL for AES encryption ---
 find_package(OpenSSL REQUIRED)
-include_directories(${OPENSSL_INCLUDE_DIR})
 
 # --- Source files ---
 set(CORE_SOURCES
@@ -46,6 +44,7 @@ set(CORE_SOURCES
     src/crypto/lfsr_encryption.cpp
     src/crypto/rsa_encryption.cpp
     src/crypto/cipher_context_raii.cpp
+    src/crypto/pkey_ctx_raii.cpp
 )
 
 set(CLI_SOURCES
@@ -73,29 +72,41 @@ function(link_common target)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/config 
         ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
         ${JSON_INCLUDE_DIR}
+        ${OPENSSL_INCLUDE_DIR}
+        ${FLTK_INCLUDE_DIR}
         ${EXTRA_INCLUDES}
     )
+    
+    # Link libraries
     if(FILESYSTEM_LIB)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()
-    # Link OpenSSL
     target_link_libraries(${target} PRIVATE ${OPENSSL_LIBRARIES})
+endfunction()
+
+function(create_password_manager_executable target_name ui_sources main_file ui_type extra_libs)
+    add_executable(${target_name} ${CORE_SOURCES} ${ui_sources} ${main_file})
+    target_compile_definitions(${target_name} PRIVATE ${ui_type})
+    
+    if(extra_libs)
+        target_link_libraries(${target_name} PRIVATE ${extra_libs})
+    endif()
+    
+    # Pass UI-specific include directory if it's GUI
+    if(ui_type STREQUAL "ENABLE_GUI")
+        link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
+    else()
+        link_common(${target_name})
+    endif()
 endfunction()
 
 # --- Main executables with UI abstraction ---
 
 # CLI application
-add_executable(password_manager_cli ${CORE_SOURCES} ${CLI_SOURCES} src/tui_main.cpp)
-link_common(password_manager_cli)
-target_compile_definitions(password_manager_cli PRIVATE ENABLE_CLI)
+create_password_manager_executable(password_manager_cli "${CLI_SOURCES}" "src/tui_main.cpp" "ENABLE_CLI" "")
 
-# GUI application
-add_executable(password_manager_gui ${CORE_SOURCES} ${GUI_SOURCES} src/gui_main.cpp)
-target_compile_definitions(password_manager_gui PRIVATE ENABLE_GUI)
-
-target_link_libraries(password_manager_gui PRIVATE ${FLTK_LIBRARIES})
-# Pass GUI-specific include directory to the common link function
-link_common(password_manager_gui ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
+# GUI application  
+create_password_manager_executable(password_manager_gui "${GUI_SOURCES}" "src/gui_main.cpp" "ENABLE_GUI" "${FLTK_LIBRARIES}")
 
 # --- Create data directory (only once per build) ---
 add_custom_target(create_data_dir ALL
