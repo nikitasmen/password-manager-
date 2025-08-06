@@ -5,6 +5,7 @@
 #include "../core/api.h"
 #include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
+#include "../updater/AppUpdater.h"
 #include <FL/fl_ask.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Secret_Input.H>  // Add this for password input
@@ -258,9 +259,10 @@ void GuiUIManager::createMainScreen() {
                 },
                 []() {
                     fl_message_title("About");
-                    fl_message("Password Manager v1.5\n"
-                               "A secure, lightweight password management tool\n"
-                               "2025 - nikitasmen");
+                    std::string aboutMessage = "Password Manager " + VersionInfo::getCurrentVersion() + "\n"
+                                              "A secure, lightweight password management tool\n"
+                                              "2025 - nikitasmen";
+                    fl_message("%s", aboutMessage.c_str());
                 }
             );
 
