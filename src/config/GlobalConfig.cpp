@@ -90,6 +90,21 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
             config_.showEncryptionInCredentials = (value == "true" || value == "1");
         } else if (key == "defaultUIMode") {
             config_.defaultUIMode = value;
+        } else if (key == "githubOwner") {
+            config_.githubOwner = value;
+        } else if (key == "githubRepo") {
+            config_.githubRepo = value;
+        } else if (key == "autoCheckUpdates") {
+            config_.autoCheckUpdates = (value == "true" || value == "1");
+        } else if (key == "updateCheckIntervalDays") {
+            try {
+                int days = std::stoi(value);
+                if (days > 0) {
+                    config_.updateCheckIntervalDays = days;
+                }
+            } catch (const std::exception&) {
+                // Keep default value if parsing fails
+            }
         }
     }
     
@@ -136,7 +151,13 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
     
     file << "# UI Settings\n";
     file << "showEncryptionInCredentials=" << (config_.showEncryptionInCredentials ? "true" : "false") << "\n";
-    file << "defaultUIMode=" << config_.defaultUIMode << "\n";
+    file << "defaultUIMode=" << config_.defaultUIMode << "\n\n";
+    
+    file << "# Update/Repository Settings\n";
+    file << "githubOwner=" << config_.githubOwner << "\n";
+    file << "githubRepo=" << config_.githubRepo << "\n";
+    file << "autoCheckUpdates=" << (config_.autoCheckUpdates ? "true" : "false") << "\n";
+    file << "updateCheckIntervalDays=" << config_.updateCheckIntervalDays << "\n";
     
     file.close();
     return true;
@@ -357,6 +378,28 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps, const st
         // taps = oldTaps; // Removed global update
         // init_state = oldInitState; // Removed global update
         return false;
+    }
+}
+
+// Update/Repository settings
+void ConfigManager::setGithubOwner(const std::string& owner) {
+    config_.githubOwner = owner;
+}
+
+void ConfigManager::setGithubRepo(const std::string& repo) {
+    config_.githubRepo = repo;
+}
+
+void ConfigManager::setAutoCheckUpdates(bool enabled) {
+    config_.autoCheckUpdates = enabled;
+}
+
+void ConfigManager::setUpdateCheckIntervalDays(int days) {
+    if (days > 0) {
+        config_.updateCheckIntervalDays = days;
+    } else {
+        std::cerr << "Warning: Invalid update check interval " << days 
+                  << " (must be positive), keeping current value\n";
     }
 }
 

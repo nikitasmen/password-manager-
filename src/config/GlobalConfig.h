@@ -42,6 +42,12 @@ struct AppConfig {
     // UI settings
     bool showEncryptionInCredentials = true;
     std::string defaultUIMode = "auto";  // "cli", "gui", or "auto"
+    
+    // Update/Repository settings
+    std::string githubOwner = "nikitasmen";
+    std::string githubRepo = "password-manager-";
+    bool autoCheckUpdates = false;
+    int updateCheckIntervalDays = 7;
 };
 
 // Configuration manager class
@@ -76,6 +82,12 @@ public:
     const std::vector<int>& getLfsrTaps() const { return config_.lfsrTaps; }
     const std::vector<int>& getLfsrInitState() const { return config_.lfsrInitState; }
     
+    // Update/Repository settings
+    std::string getGithubOwner() const { return config_.githubOwner; }
+    std::string getGithubRepo() const { return config_.githubRepo; }
+    bool getAutoCheckUpdates() const { return config_.autoCheckUpdates; }
+    int getUpdateCheckIntervalDays() const { return config_.updateCheckIntervalDays; }
+    
     // Set specific config values
     void setVersion(const std::string& version);
     void setDataPath(const std::string& path);
@@ -100,6 +112,12 @@ public:
     void setLfsrTaps(const std::vector<int>& newTaps);
     void setLfsrInitState(const std::vector<int>& newInitState);
     bool updateLfsrSettings(const std::vector<int>& newTaps, const std::vector<int>& newInitState, const std::string& masterPassword);
+    
+    // Update/Repository settings
+    void setGithubOwner(const std::string& owner);
+    void setGithubRepo(const std::string& repo);
+    void setAutoCheckUpdates(bool enabled);
+    void setUpdateCheckIntervalDays(int days);
 
 private:
     ConfigManager() = default;
