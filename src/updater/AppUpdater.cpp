@@ -9,6 +9,14 @@
 #include <random>
 #include <chrono>
 
+#if __has_include(<filesystem>)
+#include <filesystem>
+namespace fs = std::filesystem;
+#else
+#include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
+#endif
+
 #ifdef _WIN32
     #include <windows.h>
     #include <wininet.h>
@@ -27,13 +35,24 @@ using json = nlohmann::json;
 // Helper functions for cross-platform temporary file handling
 namespace {
     std::string getSystemTempDirectory() {
+        try {
+            // Use standard filesystem temp directory
+            fs::path tempPath = fs::temp_directory_path();
+            return tempPath.string();
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error getting temp directory: " << e.what() << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Error getting temp directory: " << e.what() << std::endl;
+        }
+        
+        // Fallback to platform-specific implementations
 #ifdef _WIN32
         char tempPath[MAX_PATH];
         DWORD result = GetTempPathA(MAX_PATH, tempPath);
         if (result > 0 && result < MAX_PATH) {
             return std::string(tempPath);
         }
-        return "C:\\temp\\"; // Fallback
+        return "C:\\temp\\"; // Last resort fallback
 #else
         // Try environment variables first
         const char* tmpDir = std::getenv("TMPDIR");
@@ -45,7 +64,7 @@ namespace {
         tmpDir = std::getenv("TEMP");
         if (tmpDir) return std::string(tmpDir);
         
-        // Fallback to /tmp
+        // Last resort fallback
         return "/tmp/";
 #endif
     }
@@ -70,17 +89,28 @@ namespace {
         
         std::string uniqueDir = tempDir + prefix + "_" + generateUniqueId();
         
-#ifdef _WIN32
-        if (_mkdir(uniqueDir.c_str()) != 0) {
-#else
-        if (mkdir(uniqueDir.c_str(), 0755) != 0) {
-#endif
-            std::cerr << "Warning: Could not create temp directory: " << uniqueDir << std::endl;
-            // Try to use the system temp directory directly
-            return tempDir;
+        try {
+            fs::path dirPath(uniqueDir);
+            std::error_code ec;
+            
+            // Create directory with proper error handling
+            if (fs::create_directories(dirPath, ec)) {
+                return uniqueDir;
+            } else if (ec) {
+                std::cerr << "Warning: Could not create temp directory: " << uniqueDir 
+                          << " (Error: " << ec.message() << ")" << std::endl;
+            } else {
+                // Directory already exists, which is fine for our use case
+                return uniqueDir;
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error creating directory: " << e.what() << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Error creating directory: " << e.what() << std::endl;
         }
         
-        return uniqueDir;
+        // Fallback to system temp directory
+        return tempDir;
     }
     
     std::string createUniqueFilePath(const std::string& prefix, const std::string& extension = "") {
@@ -104,21 +134,29 @@ namespace {
             return;
         }
         
-#ifdef _WIN32
-        // Windows directory removal - more secure approach
-        std::string command = "rmdir /s /q \"" + dirPath + "\" 2>nul";
-        int result = system(command.c_str());
-        if (result != 0) {
-            std::cerr << "Warning: Failed to clean up directory: " << dirPath << std::endl;
+        try {
+            fs::path path(dirPath);
+            
+            // Additional security check - ensure path is absolute and within temp directory
+            if (!path.is_absolute()) {
+                std::cerr << "Error: Directory path must be absolute for cleanup" << std::endl;
+                return;
+            }
+            
+            // Check if directory exists before attempting removal
+            if (fs::exists(path) && fs::is_directory(path)) {
+                std::error_code ec;
+                fs::remove_all(path, ec);
+                if (ec) {
+                    std::cerr << "Warning: Failed to clean up directory: " << dirPath 
+                              << " (Error: " << ec.message() << ")" << std::endl;
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error during cleanup: " << e.what() << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Error during directory cleanup: " << e.what() << std::endl;
         }
-#else
-        // Unix directory removal - more secure approach
-        std::string command = "rm -rf \"" + dirPath + "\" 2>/dev/null";
-        int result = system(command.c_str());
-        if (result != 0) {
-            std::cerr << "Warning: Failed to clean up directory: " << dirPath << std::endl;
-        }
-#endif
     }
     
     bool copyFile(const std::string& source, const std::string& destination) {
@@ -130,34 +168,63 @@ namespace {
             return false;
         }
         
-#ifdef _WIN32
-        return CopyFileA(source.c_str(), destination.c_str(), FALSE) != 0;
-#else
-        std::ifstream src(source, std::ios::binary);
-        if (!src.is_open()) {
-            std::cerr << "Error: Cannot open source file: " << source << std::endl;
-            return false;
-        }
-        
-        std::ofstream dst(destination, std::ios::binary);
-        if (!dst.is_open()) {
-            std::cerr << "Error: Cannot create destination file: " << destination << std::endl;
-            return false;
-        }
-        
-        dst << src.rdbuf();
-        
-        bool success = src.good() && dst.good();
-        src.close();
-        dst.close();
-        
-        if (success) {
-            // Set executable permissions on Unix
-            chmod(destination.c_str(), 0755);
-        }
-        
-        return success;
+        try {
+            fs::path srcPath(source);
+            fs::path dstPath(destination);
+            
+            // Ensure source file exists and is a regular file
+            if (!fs::exists(srcPath)) {
+                std::cerr << "Error: Source file does not exist: " << source << std::endl;
+                return false;
+            }
+            
+            if (!fs::is_regular_file(srcPath)) {
+                std::cerr << "Error: Source is not a regular file: " << source << std::endl;
+                return false;
+            }
+            
+            // Create destination directory if it doesn't exist
+            fs::path dstDir = dstPath.parent_path();
+            if (!dstDir.empty() && !fs::exists(dstDir)) {
+                std::error_code ec;
+                fs::create_directories(dstDir, ec);
+                if (ec) {
+                    std::cerr << "Error: Cannot create destination directory: " << dstDir 
+                              << " (Error: " << ec.message() << ")" << std::endl;
+                    return false;
+                }
+            }
+            
+            // Copy file using filesystem API
+            std::error_code ec;
+            fs::copy_file(srcPath, dstPath, fs::copy_options::overwrite_existing, ec);
+            
+            if (ec) {
+                std::cerr << "Error: Failed to copy file from " << source << " to " << destination 
+                          << " (Error: " << ec.message() << ")" << std::endl;
+                return false;
+            }
+            
+#ifndef _WIN32
+            // Set executable permissions on Unix systems
+            fs::permissions(dstPath, fs::perms::owner_read | fs::perms::owner_write | fs::perms::owner_exec |
+                                     fs::perms::group_read | fs::perms::group_exec |
+                                     fs::perms::others_read | fs::perms::others_exec, ec);
+            if (ec) {
+                std::cerr << "Warning: Failed to set executable permissions: " << ec.message() << std::endl;
+                // Don't return false here as the copy was successful
+            }
 #endif
+            
+            return true;
+            
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error during file copy: " << e.what() << std::endl;
+            return false;
+        } catch (const std::exception& e) {
+            std::cerr << "Error during file copy: " << e.what() << std::endl;
+            return false;
+        }
     }
     
 #ifndef _WIN32
@@ -376,34 +443,8 @@ std::string AppUpdater::makeHttpRequest(const std::string& url) {
         curl_easy_cleanup(curl);
     }
     
-    // Fallback to system curl command
-    std::cout << "Falling back to system curl command..." << std::endl;
-    
-    // Create a unique temporary file for the response
-    std::string tempFile = createUniqueFilePath("pm_http_response", "tmp");
-    
-    // Build curl command
-    std::string command = "curl -s -L -A \"PasswordManager/1.0\" --connect-timeout 10 --max-time 30 \"" + url + "\" -o \"" + tempFile + "\"";
-    
-    // Execute curl command
-    int result = system(command.c_str());
-    
-    if (result == 0) {
-        // Read the response from temp file
-        std::ifstream responseFile(tempFile);
-        if (responseFile.is_open()) {
-            std::string response((std::istreambuf_iterator<char>(responseFile)),
-                               std::istreambuf_iterator<char>());
-            responseFile.close();
-            remove(tempFile.c_str()); // Clean up temp file
-            return response;
-        }
-    }
-    
-    // Clean up temp file in case of error
-    remove(tempFile.c_str());
-    
-    std::cerr << "Both libcurl and system curl failed" << std::endl;
+    // No fallback to system commands - security risk
+    std::cerr << "libcurl failed and no safe fallback available" << std::endl;
     return "";
 #endif
 }
@@ -442,7 +483,8 @@ bool AppUpdater::downloadFile(const std::string& url, const std::string& outputP
     fclose(file);
     
     if (res != CURLE_OK || responseCode != 200) {
-        remove(outputPath.c_str());
+        std::error_code ec;
+        fs::remove(outputPath, ec);
         return false;
     }
     
@@ -530,7 +572,8 @@ bool AppUpdater::installUpdate(const std::string& downloadedPath) {
         }
         
         // Clean up downloaded file
-        remove(downloadedPath.c_str());
+        std::error_code ec;
+        fs::remove(downloadedPath, ec);
         
         return true;
         
