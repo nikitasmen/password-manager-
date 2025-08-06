@@ -417,13 +417,29 @@ EncryptionType finalEncType = encryptionType.value_or(existingCredentialData->en
 auto credEncryptor = createCredentialEncryptor(finalEncType);
 auto encryptedPair = encryptCredentialPair(credEncryptor.get(), user, pass);
 
-        // Create updated credential data preserving existing keys
+        // Handle RSA key extraction for encryption type changes
+        std::optional<std::string> publicKey, privateKey;
+        if (finalEncType == EncryptionType::RSA) {
+            // If changing to RSA or already RSA, get keys from the encryptor
+            auto rsaEncryptor = dynamic_cast<RSAEncryption*>(credEncryptor.get());
+            if (!rsaEncryptor) {
+                throw std::runtime_error("Failed to cast to RSAEncryption for key retrieval.");
+            }
+            publicKey = rsaEncryptor->getPublicKey();
+            privateKey = rsaEncryptor->getEncryptedPrivateKeyData();
+        } else {
+            // For non-RSA encryption, preserve existing RSA keys if they exist
+            publicKey = existingCredentialData->rsa_public_key;
+            privateKey = existingCredentialData->rsa_private_key;
+        }
+
+        // Create updated credential data
         CredentialData credData = createCredentialData(
             finalEncType,
             encryptedPair.first,
             encryptedPair.second,
-            existingCredentialData->rsa_public_key,
-            existingCredentialData->rsa_private_key
+            publicKey,
+            privateKey
         );
 
         // Update the credentials using the dedicated update method
