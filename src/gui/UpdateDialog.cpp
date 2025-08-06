@@ -183,24 +183,33 @@ void UpdateDialog::onCheckForUpdates() {
     showCheckingState();
     
     updater->checkForUpdates([this](bool success, const std::string& message, const VersionInfo& versionInfo) {
+        // Create data structure to pass to main thread
+        struct CheckUpdateResult {
+            UpdateDialog* dialog;
+            bool success;
+            std::string message;
+            VersionInfo versionInfo;
+        };
+        
+        auto* result = new CheckUpdateResult{this, success, message, versionInfo};
+        
         // Schedule UI update on main thread
         Fl::awake([](void* data) {
-            auto* dialog = static_cast<UpdateDialog*>(data);
-            auto* args = static_cast<std::tuple<bool, std::string, VersionInfo>*>(data);
+            auto* result = static_cast<CheckUpdateResult*>(data);
+            UpdateDialog* dialog = result->dialog;
             
-            // This is a simplified approach - in a real implementation, 
-            // you'd need to properly pass the callback data
-        }, this);
-        
-        if (success) {
-            if (versionInfo.isNewerThan(VersionInfo::getCurrentVersion())) {
-                showUpdateAvailableState(versionInfo);
+            if (result->success) {
+                if (result->versionInfo.isNewerThan(VersionInfo::getCurrentVersion())) {
+                    dialog->showUpdateAvailableState(result->versionInfo);
+                } else {
+                    dialog->showNoUpdateState();
+                }
             } else {
-                showNoUpdateState();
+                dialog->showErrorState(result->message);
             }
-        } else {
-            showErrorState(message);
-        }
+            
+            delete result; // Clean up allocated memory
+        }, result);
     });
 }
 
@@ -215,34 +224,56 @@ void UpdateDialog::onDownloadUpdate() {
     updater->downloadUpdate(
         latestVersion,
         [this](int percentage, const std::string& status) {
+            // Create data structure to pass to main thread for progress updates
+            struct ProgressUpdate {
+                UpdateDialog* dialog;
+                int percentage;
+                std::string status;
+            };
+            
+            auto* update = new ProgressUpdate{this, percentage, status};
+            
             // Update progress bar on main thread
             Fl::awake([](void* data) {
-                auto* dialog = static_cast<UpdateDialog*>(data);
-                // In a real implementation, you'd properly handle the progress data
-            }, this);
-            
-            progressBar->value(percentage);
-            std::string progressText = status + " (" + std::to_string(percentage) + "%)";
-            statusLabel->copy_label(progressText.c_str());
-            window->redraw();
-            Fl::flush();
+                auto* update = static_cast<ProgressUpdate*>(data);
+                UpdateDialog* dialog = update->dialog;
+                
+                dialog->progressBar->value(update->percentage);
+                std::string progressText = update->status + " (" + std::to_string(update->percentage) + "%)";
+                dialog->statusLabel->copy_label(progressText.c_str());
+                dialog->window->redraw();
+                Fl::flush();
+                
+                delete update; // Clean up allocated memory
+            }, update);
         },
         [this](bool success, const std::string& message) {
+            // Create data structure to pass to main thread for completion
+            struct CompletionResult {
+                UpdateDialog* dialog;
+                bool success;
+                std::string message;
+            };
+            
+            auto* result = new CompletionResult{this, success, message};
+            
             // Handle completion on main thread
             Fl::awake([](void* data) {
-                auto* dialog = static_cast<UpdateDialog*>(data);
-                // In a real implementation, you'd properly handle the completion data
-            }, this);
-            
-            showCompletedState(success, message);
-            
-            if (success) {
-                // Show restart prompt
-                if (fl_choice("Update installed successfully!\n\nWould you like to restart the application now?", 
-                            "Later", "Restart Now", nullptr) == 1) {
-                    exit(0); // Simple restart - could be enhanced
+                auto* result = static_cast<CompletionResult*>(data);
+                UpdateDialog* dialog = result->dialog;
+                
+                dialog->showCompletedState(result->success, result->message);
+                
+                if (result->success) {
+                    // Show restart prompt
+                    if (fl_choice("Update installed successfully!\n\nWould you like to restart the application now?", 
+                                "Later", "Restart Now", nullptr) == 1) {
+                        exit(0); // Simple restart - could be enhanced
+                    }
                 }
-            }
+                
+                delete result; // Clean up allocated memory
+            }, result);
         }
     );
 }
