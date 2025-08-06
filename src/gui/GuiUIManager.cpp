@@ -380,39 +380,42 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         ss << "Username: " << credentials->username << "\n";
         ss << "Password: " << credentials->password << "\n";
         
-        // Add buttons
-        int buttonY = 160;
-        int buttonWidth = 120;
+        // Button layout configuration
+        int buttonStartY = 160;
+        int buttonWidth = 100;
+        int buttonHeight = 30;
         int buttonSpacing = 10;
+        int currentButtonX = 20;
         
         // Add Copy Password button if clipboard is available
         if (ClipboardManager::getInstance().isAvailable()) {
             // Store password for clipboard operation
             std::string password = credentials->password;
 
-        // Add Copy Password button component
-        auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), 70, 160, 120, 30, "Copy Password",
-            [password]() {
-                try {
-                    if (ClipboardManager::getInstance().isAvailable()) {
-                        ClipboardManager::getInstance().copyToClipboard(password);
-                        fl_message("Password copied to clipboard!");
-                    } else {
-                        fl_alert("Clipboard functionality not available on this system.");
+            // Add Copy Password button component
+            auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
+                viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Copy Password",
+                [password]() {
+                    try {
+                        if (ClipboardManager::getInstance().isAvailable()) {
+                            ClipboardManager::getInstance().copyToClipboard(password);
+                            fl_message("Password copied to clipboard!");
+                        } else {
+                            fl_alert("Clipboard functionality not available on this system.");
+                        }
+                    } catch (const ClipboardError& e) {
+                        fl_alert("Failed to copy password to clipboard: %s", e.what());
                     }
-                } catch (const ClipboardError& e) {
-                    fl_alert("Failed to copy password to clipboard: %s", e.what());
                 }
-            }
-        );
+            );
+            currentButtonX += buttonWidth + buttonSpacing;
         } else {
             ss << "\nClipboard functionality not available on this system";
         }
         
         // Add Edit button that will open the EditCredentialDialog
         auto editButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), 150, buttonY, buttonWidth, 30, "Edit Credentials",
+            viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Edit Credentials",
             [this, platform = platform, username = credentials->username]() {
                 try {
                     // Use the existing logged-in credential manager
@@ -451,9 +454,9 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         );
 
         // Add close button component
-        int closeButtonY = credentials ? 160 : 100; // Adjust Y position based on content
+        currentButtonX += buttonWidth + buttonSpacing; // Move to next position
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), 150, closeButtonY, 100, 30, "Close",
+            viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Close",
             [this]() {
                 cleanupViewCredentialDialog();
             }
@@ -514,7 +517,8 @@ void GuiUIManager::cleanupViewCredentialDialog() {
 
 bool GuiUIManager::updateCredential(const std::string& platform, 
                                   const std::string& username,
-                                  const std::string& password) {
+                                  const std::string& password,
+                                  std::optional<EncryptionType> encryptionType) {
     try {
         // Input validation
         if (platform.empty() || username.empty() || password.empty()) {
@@ -542,8 +546,8 @@ bool GuiUIManager::updateCredential(const std::string& platform,
             return true;
         }
 
-        // Use the new CredentialsManager::updateCredentials method
-        if (!tempCredManager->updateCredentials(platform, username, password)) {
+        // Use the new CredentialsManager::updateCredentials method with optional encryption type
+        if (!tempCredManager->updateCredentials(platform, username, password, encryptionType)) {
             showMessage("Error", "Failed to update credentials", true);
             return false;
         }

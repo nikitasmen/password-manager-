@@ -1,4 +1,5 @@
 #include "./encryption.h"
+#include "./EncryptionParamsBuilder.h"
 #include "../crypto/encryption_factory.h"
 #include "../crypto/aes_encryption.h"
 #include "../crypto/lfsr_encryption.h"
@@ -31,9 +32,7 @@ Encryption::Encryption(EncryptionType algorithm,
 }
 
 void Encryption::updateEncryptor() {
-    EncryptionConfigParameters params;
-    params.type = algorithm_;
-    params.masterPassword = masterPassword_;
+    auto params = EncryptionParamsBuilder::create(algorithm_, masterPassword_);
     params.lfsrTaps = taps_;
     params.lfsrInitState = initialState_;
     
