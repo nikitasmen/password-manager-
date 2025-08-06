@@ -4,6 +4,15 @@
 #include <iostream>
 #include <sstream>
 
+UpdateDialog::UpdateDialog()
+    : statusLabel(nullptr), versionLabel(nullptr), releaseNotesDisplay(nullptr), 
+      releaseNotesBuffer(nullptr), progressBar(nullptr), checkButton(nullptr), 
+      downloadButton(nullptr), closeButton(nullptr), updateAvailable(false) {
+    
+    updater = std::make_unique<AppUpdater>();
+    setupUI();
+}
+
 UpdateDialog::UpdateDialog(const std::string& githubOwner, const std::string& githubRepo)
     : statusLabel(nullptr), versionLabel(nullptr), releaseNotesDisplay(nullptr), 
       releaseNotesBuffer(nullptr), progressBar(nullptr), checkButton(nullptr), 

@@ -18,9 +18,16 @@
 class UpdateDialog {
 public:
     /**
-     * @brief Constructor
+     * @brief Default constructor using configuration system
+     * Gets GitHub repository information from config file
+     */
+    UpdateDialog();
+    
+    /**
+     * @brief Constructor with explicit repository information
      * @param githubOwner GitHub repository owner
      * @param githubRepo GitHub repository name
+     * @deprecated Use default constructor instead for configuration-based setup
      */
     UpdateDialog(const std::string& githubOwner, const std::string& githubRepo);
     
