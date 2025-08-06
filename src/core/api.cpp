@@ -1,4 +1,5 @@
 #include "./api.h"
+#include "./EncryptionParamsBuilder.h"
 
 #include "../config/GlobalConfig.h"
 #include "../crypto/lfsr_encryption.h"
@@ -28,11 +29,7 @@ void CredentialsManager::createEncryptor(EncryptionType type, const std::string&
     lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
     lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
 
-    EncryptionConfigParameters params;
-    params.type = type;
-    params.masterPassword = password;
-    params.lfsrTaps = lfsrTaps;
-    params.lfsrInitState = lfsrInitState;
+    auto params = EncryptionParamsBuilder::create(type, password);
     encryptor = EncryptionFactory::create(params);
 }
 
@@ -64,28 +61,38 @@ std::unique_ptr<IEncryption> CredentialsManager::createCredentialEncryptor(const
 std::unique_ptr<IEncryption> CredentialsManager::createCredentialEncryptor(EncryptionType type,
                                                                          const std::optional<std::string>& publicKey,
                                                                          const std::optional<std::string>& privateKey) const {
-    EncryptionConfigParameters params;
-    params.type = type;
-    params.masterPassword = currentMasterPassword;
-    params.lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
-    params.lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
-
+    std::unique_ptr<IEncryption> encryptor;
+    
     if (type == EncryptionType::RSA) {
-        // For RSA, keys are optional - if not provided, new keys will be generated
-        if (publicKey.has_value() && privateKey.has_value()) {
-            params.publicKey = publicKey.value();
-            params.privateKey = privateKey.value();
-        }
-        // If keys are not provided, the factory will generate new ones
+        auto params = EncryptionParamsBuilder::createRSA(
+            currentMasterPassword, 
+            publicKey.value_or(""), 
+            privateKey.value_or("")
+        );
+        encryptor = EncryptionFactory::create(params);
+    } else {
+        auto params = EncryptionParamsBuilder::create(type, currentMasterPassword);
+        encryptor = EncryptionFactory::create(params);
     }
 
-    auto encryptor = EncryptionFactory::create(params);
     if (!encryptor) {
         throw std::runtime_error("Failed to create encryptor for type: " + std::to_string(static_cast<int>(type)));
     }
 
     encryptor->setMasterPassword(currentMasterPassword);
     return encryptor;
+}
+
+std::pair<std::optional<std::string>, std::optional<std::string>> CredentialsManager::extractRSAKeys(IEncryption* encryptor) const {
+    auto rsaEncryptor = dynamic_cast<RSAEncryption*>(encryptor);
+    if (!rsaEncryptor) {
+        throw std::runtime_error("Failed to cast to RSAEncryption for key retrieval.");
+    }
+    
+    return {
+        rsaEncryptor->getPublicKey(),
+        rsaEncryptor->getEncryptedPrivateKeyData()
+    };
 }
 
 std::pair<std::string, std::string> CredentialsManager::encryptCredentialPair(IEncryption* encryptor,
@@ -173,12 +180,8 @@ bool CredentialsManager::login(const std::string& password) {
             // For LFSR, we must create the encryptor with the salt
             tempEncryptor = std::make_unique<LFSREncryption>(configTaps, configInitState, salt);
         } else {
-            // For other types, the factory is sufficient
-            EncryptionConfigParameters params;
-            params.type = masterEncType;
-            params.masterPassword = password;
-            params.lfsrTaps = configTaps;
-            params.lfsrInitState = configInitState;
+            // For other types, use the builder
+            auto params = EncryptionParamsBuilder::create(masterEncType, password);
             tempEncryptor = EncryptionFactory::create(params);
         }
 
@@ -234,12 +237,8 @@ bool CredentialsManager::updatePassword(const std::string& newPassword) {
                 configTaps, configInitState, saltStr);
             masterEncryptor->setMasterPassword(newPassword);
         } else {
-            // For other encryption types, use the factory
-            EncryptionConfigParameters params;
-            params.type = masterEncType;
-            params.masterPassword = newPassword;
-            params.lfsrTaps = configTaps;
-            params.lfsrInitState = configInitState;
+            // For other encryption types, use the builder
+            auto params = EncryptionParamsBuilder::create(masterEncType, newPassword);
             masterEncryptor = EncryptionFactory::create(params);
         }
         
@@ -280,12 +279,9 @@ bool CredentialsManager::addCredentials(const std::string& platform, const std::
         // Handle RSA key extraction
         std::optional<std::string> publicKey, privateKey;
         if (credEncType == EncryptionType::RSA) {
-            auto rsaEncryptor = dynamic_cast<RSAEncryption*>(credEncryptor.get());
-            if (!rsaEncryptor) {
-                throw std::runtime_error("Failed to cast to RSAEncryption for key retrieval.");
-            }
-            publicKey = rsaEncryptor->getPublicKey();
-            privateKey = rsaEncryptor->getEncryptedPrivateKeyData();
+            auto keys = extractRSAKeys(credEncryptor.get());
+            publicKey = keys.first;
+            privateKey = keys.second;
         }
 
         // Create credential data and store
@@ -421,12 +417,9 @@ auto encryptedPair = encryptCredentialPair(credEncryptor.get(), user, pass);
         std::optional<std::string> publicKey, privateKey;
         if (finalEncType == EncryptionType::RSA) {
             // If changing to RSA or already RSA, get keys from the encryptor
-            auto rsaEncryptor = dynamic_cast<RSAEncryption*>(credEncryptor.get());
-            if (!rsaEncryptor) {
-                throw std::runtime_error("Failed to cast to RSAEncryption for key retrieval.");
-            }
-            publicKey = rsaEncryptor->getPublicKey();
-            privateKey = rsaEncryptor->getEncryptedPrivateKeyData();
+            auto keys = extractRSAKeys(credEncryptor.get());
+            publicKey = keys.first;
+            privateKey = keys.second;
         } else {
             // For non-RSA encryption, preserve existing RSA keys if they exist
             publicKey = existingCredentialData->rsa_public_key;

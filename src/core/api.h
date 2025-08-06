@@ -45,6 +45,9 @@ private:
                                        const std::string& encryptedPass,
                                        const std::optional<std::string>& publicKey = std::nullopt,
                                        const std::optional<std::string>& privateKey = std::nullopt) const;
+    
+    // Helper method to extract RSA keys from encryptor
+    std::pair<std::optional<std::string>, std::optional<std::string>> extractRSAKeys(IEncryption* encryptor) const;
 
 public:
     /**
