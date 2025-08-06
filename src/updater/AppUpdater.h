@@ -39,9 +39,16 @@ public:
     using CompletionCallback = std::function<void(bool success, const std::string& message)>;
     
     /**
-     * @brief Constructor
+     * @brief Default constructor using configuration system
+     * Gets GitHub repository information from config file
+     */
+    AppUpdater();
+    
+    /**
+     * @brief Constructor with explicit repository information
      * @param owner GitHub repository owner (e.g., "username")
      * @param repo GitHub repository name (e.g., "password-manager")
+     * @deprecated Use default constructor instead for configuration-based setup
      */
     AppUpdater(const std::string& owner, const std::string& repo);
     

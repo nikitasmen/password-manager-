@@ -312,6 +312,20 @@ std::string VersionInfo::getCurrentVersion() {
     return config.getVersion();
 }
 
+AppUpdater::AppUpdater() {
+    // Load repository information from configuration
+    ConfigManager& config = ConfigManager::getInstance();
+    config.loadConfig();
+    
+    githubOwner = config.getGithubOwner();
+    githubRepo = config.getGithubRepo();
+    
+#ifndef _WIN32
+    // Initialize libcurl
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+#endif
+}
+
 AppUpdater::AppUpdater(const std::string& owner, const std::string& repo)
     : githubOwner(owner), githubRepo(repo) {
 #ifndef _WIN32
