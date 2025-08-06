@@ -19,7 +19,7 @@ GuiUIManager::GuiUIManager(const std::string& dataPath)
       platformsDisplay(nullptr), clickablePlatformsDisplay(nullptr), 
       credentialInputs(nullptr) {
     // Initialize update dialog (GitHub repository info should be configured here)
-    updateDialog = std::make_unique<UpdateDialog>("nikitasmen", "password-manager-");
+    updateDialog = std::make_unique<UpdateDialog>();
 }
 
 GuiUIManager::~GuiUIManager() {
