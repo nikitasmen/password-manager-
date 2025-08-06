@@ -100,6 +100,12 @@ private:
      * @return true if installation succeeded
      */
     bool installUpdate(const std::string& downloadedPath);
+    
+    /**
+     * @brief Update version in configuration file
+     * @param newVersion New version to set
+     */
+    void updateVersionInConfig(const std::string& newVersion);
 };
 
 #endif // APP_UPDATER_H

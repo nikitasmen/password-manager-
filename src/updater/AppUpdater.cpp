@@ -1,4 +1,5 @@
 #include "AppUpdater.h"
+#include "../config/GlobalConfig.h"
 #include "../include/nlohmann/json.hpp"
 #include <iostream>
 #include <fstream>
@@ -18,9 +19,6 @@
     #include <sys/stat.h>
     #define PATH_SEPARATOR "/"
 #endif
-
-// Current version - this should match your release version
-#define APP_VERSION "v1.6.0"
 
 using json = nlohmann::json;
 
@@ -50,18 +48,32 @@ static int CurlProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dl
 #endif
 
 bool VersionInfo::isNewerThan(const std::string& other) const {
-    // Simple version comparison - assumes semantic versioning (v1.2.3)
+    // Enhanced version comparison - handles v1.2.3, v1.2, and v1 formats
     auto parseVersion = [](const std::string& v) -> std::tuple<int, int, int> {
         std::string cleanVersion = v;
         if (cleanVersion.length() > 0 && cleanVersion[0] == 'v') {
             cleanVersion = cleanVersion.substr(1);
         }
         
-        std::regex versionRegex(R"((\d+)\.(\d+)\.(\d+))");
+        // First try full semantic versioning (v1.2.3)
+        std::regex fullVersionRegex(R"((\d+)\.(\d+)\.(\d+))");
         std::smatch match;
-        if (std::regex_match(cleanVersion, match, versionRegex)) {
+        if (std::regex_match(cleanVersion, match, fullVersionRegex)) {
             return {std::stoi(match[1]), std::stoi(match[2]), std::stoi(match[3])};
         }
+        
+        // Try two-part versioning (v1.2)
+        std::regex shortVersionRegex(R"((\d+)\.(\d+))");
+        if (std::regex_match(cleanVersion, match, shortVersionRegex)) {
+            return {std::stoi(match[1]), std::stoi(match[2]), 0};
+        }
+        
+        // Try single number (v1)
+        std::regex singleVersionRegex(R"((\d+))");
+        if (std::regex_match(cleanVersion, match, singleVersionRegex)) {
+            return {std::stoi(match[1]), 0, 0};
+        }
+        
         return {0, 0, 0};
     };
     
@@ -74,7 +86,9 @@ bool VersionInfo::isNewerThan(const std::string& other) const {
 }
 
 std::string VersionInfo::getCurrentVersion() {
-    return APP_VERSION;
+    ConfigManager& config = ConfigManager::getInstance();
+    config.loadConfig();
+    return config.getVersion();
 }
 
 AppUpdater::AppUpdater(const std::string& owner, const std::string& repo)
@@ -137,6 +151,8 @@ void AppUpdater::downloadUpdate(const VersionInfo& versionInfo,
             progressCallback(100, "Download complete. Installing...");
             
             if (installUpdate(downloadPath)) {
+                // Update version in config file
+                updateVersionInConfig(versionInfo.version);
                 completionCallback(true, "Update installed successfully! Please restart the application.");
             } else {
                 completionCallback(false, "Failed to install update. Please install manually.");
@@ -388,4 +404,9 @@ bool AppUpdater::installUpdate(const std::string& downloadedPath) {
         std::cerr << "Error installing update: " << e.what() << std::endl;
         return false;
     }
+}
+
+void AppUpdater::updateVersionInConfig(const std::string& newVersion) {
+    ConfigManager& config = ConfigManager::getInstance();
+    config.setVersion(newVersion);
 }
