@@ -125,38 +125,6 @@ function(create_password_manager_executable target_name ui_sources main_file ui_
     endif()
 endfunction()
 
-function(create_password_manager_executable target_name ui_sources main_file ui_type extra_libs)
-    add_executable(${target_name} ${CORE_SOURCES} ${ui_sources} ${main_file})
-    target_compile_definitions(${target_name} PRIVATE ${ui_type})
-    
-    if(extra_libs)
-        target_link_libraries(${target_name} PRIVATE ${extra_libs})
-    endif()
-    
-    # Pass UI-specific include directory if it's GUI
-    if(ui_type STREQUAL "ENABLE_GUI")
-        link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
-    else()
-        link_common(${target_name})
-    endif()
-endfunction()
-
-function(create_password_manager_executable target_name ui_sources main_file ui_type extra_libs)
-    add_executable(${target_name} ${CORE_SOURCES} ${ui_sources} ${main_file})
-    target_compile_definitions(${target_name} PRIVATE ${ui_type})
-    
-    if(extra_libs)
-        target_link_libraries(${target_name} PRIVATE ${extra_libs})
-    endif()
-    
-    # Pass UI-specific include directory if it's GUI
-    if(ui_type STREQUAL "ENABLE_GUI")
-        link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
-    else()
-        link_common(${target_name})
-    endif()
-endfunction()
-
 # --- Main executables with UI abstraction ---
 
 # CLI application
