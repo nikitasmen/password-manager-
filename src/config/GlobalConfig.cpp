@@ -39,7 +39,9 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         std::string value = line.substr(equalPos + 1);
         
         // Apply configuration values
-        if (key == "dataPath") {
+        if (key == "version") {
+            config_.version = value;
+        } else if (key == "dataPath") {
             config_.dataPath = value;
         } else if (key == "defaultEncryption") {
             config_.defaultEncryption = parseEncryptionType(value);
@@ -112,6 +114,9 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
     file << "# Password Manager Configuration File\n";
     file << "# This file contains application settings and preferences\n\n";
     
+    file << "# Application Version\n";
+    file << "version=" << config_.version << "\n\n";
+    
     file << "# Core Settings\n";
     file << "dataPath=" << config_.dataPath << "\n";
     file << "defaultEncryption=" << encryptionTypeToString(config_.defaultEncryption) << "\n";
@@ -145,6 +150,11 @@ void ConfigManager::updateConfig(const AppConfig& newConfig) {
     // taps = config_.lfsrTaps;
     // init_state = config_.lfsrInitState;
     // g_encryption_type = config_.defaultEncryption;
+}
+
+void ConfigManager::setVersion(const std::string& version) {
+    config_.version = version;
+    saveConfig();
 }
 
 void ConfigManager::setDataPath(const std::string& path) {

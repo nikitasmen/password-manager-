@@ -19,6 +19,9 @@ enum class EncryptionType {
 
 // Configuration structure for file-based settings
 struct AppConfig {
+    // Application version
+    std::string version = "v1.7.0";
+    
     // Core settings
     std::string dataPath = "./data";
     EncryptionType defaultEncryption = EncryptionType::AES;
@@ -59,6 +62,7 @@ public:
     void updateConfig(const AppConfig& newConfig);
     
     // Get specific config values
+    std::string getVersion() const { return config_.version; }
     std::string getDataPath() const { return config_.dataPath; }
     EncryptionType getDefaultEncryption() const { return config_.defaultEncryption; }
     bool isAutoClipboardClearEnabled() const { return config_.autoClipboardClear; }
@@ -73,6 +77,7 @@ public:
     const std::vector<int>& getLfsrInitState() const { return config_.lfsrInitState; }
     
     // Set specific config values
+    void setVersion(const std::string& version);
     void setDataPath(const std::string& path);
     // Set default encryption and migrate master password if needed
     // Deprecated: Use the new method that accepts LFSR settings
