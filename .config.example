@@ -21,3 +21,9 @@ lfsrInitState=1,0,1
 # UI Settings
 showEncryptionInCredentials=true
 defaultUIMode=auto
+
+# Update/Repository Settings
+githubOwner=nikitasmen
+githubRepo=password-manager-
+autoCheckUpdates=false
+updateCheckIntervalDays=7

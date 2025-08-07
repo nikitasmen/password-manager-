@@ -26,6 +26,17 @@ find_package(FLTK REQUIRED)
 # --- Find OpenSSL for AES encryption ---
 find_package(OpenSSL REQUIRED)
 
+# --- Find CURL for HTTP requests (used by updater) ---
+if(NOT WIN32)
+    find_package(CURL REQUIRED)
+    if(CURL_FOUND)
+        message(STATUS "Found CURL: ${CURL_LIBRARIES}")
+        message(STATUS "CURL include directories: ${CURL_INCLUDE_DIRS}")
+    else()
+        message(FATAL_ERROR "CURL not found but required for updater functionality")
+    endif()
+endif()
+
 # --- Source files ---
 set(CORE_SOURCES
     src/core/api.cpp
@@ -53,6 +64,8 @@ set(CLI_SOURCES
 
 set(GUI_SOURCES
     src/gui/GuiUIManager.cpp
+    src/gui/UpdateDialog.cpp
+    src/updater/AppUpdater.cpp
 )
 
 # --- Filesystem library ---
@@ -71,6 +84,7 @@ function(link_common target)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto 
         ${CMAKE_CURRENT_SOURCE_DIR}/src/config 
         ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/updater
         ${JSON_INCLUDE_DIR}
         ${OPENSSL_INCLUDE_DIR}
         ${FLTK_INCLUDE_DIR}
@@ -82,6 +96,12 @@ function(link_common target)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()
     target_link_libraries(${target} PRIVATE ${OPENSSL_LIBRARIES})
+    
+    # Link CURL on Unix systems
+    if(NOT WIN32 AND CURL_FOUND)
+        target_link_libraries(${target} PRIVATE ${CURL_LIBRARIES})
+        target_include_directories(${target} PRIVATE ${CURL_INCLUDE_DIRS})
+    endif()
 endfunction()
 
 function(create_password_manager_executable target_name ui_sources main_file ui_type extra_libs)
@@ -90,6 +110,11 @@ function(create_password_manager_executable target_name ui_sources main_file ui_
     
     if(extra_libs)
         target_link_libraries(${target_name} PRIVATE ${extra_libs})
+    endif()
+    
+    # Add Windows-specific libraries for updater
+    if(WIN32)
+        target_link_libraries(${target_name} PRIVATE wininet urlmon)
     endif()
     
     # Pass UI-specific include directory if it's GUI

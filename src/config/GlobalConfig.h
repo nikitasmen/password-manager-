@@ -19,6 +19,9 @@ enum class EncryptionType {
 
 // Configuration structure for file-based settings
 struct AppConfig {
+    // Application version
+    std::string version = "v1.7.0";
+    
     // Core settings
     std::string dataPath = "./data";
     EncryptionType defaultEncryption = EncryptionType::AES;
@@ -39,6 +42,12 @@ struct AppConfig {
     // UI settings
     bool showEncryptionInCredentials = true;
     std::string defaultUIMode = "auto";  // "cli", "gui", or "auto"
+    
+    // Update/Repository settings
+    std::string githubOwner = "nikitasmen";
+    std::string githubRepo = "password-manager-";
+    bool autoCheckUpdates = false;
+    int updateCheckIntervalDays = 7;
 };
 
 // Configuration manager class
@@ -59,6 +68,7 @@ public:
     void updateConfig(const AppConfig& newConfig);
     
     // Get specific config values
+    std::string getVersion() const { return config_.version; }
     std::string getDataPath() const { return config_.dataPath; }
     EncryptionType getDefaultEncryption() const { return config_.defaultEncryption; }
     bool isAutoClipboardClearEnabled() const { return config_.autoClipboardClear; }
@@ -72,7 +82,14 @@ public:
     const std::vector<int>& getLfsrTaps() const { return config_.lfsrTaps; }
     const std::vector<int>& getLfsrInitState() const { return config_.lfsrInitState; }
     
+    // Update/Repository settings
+    std::string getGithubOwner() const { return config_.githubOwner; }
+    std::string getGithubRepo() const { return config_.githubRepo; }
+    bool getAutoCheckUpdates() const { return config_.autoCheckUpdates; }
+    int getUpdateCheckIntervalDays() const { return config_.updateCheckIntervalDays; }
+    
     // Set specific config values
+    void setVersion(const std::string& version);
     void setDataPath(const std::string& path);
     // Set default encryption and migrate master password if needed
     // Deprecated: Use the new method that accepts LFSR settings
@@ -95,6 +112,12 @@ public:
     void setLfsrTaps(const std::vector<int>& newTaps);
     void setLfsrInitState(const std::vector<int>& newInitState);
     bool updateLfsrSettings(const std::vector<int>& newTaps, const std::vector<int>& newInitState, const std::string& masterPassword);
+    
+    // Update/Repository settings
+    void setGithubOwner(const std::string& owner);
+    void setGithubRepo(const std::string& repo);
+    void setAutoCheckUpdates(bool enabled);
+    void setUpdateCheckIntervalDays(int days);
 
 private:
     ConfigManager() = default;

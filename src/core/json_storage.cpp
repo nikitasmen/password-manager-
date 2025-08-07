@@ -1,18 +1,13 @@
 #include "json_storage.h"
+#include "../utils/filesystem_utils.h"
+#include "../utils/error_utils.h"
+#include "../utils/backup_utils.h"
 #include <fstream>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
-
-#if __has_include(<filesystem>)
-#include <filesystem>
-namespace fs = std::filesystem;
-#else
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
-#endif
 
 // SafeFileHandler implementation
 JsonStorage::SafeFileHandler::SafeFileHandler(const std::string& filename, std::ios::openmode mode) 
@@ -85,49 +80,15 @@ JsonStorage::~JsonStorage() {
 }
 
 bool JsonStorage::ensureDataPathExists() const {
-    try {
-        fs::path dir(dataPath);
-        if (!fs::exists(dir)) {
-            return fs::create_directories(dir);
-        }
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating directory: " << e.what() << std::endl;
-        return false;
-    }
+    return FilesystemUtils::createDirectories(dataPath);
+}
+bool JsonStorage::removeBackupStorageFile() const {
+    std::string backupPath = storageFile + ".backup";
+    return BackupUtils::removeBackup(backupPath);
 }
 
 bool JsonStorage::backupStorageFile() const {
-    try {
-        // Skip if file doesn't exist
-        if (!fs::exists(storageFile)) {
-            return true;
-        }
-        
-        // Create timestamp for backup name
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        std::stringstream ss;
-        ss << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
-        
-        // Create backup name with timestamp
-        std::string baseBackupName = storageFile + ".backup." + ss.str();
-        std::string backupName = baseBackupName;
-        
-        // Handle duplicate backup names by adding an index
-        int index = 1;
-        while (fs::exists(backupName)) {
-            backupName = baseBackupName + "_" + std::to_string(index);
-            index++;
-        }
-        
-        // Copy the file
-        fs::copy_file(storageFile, backupName);
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating backup: " << e.what() << std::endl;
-        return false;
-    }
+    return BackupUtils::createBackup(storageFile);
 }
 
 bool JsonStorage::loadData() {
@@ -208,6 +169,7 @@ bool JsonStorage::saveData() {
             }
             
             modified = false; // Reset the modified flag only after successful write
+            removeBackupStorageFile(); // Clean up backup after successful save
             return true;
         } catch (const std::exception& e) {
             std::cerr << "Error writing JSON data: " << e.what() << std::endl;

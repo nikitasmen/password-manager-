@@ -1,9 +1,11 @@
 #include "GuiUIManager.h"
 #include "GuiComponents.h"
 #include "EditCredentialDialog.h"
+#include "UpdateDialog.h"
 #include "../core/api.h"
 #include "../core/clipboard.h"
 #include "../config/GlobalConfig.h"
+#include "../updater/AppUpdater.h"
 #include <FL/fl_ask.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Secret_Input.H>  // Add this for password input
@@ -16,6 +18,8 @@ GuiUIManager::GuiUIManager(const std::string& dataPath)
       loginForm(nullptr), passwordSetup(nullptr), 
       platformsDisplay(nullptr), clickablePlatformsDisplay(nullptr), 
       credentialInputs(nullptr) {
+    // Initialize update dialog (GitHub repository info should be configured here)
+    updateDialog = std::make_unique<UpdateDialog>();
 }
 
 GuiUIManager::~GuiUIManager() {
@@ -247,6 +251,7 @@ void GuiUIManager::createMainScreen() {
                 mainWindow.get(), 0, 0, 600, 30,
                 [this]() { createAddCredentialDialog(); },
                 [this]() { openSettingsDialog(); },
+                [this]() { openUpdateDialog(); },
                 []() { 
                     if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
                         exit(0);
@@ -254,9 +259,10 @@ void GuiUIManager::createMainScreen() {
                 },
                 []() {
                     fl_message_title("About");
-                    fl_message("Password Manager v1.5\n"
-                               "A secure, lightweight password management tool\n"
-                               "2025 - nikitasmen");
+                    std::string aboutMessage = "Password Manager " + VersionInfo::getCurrentVersion() + "\n"
+                                              "A secure, lightweight password management tool\n"
+                                              "2025 - nikitasmen";
+                    fl_message("%s", aboutMessage.c_str());
                 }
             );
 
@@ -623,6 +629,12 @@ void GuiUIManager::openSettingsDialog() {
     ConfigManager::getInstance().loadConfig(".config");
     createSettingsDialog();
     settingsWindow->show();
+}
+
+void GuiUIManager::openUpdateDialog() {
+    if (updateDialog) {
+        updateDialog->show();
+    }
 }
 
 void GuiUIManager::createSettingsDialog() {
