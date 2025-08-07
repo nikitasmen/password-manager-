@@ -581,13 +581,40 @@ bool AppUpdater::installUpdate(const std::string& downloadedPath) {
         
         // Replace current executable with downloaded one
         if (!copyFile(downloadedPath, currentPath)) {
-            std::cerr << "Failed to replace executable" << std::endl;
+            std::cerr << "Failed to replace executable, attempting rollback..." << std::endl;
+            
+            // Rollback: restore from backup if replacement failed
+            std::error_code rollbackEc;
+            if (fs::exists(backupPath)) {
+                if (copyFile(backupPath, currentPath)) {
+                    std::cerr << "Rollback successful - original executable restored" << std::endl;
+                } else {
+                    std::cerr << "Critical error: Both update and rollback failed!" << std::endl;
+                }
+                // Clean up backup file after rollback attempt
+                fs::remove(backupPath, rollbackEc);
+            }
             return false;
         }
         
-        // Clean up downloaded file
+        // Update was successful, clean up temporary files
         std::error_code ec;
+        
+        // Clean up downloaded file
         fs::remove(downloadedPath, ec);
+        if (ec) {
+            std::cerr << "Warning: Failed to remove downloaded file: " << downloadedPath 
+                      << " (Error: " << ec.message() << ")" << std::endl;
+        }
+        
+        // Clean up backup file after successful update
+        fs::remove(backupPath, ec);
+        if (ec) {
+            std::cerr << "Warning: Failed to remove backup file: " << backupPath 
+                      << " (Error: " << ec.message() << ")" << std::endl;
+        } else {
+            std::cout << "Update completed successfully, backup file removed" << std::endl;
+        }
         
         return true;
         
@@ -600,4 +627,57 @@ bool AppUpdater::installUpdate(const std::string& downloadedPath) {
 void AppUpdater::updateVersionInConfig(const std::string& newVersion) {
     ConfigManager& config = ConfigManager::getInstance();
     config.setVersion(newVersion);
+}
+
+bool AppUpdater::cleanupOrphanedBackups() {
+    try {
+        // Get current executable path
+        std::string currentPath;
+        
+#ifdef _WIN32
+        char buffer[MAX_PATH];
+        GetModuleFileNameA(nullptr, buffer, MAX_PATH);
+        currentPath = buffer;
+#else
+        char buffer[1024];
+        ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+        if (len != -1) {
+            buffer[len] = '\0';
+            currentPath = buffer;
+        } else {
+            // For macOS, we might not be able to determine the path this way
+            std::cerr << "Could not determine executable path for backup cleanup on macOS" << std::endl;
+            return false;
+        }
+#endif
+        
+        if (currentPath.empty()) {
+            std::cerr << "Could not determine current executable path for backup cleanup" << std::endl;
+            return false;
+        }
+        
+        // Check for backup files that might exist
+        std::string backupPath = currentPath + ".backup";
+        std::error_code ec;
+        
+        if (fs::exists(backupPath)) {
+            std::cout << "Found orphaned backup file: " << backupPath << std::endl;
+            
+            // Remove the orphaned backup
+            fs::remove(backupPath, ec);
+            if (ec) {
+                std::cerr << "Failed to remove orphaned backup file: " << backupPath 
+                          << " (Error: " << ec.message() << ")" << std::endl;
+                return false;
+            } else {
+                std::cout << "Successfully removed orphaned backup file" << std::endl;
+            }
+        }
+        
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error during backup cleanup: " << e.what() << std::endl;
+        return false;
+    }
 }
