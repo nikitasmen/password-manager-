@@ -56,6 +56,9 @@ set(CORE_SOURCES
     src/crypto/rsa_encryption.cpp
     src/crypto/cipher_context_raii.cpp
     src/crypto/pkey_ctx_raii.cpp
+    src/utils/filesystem_utils.cpp
+    src/utils/error_utils.cpp
+    src/utils/backup_utils.cpp
 )
 
 set(CLI_SOURCES
