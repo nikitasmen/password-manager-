@@ -1,6 +1,9 @@
 #include "AppUpdater.h"
 #include "../config/GlobalConfig.h"
 #include "../include/nlohmann/json.hpp"
+#include "../utils/filesystem_utils.h"
+#include "../utils/error_utils.h"
+#include "../utils/backup_utils.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -8,14 +11,7 @@
 #include <cstdlib>
 #include <random>
 #include <chrono>
-
-#if __has_include(<filesystem>)
-#include <filesystem>
-namespace fs = std::filesystem;
-#else
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
-#endif
+#include <atomic>
 
 #ifdef _WIN32
     #include <windows.h>
