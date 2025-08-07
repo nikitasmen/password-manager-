@@ -96,6 +96,20 @@ bool JsonStorage::ensureDataPathExists() const {
         return false;
     }
 }
+bool JsonStorage::removeBackupStorageFile() const {
+    try {
+        fs::path backupPath = storageFile + ".backup";
+        // Remove all backup files that contain the ".backup" suffix
+        if (fs::exists(backupPath) && fs::is_regular_file(backupPath)) {
+            fs::remove(backupPath);
+            return true;
+        }
+        return false; // No backup file to remove
+    } catch (const std::exception& e) {
+        std::cerr << "Error removing backup file: " << e.what() << std::endl;
+        return false;
+    }
+}
 
 bool JsonStorage::backupStorageFile() const {
     try {
@@ -208,6 +222,7 @@ bool JsonStorage::saveData() {
             }
             
             modified = false; // Reset the modified flag only after successful write
+            removeBackupStorageFile(); // Clean up backup after successful save
             return true;
         } catch (const std::exception& e) {
             std::cerr << "Error writing JSON data: " << e.what() << std::endl;

@@ -51,6 +51,13 @@ private:
      * @return bool True if directory exists or was created
      */
     bool ensureDataPathExists() const;
+
+    /**
+     * @brief Remove the backup storage file if it exists
+     * 
+     * @return bool True if removal was successful or no file existed
+     */
+    bool removeBackupStorageFile() const;
     
     /**
      * @brief Create a backup of storage file
