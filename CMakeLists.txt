@@ -121,6 +121,9 @@ function(create_password_manager_executable target_name ui_sources main_file ui_
     endif()
     
     # Pass UI-specific include directory if it's GUI
+    if(ui_type STREQUAL "ALL" )
+        link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui ${CMAKE_CURRENT_SOURCE_DIR/src/cli})
+    endif()
     if(ui_type STREQUAL "ENABLE_GUI")
         link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
     else()
@@ -135,6 +138,9 @@ create_password_manager_executable(password_manager_cli "${CLI_SOURCES}" "src/tu
 
 # GUI application  
 create_password_manager_executable(password_manager_gui "${GUI_SOURCES}" "src/gui_main.cpp" "ENABLE_GUI" "${FLTK_LIBRARIES}")
+
+# MAIN 
+create_password_manager_executable(password_manager "${GUI_SOURCES}" "src/main.cpp" "BOTH" "${FLTK_LIBRARIES}" )
 
 # --- Create data directory (only once per build) ---
 add_custom_target(create_data_dir ALL
