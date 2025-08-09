@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <FL/Fl.H>
 
-int gui_main(int argc, char** argv) {
+int gui_main() {
     try {
         // Load configuration from file
         ConfigManager& configManager = ConfigManager::getInstance();
