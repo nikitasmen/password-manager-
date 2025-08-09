@@ -4,7 +4,7 @@
 #include <iostream>
 #include <exception>
 
-int tui_main(int argc, char** argv) {
+int tui_main() {
     try {
         // Load configuration from file
         ConfigManager& configManager = ConfigManager::getInstance();
