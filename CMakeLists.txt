@@ -123,8 +123,7 @@ function(create_password_manager_executable target_name ui_sources main_file ui_
     # Pass UI-specific include directory if it's GUI
     if(ui_type STREQUAL "ALL" )
         link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui ${CMAKE_CURRENT_SOURCE_DIR/src/cli})
-    endif()
-    if(ui_type STREQUAL "ENABLE_GUI")
+    elseif(ui_type STREQUAL "ENABLE_GUI")
         link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
     else()
         link_common(${target_name})
