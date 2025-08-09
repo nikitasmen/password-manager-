@@ -1,9 +1,10 @@
+#include "tui_main.h"
 #include "core/UIManagerFactory.h"
 #include "config/GlobalConfig.h"
 #include <iostream>
 #include <exception>
 
-int main(int argc, char** argv) {
+int tui_main(int argc, char** argv) {
     try {
         // Load configuration from file
         ConfigManager& configManager = ConfigManager::getInstance();
