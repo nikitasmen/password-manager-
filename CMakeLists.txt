@@ -107,39 +107,31 @@ function(link_common target)
     endif()
 endfunction()
 
-function(create_password_manager_executable target_name ui_sources main_file ui_type extra_libs)
-    add_executable(${target_name} ${CORE_SOURCES} ${ui_sources} ${main_file})
-    target_compile_definitions(${target_name} PRIVATE ${ui_type})
-    
-    if(extra_libs)
-        target_link_libraries(${target_name} PRIVATE ${extra_libs})
-    endif()
-    
-    # Add Windows-specific libraries for updater
-    if(WIN32)
-        target_link_libraries(${target_name} PRIVATE wininet urlmon)
-    endif()
-    
-    # Pass UI-specific include directory if it's GUI
-    if(ui_type STREQUAL "ALL" )
-        link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui ${CMAKE_CURRENT_SOURCE_DIR/src/cli})
-    elseif(ui_type STREQUAL "ENABLE_GUI")
-        link_common(${target_name} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
-    else()
-        link_common(${target_name})
-    endif()
-endfunction()
+# --- Main executable with unified UI ---
 
-# --- Main executables with UI abstraction ---
+# Single unified application that can run both GUI and CLI modes
+add_executable(password_manager 
+    ${CORE_SOURCES} 
+    ${CLI_SOURCES} 
+    ${GUI_SOURCES} 
+    src/main.cpp
+    src/tui_main.cpp
+    src/gui_main.cpp
+)
 
-# CLI application
-create_password_manager_executable(password_manager_cli "${CLI_SOURCES}" "src/tui_main.cpp" "ENABLE_CLI" "")
+# Add compile definitions for both modes
+target_compile_definitions(password_manager PRIVATE ENABLE_CLI ENABLE_GUI)
 
-# GUI application  
-create_password_manager_executable(password_manager_gui "${GUI_SOURCES}" "src/gui_main.cpp" "ENABLE_GUI" "${FLTK_LIBRARIES}")
+# Link all required libraries
+target_link_libraries(password_manager PRIVATE ${FLTK_LIBRARIES})
 
-# MAIN 
-create_password_manager_executable(password_manager "${GUI_SOURCES}" "src/main.cpp" "BOTH" "${FLTK_LIBRARIES}" )
+# Add Windows-specific libraries for updater
+if(WIN32)
+    target_link_libraries(password_manager PRIVATE wininet urlmon)
+endif()
+
+# Include directories for both GUI and CLI
+link_common(password_manager ${CMAKE_CURRENT_SOURCE_DIR}/src/gui ${CMAKE_CURRENT_SOURCE_DIR}/src/cli)
 
 # --- Create data directory (only once per build) ---
 add_custom_target(create_data_dir ALL
@@ -154,7 +146,7 @@ link_common(base64_test)
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     message(STATUS "Skipping install step for faster local builds")
 else()
-    install(TARGETS password_manager_cli password_manager_gui
+    install(TARGETS password_manager
         RUNTIME DESTINATION bin
     )
 endif()
