@@ -1,3 +1,4 @@
+#include "gui_main.h"
 #include "core/UIManagerFactory.h"
 #include <iostream>
 #include "config/GlobalConfig.h"
@@ -5,7 +6,7 @@
 #include <filesystem>
 #include <FL/Fl.H>
 
-int main(int argc, char** argv) {
+int gui_main() {
     try {
         // Load configuration from file
         ConfigManager& configManager = ConfigManager::getInstance();
