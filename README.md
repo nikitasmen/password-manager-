@@ -1,35 +1,40 @@
 # Password Manager
 
-A secure, modular password management tool written in C++17 with multiple user interface options and robust encryption support.
+A secure, cross-platform password management tool written in C++17 with unified executable supporting both GUI and CLI modes, advanced encryption, and automatic update capabilities.
 
 ## Features
 
-- **Secure Local Storage**: All credentials are stored locally in an encrypted JSON format
+- **Unified Application**: Single executable that can run in both GUI and CLI modes
+- **Secure Local Storage**: All credentials are stored locally in encrypted JSON format with automatic backups
 - **Advanced Encryption System**:
-  - Multiple encryption backends (AES, LFSR)
+  - Multiple encryption backends (AES-256, LFSR, RSA)
   - Pluggable encryption architecture with factory pattern
-  - Salt-based encryption for stronger security
-  - Support for encryption algorithm migration
+  - Salt-based encryption for enhanced security
+  - Seamless encryption algorithm migration
 - **Robust Storage System**:
   - Automatic file backups with timestamps
   - RAII-based resource management
-  - Transaction-safe operations
-  - Optimized file access patterns
+  - Transaction-safe operations with rollback capability
+  - DRY principles with common utility modules
 - **Multiple User Interfaces**:
+  - Modern graphical UI (GUI) using FLTK with update dialogs
   - Text-based UI (TUI) for terminal environments
-  - Modern graphical UI (GUI) using FLTK
   - Shared core API for consistent functionality
-- **User Management**:
-  - Secure master password protection
-  - Password strength validation
-  - Secure credential storage and retrieval
-- **Well-Architected Codebase**:
-  - Clean separation of concerns
-  - Factory pattern for encryption backends
-  - Comprehensive error handling
-  - Modular component design
-  - Unit test coverage
-  - Modern C++17 features
+- **Auto-Update System**:
+  - GitHub integration for checking latest releases
+  - Automatic download and installation with progress tracking
+  - Cross-platform update support (Windows, macOS, Linux)
+  - Secure update process with backup and rollback
+- **Security Enhancements**:
+  - Secure clipboard operations with auto-clear
+  - Command injection prevention in system calls
+  - Memory-safe operations with smart pointers
+  - Comprehensive error handling and logging
+- **Configuration Management**:
+  - File-based configuration system (.config)
+  - Configurable GitHub repository settings
+  - Flexible UI mode selection
+  - User-customizable security settings
 
 ## Architecture
 
@@ -67,27 +72,46 @@ The project follows a modular architecture with these key components:
 ## Project Structure
 
 ```plaintext
-password-manager-/
-├── build.sh              # Build script for all components
-├── CMakeLists.txt        # CMake configuration
+password-manager/
+├── build.sh                       # Build script for all components
+├── CMakeLists.txt                 # CMake configuration
+├── password_manager               # Unified executable (generated)
+├── data/                          # Application data directory
+│   └── secure_storage.json        # Encrypted credentials database
+├── include/                       # Third-party headers
+│   └── nlohmann/
+│       └── json.hpp
 ├── src/
-│   ├── cli/              # Command-line interface
-│   │   ├── cli_ui.cpp
-│   │   └── cli_UI.h
-│   ├── config/           # Configuration settings
+│   ├── main.cpp                   # Unified application entry point
+│   ├── gui_main.cpp               # GUI mode implementation
+│   ├── tui_main.cpp               # Terminal UI mode implementation
+│   ├── cli/                       # Command-line interface components
+│   │   ├── TerminalUIManager.cpp
+│   │   └── TerminalUIManager.h
+│   ├── config/                    # Configuration settings
 │   │   ├── GlobalConfig.cpp
 │   │   ├── GlobalConfig.h
 │   │   ├── MigrationHelper.cpp
 │   │   └── MigrationHelper.h
-│   ├── core/             # Core functionality
+│   ├── core/                      # Core functionality
 │   │   ├── api.cpp
 │   │   ├── api.h
+│   │   ├── base64.cpp
+│   │   ├── base64.h
+│   │   ├── clipboard.cpp
+│   │   ├── clipboard.h
+│   │   ├── credential_data.h
+│   │   ├── encryption.cpp
+│   │   ├── encryption.h
 │   │   ├── json_storage.cpp
 │   │   ├── json_storage.h
+│   │   ├── terminal_ui.cpp
+│   │   ├── terminal_ui.h
 │   │   ├── UIManager.cpp
 │   │   ├── UIManager.h
-│   │   └── file_system.cpp
-│   ├── crypto/           # Encryption subsystem
+│   │   ├── UIManagerFactory.cpp
+│   │   └── UIManagerFactory.h
+│   ├── crypto/                    # Encryption subsystem
 │   │   ├── aes_encryption.cpp
 │   │   ├── aes_encryption.h
 │   │   ├── cipher_context_raii.cpp
@@ -95,28 +119,31 @@ password-manager-/
 │   │   ├── encryption_factory.cpp
 │   │   ├── encryption_factory.h
 │   │   ├── encryption_interface.h
-│   │   ├── encryption_type.h
 │   │   ├── lfsr_encryption.cpp
 │   │   ├── lfsr_encryption.h
-│   │   └── salted_encryption.h
-│   ├── gui/              # Graphical user interface
-│   │   ├── dialogs/      # Dialog implementations
-│   │   ├── gui.cpp
-│   │   └── gui.h
-│   ├── gui_main.cpp      # GUI application entry point
-│   ├── tui_main.cpp      # Terminal UI application entry point
-│   ├── updater/          # Auto-update system
+│   │   ├── rsa_encryption.cpp
+│   │   └── rsa_encryption.h
+│   ├── gui/                       # Graphical user interface
+│   │   ├── fl_main.cpp
+│   │   ├── password_gui.cpp
+│   │   ├── password_gui.h
+│   │   └── [other GUI files]
+│   ├── updater/                   # Auto-update system
 │   │   ├── AppUpdater.cpp
-│   │   └── AppUpdater.h
-│   └── utils/            # Utility functions
-│       └── string_utils.cpp
-├── tests/                # Test files
-│   ├── unit/            # Unit tests
-│   └── integration/     # Integration tests
-├── build/               # Build directory (created during build)
-│   ├── password_manager      # Terminal UI executable
-│   ├── password_manager_gui  # GUI executable
-│   └── data/            # Data storage directory
+│   │   ├── AppUpdater.h
+│   │   ├── GitHubAPI.cpp
+│   │   ├── GitHubAPI.h
+│   │   ├── system_utils.cpp
+│   │   └── system_utils.h
+│   └── utils/                     # Common utilities (DRY compliance)
+│       ├── filesystem_utils.cpp
+│       ├── filesystem_utils.h
+│       ├── error_utils.cpp
+│       ├── error_utils.h
+│       ├── backup_utils.cpp
+│       └── backup_utils.h
+├── tests/                         # Test files
+│   └── base64_test.cpp
 ├── .gitignore
 ├── LICENSE
 └── README.md
@@ -128,80 +155,73 @@ password-manager-/
 
 ## Usage
 
-### Graphical User Interface (GUI)
+The application provides a unified executable with both GUI and CLI modes.
 
-For a user-friendly desktop experience, run the GUI version:
+### Command Line Arguments
 
 ```bash
-./build/password_manager_gui
+# Run in GUI mode (default)
+./password_manager
+./password_manager -g
+./password_manager --gui
+
+# Run in CLI/Terminal mode
+./password_manager -t
+./password_manager --terminal
+
+# Show help
+./password_manager --help
 ```
 
-The GUI provides:
+### Graphical User Interface (GUI)
 
+The GUI mode provides a user-friendly desktop experience:
+
+```bash
+./password_manager -g
+```
+
+GUI features include:
+- Modern FLTK-based interface with dialogs
 - Login dialog for master password protection
 - List view of all stored platforms
 - Add/view credential forms with secure input
 - Credential deletion with confirmation
-- Clean and modern FLTK-based interface
+- Auto-update notifications and progress dialogs
 
-### Terminal User Interface (TUI)
+### Terminal User Interface (CLI)
 
-For a text-based interactive experience, run:
+For a text-based interactive experience:
 
 ```bash
-./build/password_manager
+./password_manager -t
 ```
 
-This provides a menu-driven interface with these options:
+CLI features include:
+- Menu-driven interface with numbered options
+- Secure master password handling
+- Interactive credential management
+- Platform listing and search
+- Command injection prevention
 
+Available CLI operations:
 1. Change Master Password
 2. Add New Platform Credentials
 3. Retrieve Platform Credentials
 4. Delete Platform Credentials
 5. Show All Stored Platforms
 
-### Command Line Interface
-
-The TUI-based application can be used for various credential operations:
-
-```bash
-# Add new credentials
-./build/password_manager_gui  # Then use the Add Credential menu option
-
-# Show all stored platforms
-./build/password_manager      # Then choose option 5
-
-# Retrieve or delete credentials for specific platforms
-# Use the appropriate menu options in either interface
-```
-
 ## Build Instructions
 
 ### Using the Build Script
 
-The easiest way to build the project:
+The easiest way to build the unified executable:
 
 ```bash
 ./build.sh
 ```
 
-This builds all components. You can customize the build:
-
-```bash
-# Build only the GUI version
-./build.sh -g
-
-# Build only the terminal UI version
-./build.sh -t
-
-# Clean and rebuild everything
-./build.sh --clean
-
-# Build with debug symbols
-./build.sh --debug
-```
-
-Run `./build.sh --help` for all available options.
+This creates the single `password_manager` executable with both GUI and CLI modes.
 
 ### Using CMake Directly
 
@@ -211,6 +231,15 @@ cd build
 cmake ..
 make
 ```
+
+This produces a single `password_manager` executable that can run in either GUI or CLI mode based on command-line arguments.
+
+### Build Output
+
+After building, you'll have:
+- `password_manager` - Unified executable supporting both modes
+- Test executables (if enabled)
+- Data directory structure
 
 ## Security Features
 
@@ -292,26 +321,38 @@ The GUI version includes a built-in update system that allows you to:
 
 ### How to Use Updates
 
-1. Open the GUI application
+1. Open the GUI application (`./password_manager -g`)
 2. Go to Help → Check for Updates
 3. Click "Check for Updates" to see if a new version is available
 4. If an update is found, click "Download Update" to install it
 5. Restart the application when prompted
 
 The updater will:
+
 - Download the latest release from the GitHub repository
 - Create a backup of your current version
 - Replace the executable with the new version
 - Maintain all your existing data and settings
 
+## Architecture Improvements
+
+This codebase follows DRY (Don't Repeat Yourself) principles with:
+
+- **Common Utilities**: Shared filesystem, error handling, and backup utilities in `src/utils/`
+- **Unified Architecture**: Single executable supporting both GUI and CLI modes
+- **Modular Design**: Factory patterns for encryption backends and UI managers
+- **Resource Management**: RAII patterns for secure resource handling
+- **Error Consistency**: Standardized error logging and exception handling
+
 ## Future Enhancements
 
 Potential future improvements to consider:
 
-- Password strength checker
-- Auto-generation of strong passwords
-- Import/export functionality
-- Configurable encryption options
+- Password strength checker with entropy analysis
+- Auto-generation of strong passwords with customizable policies
+- Import/export functionality for credential migration
+- Configurable encryption options with user selection
 - Search functionality for large credential sets
-- Credential expiration notifications
-- Password history tracking
+- Credential expiration notifications and alerts
+- Password history tracking and audit logs
+- Multi-factor authentication support
