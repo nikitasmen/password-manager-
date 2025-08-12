@@ -68,6 +68,7 @@ set(CLI_SOURCES
 set(GUI_SOURCES
     src/gui/GuiUIManager.cpp
     src/gui/UpdateDialog.cpp
+    src/gui/UITheme.cpp
     src/updater/AppUpdater.cpp
 )
 
