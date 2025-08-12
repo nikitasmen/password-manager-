@@ -180,9 +180,11 @@ public:
      * @brief Custom button draw function for modern appearance
      */
     static void drawModernButton(Fl_Widget* widget, int x, int y, int w, int h, const std::string& variant);
-};
-
-#endif // UI_THEME_H
+    
+    /**
+     * @brief Custom input draw function for modern appearance
+     */
+    static void drawModernInput(Fl_Widget* widget, int x, int y, int w, int h, bool hasError);
 };
 
 #endif // UI_THEME_H
