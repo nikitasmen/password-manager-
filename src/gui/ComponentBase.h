@@ -4,6 +4,7 @@
 #include <FL/Fl_Widget.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Group.H>
+#include "../config/GlobalConfig.h"
 #include <memory>
 #include <vector>
 #include <functional>
