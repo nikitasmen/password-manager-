@@ -7,6 +7,7 @@
 #include <FL/Fl_Text_Display.H>
 #include <FL/Fl_Text_Buffer.H>
 #include <FL/Fl_Box.H>
+#include "UITheme.h"
 #include <memory>
 #include <functional>
 #include "../updater/AppUpdater.h"
@@ -52,8 +53,10 @@ public:
     bool visible() const;
 
 private:
-    // UI Components
+    // UI Components - Using standard FLTK components with theming
     std::unique_ptr<Fl_Window> window;
+    
+    Fl_Box* titleLabel;
     Fl_Box* statusLabel;
     Fl_Box* versionLabel;
     Fl_Text_Display* releaseNotesDisplay;
@@ -83,10 +86,8 @@ private:
     void onDownloadUpdate();
     void onClose();
     
-    // Static callbacks for FLTK
-    static void checkButtonCallback(Fl_Widget* widget, void* data);
-    static void downloadButtonCallback(Fl_Widget* widget, void* data);
-    static void closeButtonCallback(Fl_Widget* widget, void* data);
+    // Progress callback for download
+    void onDownloadProgress(int percentage, const std::string& status);
 };
 
 #endif // UPDATE_DIALOG_H

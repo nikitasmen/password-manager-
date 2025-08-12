@@ -71,21 +71,33 @@ void UpdateDialog::setupUI() {
     
     // Progress bar (initially hidden)
     progressBar = new Fl_Progress(20, 290, 460, 25);
-    progressBar->minimum(0);
-    progressBar->maximum(100);
-    progressBar->value(0);
+    progressBar->selection_color(UITheme::Colors::PRIMARY);
+    progressBar->color(UITheme::Colors::SURFACE_VARIANT);
     progressBar->hide();
+    window->add(progressBar);
     
     // Buttons
     checkButton = new Fl_Button(20, 330, 120, 30, "Check for Updates");
-    checkButton->callback(checkButtonCallback, this);
+    UITheme::styleButton(checkButton, "primary");
+    checkButton->callback([](Fl_Widget* w, void* data) {
+        static_cast<UpdateDialog*>(data)->onCheckForUpdates();
+    }, this);
+    window->add(checkButton);
     
     downloadButton = new Fl_Button(160, 330, 120, 30, "Download Update");
-    downloadButton->callback(downloadButtonCallback, this);
-    downloadButton->deactivate(); // Initially disabled
+    UITheme::styleButton(downloadButton, "primary");
+    downloadButton->callback([](Fl_Widget* w, void* data) {
+        static_cast<UpdateDialog*>(data)->onDownloadUpdate();
+    }, this);
+    downloadButton->hide();
+    window->add(downloadButton);
     
     closeButton = new Fl_Button(360, 330, 120, 30, "Close");
-    closeButton->callback(closeButtonCallback, this);
+    UITheme::styleButton(closeButton, "secondary");
+    closeButton->callback([](Fl_Widget* w, void* data) {
+        static_cast<UpdateDialog*>(data)->onClose();
+    }, this);
+    window->add(closeButton);
     
     window->end();
     window->set_modal();
@@ -291,18 +303,13 @@ void UpdateDialog::onClose() {
     hide();
 }
 
-// Static callback functions for FLTK
-void UpdateDialog::checkButtonCallback(Fl_Widget* widget, void* data) {
-    auto* dialog = static_cast<UpdateDialog*>(data);
-    dialog->onCheckForUpdates();
-}
-
-void UpdateDialog::downloadButtonCallback(Fl_Widget* widget, void* data) {
-    auto* dialog = static_cast<UpdateDialog*>(data);
-    dialog->onDownloadUpdate();
-}
-
-void UpdateDialog::closeButtonCallback(Fl_Widget* widget, void* data) {
-    auto* dialog = static_cast<UpdateDialog*>(data);
-    dialog->onClose();
+void UpdateDialog::onDownloadProgress(int percentage, const std::string& status) {
+    if (progressBar) {
+        progressBar->value(percentage);
+        progressBar->redraw();
+    }
+    if (statusLabel) {
+        statusLabel->copy_label(status.c_str());
+        statusLabel->redraw();
+    }
 }
