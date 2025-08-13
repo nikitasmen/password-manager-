@@ -87,13 +87,26 @@ void UITheme::styleInput(Fl_Widget* input, bool hasError) {
     }
 }
 
-void UITheme::styleWindow(Fl_Window* window) {
+void UITheme::styleWindow(Fl_Window* window, bool isResizable, int minWidth, int minHeight) {
     if (!window) return;
     
     window->color(Colors::BACKGROUND);
     window->labelcolor(Colors::TEXT_PRIMARY);
     window->labelfont(FL_HELVETICA_BOLD);
     window->labelsize(Typography::HEADLINE_2);
+    
+    if (isResizable) {
+        window->resizable(window);
+        window->size_range(minWidth, minHeight);
+    }
+    
+    // Set up better window behavior
+    window->callback([](Fl_Widget* w, void* data) {
+        // Handle window close properly
+        if (Fl::event() == FL_CLOSE) {
+            w->hide();
+        }
+    });
 }
 
 void UITheme::styleText(Fl_Widget* widget, const std::string& variant) {
@@ -184,7 +197,7 @@ void UITheme::applyThemeToWindow(Fl_Window* window) {
     if (!window) return;
     
     initialize();
-    styleWindow(window);
+    configureWindow(window);
     
     // Recursively style all child widgets
     for (int i = 0; i < window->children(); i++) {
@@ -201,6 +214,73 @@ void UITheme::applyThemeToWindow(Fl_Window* window) {
             UITheme::styleText(child, "body1");
         }
     }
+}
+
+void UITheme::makeResponsive(Fl_Window* window, 
+                            std::function<void(int width, int height)> contentCallback) {
+    if (!window) return;
+    
+    // Store the callback for resize events
+    window->user_data(new std::function<void(int, int)>(contentCallback));
+    
+    // Set up resize callback
+    window->callback([](Fl_Widget* w, void* data) {
+        if (Fl::event() == FL_CLOSE) {
+            w->hide();
+            return;
+        }
+        
+        Fl_Window* win = static_cast<Fl_Window*>(w);
+        auto* callback = static_cast<std::function<void(int, int)>*>(win->user_data());
+        if (callback) {
+            (*callback)(win->w(), win->h());
+        }
+    });
+}
+
+void UITheme::configureWindow(Fl_Window* window, bool isMain) {
+    if (!window) return;
+    
+    if (isMain) {
+        window->size_range(Dimensions::MAIN_WINDOW_MIN_WIDTH, Dimensions::MAIN_WINDOW_MIN_HEIGHT);
+        window->resizable(window);
+        
+        // Center on screen
+        centerWindow(window);
+        
+        // Set better default size
+        auto [screenW, screenH] = getScreenDimensions();
+        int defaultW = std::min(1200, screenW * 3 / 4);
+        int defaultH = std::min(800, screenH * 3 / 4);
+        window->size(defaultW, defaultH);
+        
+    } else {
+        // Dialog windows
+        window->size_range(Dimensions::DIALOG_MIN_WIDTH, Dimensions::DIALOG_MIN_HEIGHT);
+        window->resizable(window);
+        centerWindow(window);
+    }
+    
+    // Apply consistent styling
+    styleWindow(window, true);
+}
+
+void UITheme::centerWindow(Fl_Window* window) {
+    if (!window) return;
+    
+    auto [screenW, screenH] = getScreenDimensions();
+    int x = (screenW - window->w()) / 2;
+    int y = (screenH - window->h()) / 2;
+    
+    // Ensure window stays on screen
+    x = std::max(0, std::min(x, screenW - window->w()));
+    y = std::max(0, std::min(y, screenH - window->h()));
+    
+    window->position(x, y);
+}
+
+std::pair<int, int> UITheme::getScreenDimensions() {
+    return {Fl::w(), Fl::h()};
 }
 
 void UITheme::drawModernButton(Fl_Widget* widget, int x, int y, int w, int h, const std::string& variant) {

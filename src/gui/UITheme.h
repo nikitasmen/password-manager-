@@ -4,6 +4,9 @@
 #include <FL/Fl.H>
 #include <FL/fl_draw.H>
 #include <string>
+#include <functional>
+#include <utility>
+#include <string>
 
 /**
  * @class UITheme
@@ -74,8 +77,12 @@ public:
         static constexpr int INPUT_HEIGHT = 40;
         static constexpr int MENU_HEIGHT = 28;
         static constexpr int BUTTON_MIN_WIDTH = 88;
-        static constexpr int DIALOG_MIN_WIDTH = 320;
-        static constexpr int DIALOG_MIN_HEIGHT = 240;
+        static constexpr int DIALOG_MIN_WIDTH = 480;
+        static constexpr int DIALOG_MIN_HEIGHT = 320;
+        static constexpr int MAIN_WINDOW_MIN_WIDTH = 800;
+        static constexpr int MAIN_WINDOW_MIN_HEIGHT = 600;
+        static constexpr int WINDOW_PADDING = 20;
+        static constexpr int FORM_MAX_WIDTH = 400;
     };
     
     // Border radius for rounded corners
@@ -117,10 +124,15 @@ public:
     static void styleInput(Fl_Widget* input, bool hasError = false);
     
     /**
-     * @brief Apply window styling
+     * @brief Apply window styling with resizable support
      * @param window Window to style
+     * @param isResizable Whether the window should be resizable
+     * @param minWidth Minimum width for resizable windows
+     * @param minHeight Minimum height for resizable windows
      */
-    static void styleWindow(Fl_Window* window);
+    static void styleWindow(Fl_Window* window, bool isResizable = true, 
+                           int minWidth = Dimensions::DIALOG_MIN_WIDTH, 
+                           int minHeight = Dimensions::DIALOG_MIN_HEIGHT);
     
     /**
      * @brief Apply text styling
@@ -165,10 +177,37 @@ public:
     static Fl_Color hexToFlColor(const std::string& hex);
     
     /**
-     * @brief Apply modern styling to an entire window hierarchy
-     * @param window Root window to style
+     * @brief Create a responsive layout that adapts to window size
+     * @param window Window to make responsive
+     * @param contentCallback Function called when window is resized
+     */
+    static void makeResponsive(Fl_Window* window, 
+                              std::function<void(int width, int height)> contentCallback);
+    
+    /**
+     * @brief Set up window with proper sizing constraints and resizing behavior
+     * @param window Window to configure
+     * @param isMain Whether this is the main application window
+     */
+    static void configureWindow(Fl_Window* window, bool isMain = false);
+    
+    /**
+     * @brief Center window on screen
+     * @param window Window to center
+     */
+    static void centerWindow(Fl_Window* window);
+    
+    /**
+     * @brief Apply theme to a window and all its child widgets recursively
+     * @param window Window to apply theme to
      */
     static void applyThemeToWindow(Fl_Window* window);
+    
+    /**
+     * @brief Get screen dimensions
+     * @return std::pair<width, height> of screen
+     */
+    static std::pair<int, int> getScreenDimensions();
     
     /**
      * @brief Custom input draw function for modern appearance
