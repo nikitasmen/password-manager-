@@ -246,58 +246,141 @@ void GuiUIManager::createSetupScreen() {
 
 void GuiUIManager::createMainScreen() {
     try {
-        createScreen("Password Manager", 600, 450, [this]() {
-            rootComponent->addChild<MenuBarComponent>(
-                mainWindow.get(), 0, 0, 600, 30,
-                [this]() { createAddCredentialDialog(); },
-                [this]() { openSettingsDialog(); },
-                [this]() { openUpdateDialog(); },
-                []() { 
-                    if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-                        exit(0);
-                    }
-                },
-                []() {
-                    fl_message_title("About");
-                    std::string aboutMessage = "Password Manager " + VersionInfo::getCurrentVersion() + "\n"
-                                              "A secure, lightweight password management tool\n"
-                                              "2025 - nikitasmen";
-                    fl_message("%s", aboutMessage.c_str());
-                }
-            );
-
-            // Create the clickable platforms display directly in the main window
-            clickablePlatformsDisplay = new ClickablePlatformsDisplay(
-                20, 50, 560, 300
-            );
-            mainWindow->add(clickablePlatformsDisplay);
-            
-            // Set up click callback
-            clickablePlatformsDisplay->setClickCallback(
-                [this](ClickablePlatformsDisplay*, const std::string& platform) {
-                    this->viewCredential(platform);
-                }
-            );
-
-            rootComponent->addChild<ActionButtonsComponent>(
-                mainWindow.get(), 20, 360, 240, 25,
-                [this]() {
-                    const char* platform = fl_input("Enter platform name to view:");
-                    if (platform && strlen(platform) > 0) {
-                        viewCredential(platform);
-                    }
-                },
-                [this]() {
-                    const char* platform = fl_input("Enter platform name to delete:");
-                    if (platform && strlen(platform) > 0) {
-                        if (fl_choice("Are you sure you want to delete this credential?", "Cancel", "Yes", nullptr) == 1) {
-                            deleteCredential(platform);
-                        }
-                    }
-                }
-            );
-
+        // Create main window with better sizing
+        mainWindow = std::make_unique<Fl_Window>(
+            UITheme::Dimensions::MAIN_WINDOW_MIN_WIDTH, 
+            UITheme::Dimensions::MAIN_WINDOW_MIN_HEIGHT, 
+            "Password Manager"
+        );
+        
+        // Configure window with proper resizing and responsive behavior
+        UITheme::configureWindow(mainWindow.get(), true);
+        
+        // Make the window responsive
+        UITheme::makeResponsive(mainWindow.get(), [this](int width, int height) {
+            this->updateMainScreenLayout(width, height);
         });
+        
+        // Create root component that will manage the layout
+        rootComponent = std::make_unique<ContainerComponent>(
+            mainWindow.get(), 0, 0, mainWindow->w(), mainWindow->h()
+        );
+        
+        // Add menu bar
+        rootComponent->addChild<MenuBarComponent>(
+            mainWindow.get(), 0, 0, mainWindow->w(), UITheme::Dimensions::MENU_HEIGHT,
+            [this]() { createAddCredentialDialog(); },
+            [this]() { openSettingsDialog(); },
+            [this]() { openUpdateDialog(); },
+            []() { 
+                if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
+                    exit(0);
+                }
+            },
+            []() {
+                fl_message_title("About");
+                std::string aboutMessage = "Password Manager " + VersionInfo::getCurrentVersion() + "\n"
+                                          "A secure, lightweight password management tool\n"
+                                          "Built with modern C++17 and FLTK\n"
+                                          "2025 - nikitasmen";
+                fl_message("%s", aboutMessage.c_str());
+            }
+        );
+
+        // Create the clickable platforms display with responsive sizing
+        int contentY = UITheme::Dimensions::MENU_HEIGHT + UITheme::Spacing::MEDIUM;
+        int contentHeight = mainWindow->h() - contentY - UITheme::Spacing::MEDIUM;
+        
+        clickablePlatformsDisplay = new ClickablePlatformsDisplay(
+            UITheme::Spacing::MEDIUM, 
+            contentY, 
+            mainWindow->w() - 2 * UITheme::Spacing::MEDIUM, 
+            contentHeight
+        );
+        mainWindow->add(clickablePlatformsDisplay);
+        mainWindow->resizable(clickablePlatformsDisplay);
+        
+        // Set up click callback
+        clickablePlatformsDisplay->setClickCallback(
+            [this](ClickablePlatformsDisplay*, const std::string& platform) {
+                this->viewCredential(platform);
+            }
+        );
+
+        // Add action buttons with responsive positioning
+        int buttonY = mainWindow->h() - UITheme::Dimensions::BUTTON_HEIGHT - UITheme::Spacing::MEDIUM;
+        
+        rootComponent->addChild<ActionButtonsComponent>(
+            mainWindow.get(), UITheme::Spacing::MEDIUM, buttonY, 
+            mainWindow->w() - 2 * UITheme::Spacing::MEDIUM, UITheme::Dimensions::BUTTON_HEIGHT,
+            [this]() {
+                const char* platform = fl_input("Enter platform name to view:");
+                if (platform && strlen(platform) > 0) {
+                    viewCredential(platform);
+                }
+            },
+            [this]() {
+                const char* platform = fl_input("Enter platform name to delete:");
+                if (platform && strlen(platform) > 0) {
+                    if (fl_choice("Are you sure you want to delete this credential?", "Cancel", "Yes", nullptr) == 1) {
+                        deleteCredential(platform);
+                    }
+                }
+            }
+        );
+
+        // Create the root component and initialize layout
+        rootComponent->create();
+        
+        // Refresh platforms list
+        refreshPlatformsList();
+        
+        // Set up window properties
+        mainWindow->end();
+        mainWindow->show();
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error creating main screen: " << e.what() << std::endl;
+        showMessage("Error", "Failed to create main screen: " + std::string(e.what()), true);
+    }
+}
+
+void GuiUIManager::updateMainScreenLayout(int width, int height) {
+    try {
+        if (!mainWindow || !clickablePlatformsDisplay) return;
+
+        // Update menu bar width
+        if (auto menuBar = dynamic_cast<Fl_Widget*>(mainWindow->child(0))) {
+            menuBar->size(width, UITheme::Dimensions::MENU_HEIGHT);
+        }
+    
+        // Update platforms display size and position
+        int contentY = UITheme::Dimensions::MENU_HEIGHT + UITheme::Spacing::MEDIUM;
+        int buttonAreaHeight = UITheme::Dimensions::BUTTON_HEIGHT + UITheme::Spacing::MEDIUM;
+        int contentHeight = height - contentY - buttonAreaHeight - UITheme::Spacing::MEDIUM;
+        
+        clickablePlatformsDisplay->resize(
+            UITheme::Spacing::MEDIUM,
+            contentY,
+            width - 2 * UITheme::Spacing::MEDIUM,
+            contentHeight
+        );
+        
+        // Update action buttons position
+        int buttonY = height - UITheme::Dimensions::BUTTON_HEIGHT - UITheme::Spacing::MEDIUM;
+        for (int i = 1; i < mainWindow->children(); i++) {
+            Fl_Widget* child = mainWindow->child(i);
+            if (child != clickablePlatformsDisplay) {
+                child->resize(
+                    UITheme::Spacing::MEDIUM,
+                    buttonY,
+                    width - 2 * UITheme::Spacing::MEDIUM,
+                    UITheme::Dimensions::BUTTON_HEIGHT
+                );
+            }
+        }
+        
+        mainWindow->redraw();
     } catch (const std::exception& e) {
         std::cerr << "Error creating main screen: " << e.what() << std::endl;
         showMessage("Error", "Failed to create main screen: " + std::string(e.what()), true);
@@ -309,8 +392,17 @@ void GuiUIManager::createAddCredentialDialog() {
     cleanupAddCredentialDialog();
     
     try {
-        // Create the dialog window with more height to accommodate the encryption dropdown
-        addCredentialWindow = std::make_unique<Fl_Window>(450, 400, "Add New Credentials");
+        // Create the dialog window with better responsive sizing
+        addCredentialWindow = std::make_unique<Fl_Window>(
+            UITheme::Dimensions::DIALOG_MIN_WIDTH, 
+            400, 
+            "Add New Credentials"
+        );
+        
+        // Configure dialog window with proper styling and resizing
+        UITheme::configureWindow(addCredentialWindow.get(), false);
+        addCredentialWindow->set_modal();  // Make it modal
+        
         addCredentialWindow->begin();
         
         // Create root component for the dialog

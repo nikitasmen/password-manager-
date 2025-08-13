@@ -2,6 +2,7 @@
 #define GUI_COMPONENTS_H
 
 #include "GuiComponent.h"
+#include "UITheme.h"
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Input.H>
@@ -22,7 +23,13 @@
 #include <algorithm> // for std::remove_if
 #include "EncryptionUtils.h"
 
-// Base class for text display components
+// Initialize the theme system when this header is included
+static bool theme_initialized = []() {
+    UITheme::initialize();
+    return true;
+}();
+
+// Enhanced container component using basic layout
 class ContainerComponent : public GuiComponent {
 private:
     std::vector<std::unique_ptr<GuiComponent>> children;
@@ -75,30 +82,40 @@ public:
     const std::string& getText() const { return text; }
 };
 
-// Component for displaying a title
+// Modern component for displaying a title with consistent styling
 class TitleComponent : public TextComponentBase {
 private:
     int fontSize;
+    std::string variant;
 
 public:
     TitleComponent(Fl_Group* parent, int x, int y, int w, int h, 
-                  const std::string& title, int fontSize = 20)
-        : TextComponentBase(parent, x, y, w, h, title), fontSize(fontSize) {}
+                  const std::string& title, const std::string& variant = "headline2")
+        : TextComponentBase(parent, x, y, w, h, title), variant(variant) {
+        
+        if (variant == "headline1") fontSize = UITheme::Typography::HEADLINE_1;
+        else if (variant == "headline2") fontSize = UITheme::Typography::HEADLINE_2;
+        else if (variant == "headline3") fontSize = UITheme::Typography::HEADLINE_3;
+        else fontSize = UITheme::Typography::HEADLINE_2;
+    }
     
     void create() override {
         Fl_Box* titleBox = createWidget<Fl_Box>(x, y, w, h, text.c_str());
-        titleBox->labelsize(fontSize);
+        UITheme::styleText(titleBox, variant);
+        titleBox->align(FL_ALIGN_CENTER);
     }
 };
 
-// Component for displaying a descriptive text
+// Modern component for displaying descriptive text
 class DescriptionComponent : public TextComponentBase {
 public:
     DescriptionComponent(Fl_Group* parent, int x, int y, int w, int h, const std::string& text)
         : TextComponentBase(parent, x, y, w, h, text) {}
     
     void create() override {
-        createWidget<Fl_Box>(x, y, w, h, text.c_str());
+        Fl_Box* textBox = createWidget<Fl_Box>(x, y, w, h, text.c_str());
+        UITheme::styleText(textBox, "body2");
+        textBox->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
     }
 };
 
@@ -120,80 +137,186 @@ public:
     }
 };
 
-// Component for login form
+// Enhanced login form component with modern styling and validation
 class LoginFormComponent : public FormComponentBase {
 private:
     TextCallback onLogin;
     Fl_Secret_Input* passwordInput;
     Fl_Button* loginButton;
+    Fl_Box* errorLabel;
 
 public:
     LoginFormComponent(Fl_Group* parent, int x, int y, int w, int h, TextCallback onLogin)
         : FormComponentBase(parent, x, y, w, h), onLogin(onLogin), 
-          passwordInput(nullptr), loginButton(nullptr) {}
+          passwordInput(nullptr), loginButton(nullptr), errorLabel(nullptr) {}
     
     void create() override {
+        int cardPadding = UITheme::Spacing::EXTRA_LARGE;
+        int formY = y + UITheme::Typography::HEADLINE_3 + UITheme::Spacing::LARGE;
+        
         // Create password input
-        passwordInput = createWidget<Fl_Secret_Input>(x + 50, y, w - 100, INPUT_HEIGHT, "Master Password:");
+        passwordInput = createWidget<Fl_Secret_Input>(
+            x + cardPadding, formY, 
+            w - 2 * cardPadding, UITheme::Dimensions::INPUT_HEIGHT, 
+            "Master Password:"
+        );
+        UITheme::styleInput(passwordInput, false);
         
         // Create login button
-        loginButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 60, BUTTON_WIDTH, BUTTON_HEIGHT, "Login");
+        int buttonY = formY + UITheme::Dimensions::INPUT_HEIGHT + UITheme::Spacing::MEDIUM;
+        loginButton = createWidget<Fl_Button>(
+            x + (w - UITheme::Dimensions::BUTTON_MIN_WIDTH) / 2, buttonY,
+            UITheme::Dimensions::BUTTON_MIN_WIDTH, UITheme::Dimensions::BUTTON_HEIGHT,
+            "Login"
+        );
+        UITheme::styleButton(loginButton, "primary");
+        
         CallbackHelper::setCallback(loginButton, this, [this](LoginFormComponent* comp) {
+            if (strlen(comp->passwordInput->value()) == 0) {
+                comp->showError("Password is required");
+                return;
+            }
+            
             comp->onLogin(comp->passwordInput->value());
         });
+        
+        // Create error label (initially hidden)
+        errorLabel = createWidget<Fl_Box>(
+            x + cardPadding, buttonY + UITheme::Dimensions::BUTTON_HEIGHT + UITheme::Spacing::SMALL,
+            w - 2 * cardPadding, UITheme::Typography::CAPTION + UITheme::Spacing::SMALL,
+            ""
+        );
+        UITheme::styleText(errorLabel, "caption");
+        errorLabel->labelcolor(UITheme::Colors::ERROR);
+        errorLabel->hide();
+    }
+    
+    void showError(const std::string& error) {
+        if (errorLabel) {
+            errorLabel->copy_label(error.c_str());
+            errorLabel->show();
+            errorLabel->redraw();
+        }
+        if (passwordInput) {
+            UITheme::styleInput(passwordInput, true);
+        }
+    }
+    
+    void clearError() {
+        if (errorLabel) {
+            errorLabel->hide();
+        }
+        if (passwordInput) {
+            UITheme::styleInput(passwordInput, false);
+        }
     }
     
     Fl_Secret_Input* getPasswordInput() const { return passwordInput; }
     Fl_Button* getLoginButton() const { return loginButton; }
-};
-
-// Component for password setup form
+};// Enhanced password setup component with validation
 class PasswordSetupComponent : public FormComponentBase {
 private:
     PasswordCallback onSetup;
     Fl_Secret_Input* newPasswordInput;
     Fl_Secret_Input* confirmPasswordInput;
     Fl_Button* createButton;
+    Fl_Box* strengthIndicator;
+    Fl_Box* encryptionInfo;
     
-    static constexpr int INPUT_WIDTH = 200;
-    static constexpr int LABEL_WIDTH = 180;
+    static constexpr int INPUT_WIDTH = 300;
 
 public:
     PasswordSetupComponent(Fl_Group* parent, int x, int y, int w, int h, PasswordCallback onSetup)
         : FormComponentBase(parent, x, y, w, h), onSetup(onSetup),
-          newPasswordInput(nullptr), confirmPasswordInput(nullptr), createButton(nullptr) {}
+          newPasswordInput(nullptr), confirmPasswordInput(nullptr), 
+          createButton(nullptr), strengthIndicator(nullptr), encryptionInfo(nullptr) {}
     
     void create() override {
-        // Create password inputs
-        newPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "New Master Password:");
-        confirmPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
-        // Always fetch the current default encryption from config at creation time
+        int cardPadding = UITheme::Spacing::EXTRA_LARGE;
+        int formY = y + UITheme::Typography::HEADLINE_3 + UITheme::Spacing::LARGE;
+        int currentY = formY;
+        
+        // Create new password input
+        newPasswordInput = createWidget<Fl_Secret_Input>(
+            x + cardPadding, currentY, 
+            INPUT_WIDTH, UITheme::Dimensions::INPUT_HEIGHT, 
+            "New Master Password:"
+        );
+        UITheme::styleInput(newPasswordInput, false);
+        currentY += UITheme::Dimensions::INPUT_HEIGHT + UITheme::Spacing::MEDIUM;
+        
+        // Password strength indicator
+        strengthIndicator = createWidget<Fl_Box>(
+            x + cardPadding, currentY,
+            INPUT_WIDTH, UITheme::Typography::CAPTION,
+            ""
+        );
+        UITheme::styleText(strengthIndicator, "caption");
+        currentY += UITheme::Typography::CAPTION + UITheme::Spacing::MEDIUM;
+        
+        // Create confirm password input
+        confirmPasswordInput = createWidget<Fl_Secret_Input>(
+            x + cardPadding, currentY, 
+            INPUT_WIDTH, UITheme::Dimensions::INPUT_HEIGHT, 
+            "Confirm Password:"
+        );
+        UITheme::styleInput(confirmPasswordInput, false);
+        currentY += UITheme::Dimensions::INPUT_HEIGHT + UITheme::Spacing::MEDIUM;
+        
+        // Encryption info
         ConfigManager& config = ConfigManager::getInstance();
         EncryptionType encType = config.getDefaultEncryption();
         const char* encTypeCStr = EncryptionUtils::getDisplayName(encType);
         std::string encTypeStr = encTypeCStr ? std::string(encTypeCStr) : "Unknown";
-        std::string msg;
-        if (encTypeStr == "Unknown") {
-            msg = "Encryption: Unknown (Check .config!)";
-        } else {
-            msg = "Encryption: " + encTypeStr + " (Default)";
-        }
-        // Debug output
-        std::cerr << "[PasswordSetupComponent] encType=" << static_cast<int>(encType) << ", encTypeStr='" << encTypeStr << "'\n";
-        Fl_Box* encLabel = createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "");
-        encLabel->copy_label(msg.c_str());
-
-        // Create button (moved up since we removed the dropdown)
-        createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 130, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
+        
+        std::string encMsg = "🔒 Encryption: " + encTypeStr + " (Default)";
+        encryptionInfo = createWidget<Fl_Box>(
+            x + cardPadding, currentY,
+            INPUT_WIDTH, UITheme::Typography::BODY_2,
+            ""
+        );
+        encryptionInfo->copy_label(encMsg.c_str());
+        UITheme::styleText(encryptionInfo, "body2");
+        currentY += UITheme::Typography::BODY_2 + UITheme::Spacing::LARGE;
+        
+        // Create button
+        createButton = createWidget<Fl_Button>(
+            x + (w - UITheme::Dimensions::BUTTON_MIN_WIDTH) / 2, currentY,
+            UITheme::Dimensions::BUTTON_MIN_WIDTH, UITheme::Dimensions::BUTTON_HEIGHT,
+            "Create Password"
+        );
+        UITheme::styleButton(createButton, "primary");
+        
         CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
-            // Fetch the encryption type again in case config changed
+            if (!comp->validateInputs()) return;
+            
             EncryptionType encType = ConfigManager::getInstance().getDefaultEncryption();
-            comp->onSetup(comp->newPasswordInput->value(), 
-                         comp->confirmPasswordInput->value(),
-                         encType);
+            comp->onSetup(comp->newPasswordInput->value(), comp->confirmPasswordInput->value(), encType);
         });
     }
     
+private:
+    bool validateInputs() {
+        bool valid = true;
+        
+        // Check new password
+        if (strlen(newPasswordInput->value()) == 0) {
+            valid = false;
+        } else if (strlen(newPasswordInput->value()) < 8) {
+            valid = false;
+        }
+        
+        // Check confirm password
+        if (strlen(confirmPasswordInput->value()) == 0) {
+            valid = false;
+        } else if (strcmp(newPasswordInput->value(), confirmPasswordInput->value()) != 0) {
+            valid = false;
+        }
+        
+        return valid;
+    }
+    
+public:
     Fl_Secret_Input* getNewPasswordInput() const { return newPasswordInput; }
     Fl_Secret_Input* getConfirmPasswordInput() const { return confirmPasswordInput; }
     Fl_Button* getCreateButton() const { return createButton; }

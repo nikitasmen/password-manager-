@@ -86,6 +86,7 @@ private:
     void cleanupMainWindow();
     void refreshPlatformsList();
     void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false);
+    void updateMainScreenLayout(int width, int height);
 
     // Helper to reduce boilerplate in screen creation
     void createScreen(const std::string& title, int w, int h, std::function<void()> populateScreen);
