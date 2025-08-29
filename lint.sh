@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Code Linting Script for Password Manager
 # This script runs various linting tools to ensure code quality
@@ -143,7 +143,7 @@ run_clang_format() {
     fi
     
     local files
-    readarray -t files < <(find_source_files)
+    IFS=$'\n' read -d '' -r -a files < <(find_source_files && printf '\0')
     
     if [[ ${#files[@]} -eq 0 ]]; then
         echo -e "${YELLOW}No source files found.${NC}"
@@ -152,6 +152,9 @@ run_clang_format() {
     
     local format_issues=0
     for file in "${files[@]}"; do
+        # Skip empty entries
+        [[ -z "$file" ]] && continue
+        
         if [[ "$FIX_ISSUES" == true ]]; then
             if [[ "$VERBOSE" == true ]]; then
                 echo "Formatting: $file"
@@ -159,7 +162,7 @@ run_clang_format() {
             clang-format -i "$file"
         else
             local diff_output
-            diff_output=$(clang-format "$file" | diff -u "$file" - || true)
+            diff_output=$(clang-format "$file" | diff -u "$file" - 2>/dev/null || true)
             if [[ -n "$diff_output" ]]; then
                 echo -e "${YELLOW}Format issues found in: $file${NC}"
                 if [[ "$VERBOSE" == true ]]; then
@@ -195,7 +198,7 @@ run_clang_tidy() {
     fi
     
     local files
-    readarray -t files < <(find_cpp_files)
+    IFS=$'\n' read -d '' -r -a files < <(find_cpp_files && printf '\0')
     
     if [[ ${#files[@]} -eq 0 ]]; then
         echo -e "${YELLOW}No C++ source files found.${NC}"
@@ -218,6 +221,9 @@ run_clang_tidy() {
     
     local issues=0
     for file in "${files[@]}"; do
+        # Skip empty entries
+        [[ -z "$file" ]] && continue
+        
         if [[ "$VERBOSE" == true ]]; then
             echo "Analyzing: $file"
         fi
