@@ -278,7 +278,7 @@ void ConfigManager::setShowEncryptionInCredentials(bool show) {
 }
 
 void ConfigManager::setDefaultUIMode(const std::string& mode) {
-    config_.defaultUIMode = mode;
+    std::transform(mode.begin(), mode.end(), config_.defaultUIMode.begin(),  ::tolower);
 }
 
 void ConfigManager::setLfsrTaps(const std::vector<int>& newTaps) {
