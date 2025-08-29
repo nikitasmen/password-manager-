@@ -1,31 +1,32 @@
 #ifndef MIGRATION_HELPER_H
 #define MIGRATION_HELPER_H
 
-#include <string>
-#include <vector>
 #include <memory>
 #include <random>
-#include "GlobalConfig.h"
-#include "../core/json_storage.h"
+#include <string>
+#include <vector>
+
 #include "../core/encryption.h"
+#include "../core/json_storage.h"
 #include "../crypto/aes_encryption.h"
 #include "../crypto/lfsr_encryption.h"
+#include "GlobalConfig.h"
 
 /**
  * @class MigrationHelper
  * @brief Handles migration of encrypted data when LFSR settings change
- * 
+ *
  * This class provides functionality to migrate stored credentials and master passwords
  * when the LFSR taps or initial state are modified. It ensures data consistency
  * across encryption setting changes.
  */
 class MigrationHelper {
-public:
+   public:
     static MigrationHelper& getInstance();
-    
+
     /**
      * @brief Migrate all credentials when LFSR settings change
-     * 
+     *
      * @param oldTaps Previous LFSR tap configuration
      * @param oldInitState Previous LFSR initial state
      * @param newTaps New LFSR tap configuration
@@ -34,18 +35,16 @@ public:
      * @param dataPath Path to data storage
      * @return bool True if migration was successful
      */
-    bool migrateCredentialsForLfsrChange(
-        const std::vector<int>& oldTaps,
-        const std::vector<int>& oldInitState,
-        const std::vector<int>& newTaps,
-        const std::vector<int>& newInitState,
-        const std::string& masterPassword,
-        const std::string& dataPath
-    );
-    
+    bool migrateCredentialsForLfsrChange(const std::vector<int>& oldTaps,
+                                         const std::vector<int>& oldInitState,
+                                         const std::vector<int>& newTaps,
+                                         const std::vector<int>& newInitState,
+                                         const std::string& masterPassword,
+                                         const std::string& dataPath);
+
     /**
      * @brief Update master password with new LFSR settings
-     * 
+     *
      * @param oldTaps Previous LFSR tap configuration
      * @param oldInitState Previous LFSR initial state
      * @param newTaps New LFSR tap configuration
@@ -54,16 +53,14 @@ public:
      * @param dataPath Path to data storage
      * @return bool True if master password update was successful
      */
-    bool updateMasterPasswordWithNewLfsr(
-        const std::vector<int>& oldTaps,
-        const std::vector<int>& oldInitState,
-        const std::vector<int>& newTaps,
-        const std::vector<int>& newInitState,
-        const std::string& masterPassword,
-        const std::string& dataPath
-    );
+    bool updateMasterPasswordWithNewLfsr(const std::vector<int>& oldTaps,
+                                         const std::vector<int>& oldInitState,
+                                         const std::vector<int>& newTaps,
+                                         const std::vector<int>& newInitState,
+                                         const std::string& masterPassword,
+                                         const std::string& dataPath);
 
-        /**
+    /**
      * @brief Migrate master password when encryption type changes (AES <-> LFSR)
      * @param oldType Previous encryption type
      * @param newType New encryption type
@@ -75,20 +72,18 @@ public:
      * @param dataPath Path to data storage
      * @return bool True if migration was successful
      */
-    bool migrateMasterPasswordForEncryptionChange(
-        EncryptionType oldType,
-        EncryptionType newType,
-        const std::vector<int>& oldTaps,
-        const std::vector<int>& oldInitState,
-        const std::vector<int>& newTaps,
-        const std::vector<int>& newInitState,
-        const std::string& masterPassword,
-        const std::string& dataPath
-    );
+    bool migrateMasterPasswordForEncryptionChange(EncryptionType oldType,
+                                                  EncryptionType newType,
+                                                  const std::vector<int>& oldTaps,
+                                                  const std::vector<int>& oldInitState,
+                                                  const std::vector<int>& newTaps,
+                                                  const std::vector<int>& newInitState,
+                                                  const std::string& masterPassword,
+                                                  const std::string& dataPath);
 
     /**
      * @brief Re-encrypt a single credential with new encryption settings
-     * 
+     *
      * @param platform Platform name for the credential
      * @param credentials Existing credential data
      * @param oldEncryptor Encryptor with old settings
@@ -96,13 +91,11 @@ public:
      * @param storage Storage instance for saving updated credentials
      * @return bool True if re-encryption was successful
      */
-    static bool reencryptCredential(
-        const std::string& platform,
-        const CredentialData& credentials,
-        Encryption* oldEncryptor,
-        Encryption* newEncryptor,
-        JsonStorage* storage
-    );
+    static bool reencryptCredential(const std::string& platform,
+                                    const CredentialData& credentials,
+                                    Encryption* oldEncryptor,
+                                    Encryption* newEncryptor,
+                                    JsonStorage* storage);
 
     std::string generateRandomSalt();
 
@@ -120,11 +113,13 @@ public:
      * @param masterPassword The plaintext master password (required for migrations)
      * @return bool True if all migrations and updates succeeded
      */
-    bool applySettingsFromConfig(const AppConfig& oldConfig, const AppConfig& newConfig, const std::string& masterPassword);
+    bool applySettingsFromConfig(const AppConfig& oldConfig,
+                                 const AppConfig& newConfig,
+                                 const std::string& masterPassword);
 
-private:
+   private:
     static MigrationHelper instance_;
     MigrationHelper() = default;
 };
 
-#endif // MIGRATION_HELPER_H
+#endif  // MIGRATION_HELPER_H

@@ -1,25 +1,29 @@
 #include "lfsr_encryption.h"
-#include <algorithm>
-#include <chrono>
-#include <numeric>
-#include <sstream>
-#include <iomanip>
+
 #include <openssl/rand.h>
 
-LFSREncryption::LFSREncryption(const std::vector<int>& taps, const std::vector<int>& initialState, const std::string& salt)
+#include <algorithm>
+#include <chrono>
+#include <iomanip>
+#include <numeric>
+#include <sstream>
+
+LFSREncryption::LFSREncryption(const std::vector<int>& taps,
+                               const std::vector<int>& initialState,
+                               const std::string& salt)
     : taps_(taps), initialState_(initialState), state_(initialState), originalState_(initialState) {
     if (initialState.empty()) {
         throw EncryptionError("Initial state cannot be empty for LFSR encryption");
     }
-    
+
     if (!taps.empty() && *std::max_element(taps.begin(), taps.end()) >= initialState.size()) {
         throw EncryptionError("Tap positions exceed initial state size");
     }
-    
+
     // Initialize random number generator
     auto seed = std::chrono::system_clock::now().time_since_epoch().count();
     rng_.seed(static_cast<unsigned int>(seed));
-    
+
     // Apply salt to the state if provided
     if (!salt.empty()) {
         salt_ = salt;
@@ -29,10 +33,10 @@ LFSREncryption::LFSREncryption(const std::vector<int>& taps, const std::vector<i
 
 void LFSREncryption::setMasterPassword(const std::string& password) {
     this->masterPassword_ = password;
-    
+
     // Restore state to original initial state before applying any modifications
     state_ = originalState_;
-    
+
     // Apply salt and password in a deterministic order
     if (!salt_.empty()) {
         applySaltToState(salt_);
@@ -40,7 +44,7 @@ void LFSREncryption::setMasterPassword(const std::string& password) {
     if (!password.empty()) {
         applySaltToState(password);
     }
-    
+
     // Save this as the new initial state (post-salt/password)
     initialState_ = state_;
 }
@@ -49,17 +53,17 @@ void LFSREncryption::applySaltToState(const std::string& salt) {
     if (salt.empty() || state_.empty()) {
         return;
     }
-    
+
     // XOR each bit of the state with the salt
     for (size_t i = 0; i < state_.size() && i < salt.size() * 8; ++i) {
         // Get the bit from the salt (cycling through salt bytes and bits)
         size_t byteIndex = (i / 8) % salt.size();
         int bit = (salt[byteIndex] >> (i % 8)) & 1;
-        
+
         // XOR the state bit with the salt bit
         state_[i % state_.size()] ^= bit;
     }
-    
+
     // We don't modify originalState_ - it stays untouched
 }
 
@@ -67,16 +71,16 @@ int LFSREncryption::getNextBit() {
     if (taps_.empty()) {
         throw EncryptionError("No taps defined for LFSR");
     }
-    
+
     int feedback = 0;
     for (int tap : taps_) {
         feedback ^= state_[tap];
     }
-    
+
     int output = state_.back();
     state_.pop_back();
     state_.insert(state_.begin(), feedback);
-    
+
     return output;
 }
 
@@ -105,7 +109,7 @@ std::string LFSREncryption::process(const std::string& input) {
     std::lock_guard<std::mutex> lock(stateMutex_);
     std::string output;
     output.reserve(input.length());
-    
+
     for (char c : input) {
         int key_byte = 0;
         for (int i = 0; i < 8; ++i) {
@@ -113,25 +117,25 @@ std::string LFSREncryption::process(const std::string& input) {
         }
         output.push_back(static_cast<char>(c ^ key_byte));
     }
-    
+
     return output;
 }
 
 std::string LFSREncryption::generateRandomSalt(size_t length) {
-    static const std::string charset = 
+    static const std::string charset =
         "0123456789"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "abcdefghijklmnopqrstuvwxyz";
-    
+
     std::string salt;
     salt.reserve(length);
-    
+
     std::uniform_int_distribution<size_t> dist(0, charset.size() - 1);
-    
+
     for (size_t i = 0; i < length; ++i) {
         salt += charset[dist(rng_)];
     }
-    
+
     return salt;
 }
 
@@ -139,7 +143,7 @@ std::vector<std::string> LFSREncryption::encryptWithSalt(const std::vector<std::
     if (plaintexts.empty()) {
         return {};
     }
-    
+
     // Generate a single salt for all plaintexts in this batch
     unsigned char saltBytes[16];
     if (RAND_bytes(saltBytes, sizeof(saltBytes)) != 1) {
@@ -150,10 +154,10 @@ std::vector<std::string> LFSREncryption::encryptWithSalt(const std::vector<std::
     // Create a single encryptor instance with the salt
     LFSREncryption encryptor(taps_, originalState_, salt);
     encryptor.setMasterPassword(masterPassword_);
-    
+
     std::vector<std::string> ciphertexts;
     ciphertexts.reserve(plaintexts.size());
-    
+
     for (const auto& plaintext : plaintexts) {
         // Reset state for each plaintext to ensure consistency
         encryptor.resetState();
@@ -174,26 +178,26 @@ std::vector<std::string> LFSREncryption::decryptWithSalt(const std::vector<std::
             throw std::runtime_error("Invalid ciphertext for salted LFSR decryption: too short");
         }
     }
-    
+
     std::vector<std::string> plaintexts;
     plaintexts.reserve(ciphertexts.size());
-    
+
     // Check if all ciphertexts share the same salt (new format)
     std::string firstSalt = ciphertexts[0].substr(0, 16);
     bool sharedSalt = true;
-    
+
     for (const auto& ciphertext : ciphertexts) {
         if (ciphertext.substr(0, 16) != firstSalt) {
             sharedSalt = false;
             break;
         }
     }
-    
+
     if (sharedSalt) {
         // New format: all ciphertexts share the same salt
         // Reuse the current instance with the new salt
         updateSalt(firstSalt);
-        
+
         for (const auto& ciphertext : ciphertexts) {
             std::string actualCiphertext = ciphertext.substr(16);
             // Reset state for each ciphertext to ensure consistency
@@ -205,18 +209,18 @@ std::vector<std::string> LFSREncryption::decryptWithSalt(const std::vector<std::
         // Reuse a single instance and update its salt for each ciphertext
         LFSREncryption decryptor(taps_, originalState_, "");
         decryptor.setMasterPassword(masterPassword_);
-        
+
         for (const auto& ciphertext : ciphertexts) {
             std::string salt = ciphertext.substr(0, 16);
             std::string actualCiphertext = ciphertext.substr(16);
-            
+
             // Update the salt and reset the state for this ciphertext
             decryptor.updateSalt(salt);
             decryptor.resetState();
             plaintexts.push_back(decryptor.process(actualCiphertext));
         }
     }
-    
+
     return plaintexts;
 }
 

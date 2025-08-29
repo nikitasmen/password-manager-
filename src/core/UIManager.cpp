@@ -1,14 +1,14 @@
 #include "UIManager.h"
-#include "api.h"
+
 #include <filesystem>
 
-UIManager::UIManager(const std::string& dataPath)
-    : isLoggedIn(false), dataPath(dataPath) {
-    
+#include "api.h"
+
+UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
     try {
         // Initialize the credential manager with data path
         credManager = std::make_unique<CredentialsManager>(dataPath);
-        
+
         // Ensure data directory exists
         std::filesystem::path dir(dataPath);
         if (!std::filesystem::exists(dir)) {
@@ -28,7 +28,10 @@ std::unique_ptr<CredentialsManager> UIManager::getFreshCredManager() {
     return manager;
 }
 
-bool UIManager::safeAddCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
+bool UIManager::safeAddCredential(const std::string& platform,
+                                  const std::string& username,
+                                  const std::string& password,
+                                  std::optional<EncryptionType> encryptionType) {
     try {
         auto tempCredManager = getFreshCredManager();
         return tempCredManager->addCredentials(platform, username, password, encryptionType);
@@ -56,12 +59,17 @@ bool UIManager::safeDeleteCredential(const std::string& platform) {
     }
 }
 // Add implementation for updateCredential method
-bool UIManager::updateCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
+bool UIManager::updateCredential(const std::string& platform,
+                                 const std::string& username,
+                                 const std::string& password,
+                                 std::optional<EncryptionType> encryptionType) {
     // Default implementation
     try {
-        if (!isLoggedIn) return false;
-        if (!credManager) return false;
-        
+        if (!isLoggedIn)
+            return false;
+        if (!credManager)
+            return false;
+
         return credManager->updateCredentials(platform, username, password, encryptionType);
     } catch (const std::exception& e) {
         std::cerr << "Error updating credentials: " << e.what() << std::endl;

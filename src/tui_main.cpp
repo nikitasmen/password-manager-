@@ -1,8 +1,10 @@
 #include "tui_main.h"
-#include "core/UIManagerFactory.h"
-#include "config/GlobalConfig.h"
-#include <iostream>
+
 #include <exception>
+#include <iostream>
+
+#include "config/GlobalConfig.h"
+#include "core/UIManagerFactory.h"
 
 int tui_main() {
     try {
@@ -11,10 +13,10 @@ int tui_main() {
         if (!configManager.loadConfig(".config")) {
             std::cout << "Warning: Could not load configuration file. Using defaults.\n";
         }
-        
+
         // Create UI manager for terminal interface using configured data path
         auto uiManager = UIManagerFactory::createUIManager(UIType::TERMINAL, configManager.getDataPath());
-        
+
         // Initialize and show the UI
         uiManager->initialize();
         return uiManager->show();

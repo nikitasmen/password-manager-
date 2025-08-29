@@ -1,9 +1,10 @@
 #ifndef CREDENTIAL_DATA_H
 #define CREDENTIAL_DATA_H
 
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
+
 #include "GlobalConfig.h"
 
 struct CredentialData {
@@ -19,4 +20,4 @@ struct DecryptedCredential {
     std::string password;
 };
 
-#endif // CREDENTIAL_DATA_H
+#endif  // CREDENTIAL_DATA_H

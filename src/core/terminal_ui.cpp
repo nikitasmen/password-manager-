@@ -1,9 +1,11 @@
 #include "./terminal_ui.h"
-#include "../core/api.h"
-#include "../config/GlobalConfig.h"
+
+#include <iomanip>
 #include <iostream>
 #include <limits>
-#include <iomanip>
+
+#include "../config/GlobalConfig.h"
+#include "../core/api.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -25,20 +27,20 @@ int TerminalUI::display_menu() {
     std::cout << "| 0) Exit                                 |\n";
     std::cout << "+---------------------------------------+\n";
     std::cout << "Enter your choice: ";
-    
+
     if (!(std::cin >> choice)) {
-        std::cin.clear(); // Clear the error flag
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
+        std::cin.clear();                                                    // Clear the error flag
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // Discard invalid input
         display_message("Invalid input. Please enter a number.", true);
-        return display_menu(); // Recursively call to prompt again
+        return display_menu();  // Recursively call to prompt again
     }
-    
+
     // Consume the newline
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    
+
     if (choice < 0 || choice > 5) {
         display_message("Invalid menu option. Please try again.", true);
-        return display_menu(); // Recursively call to prompt again
+        return display_menu();  // Recursively call to prompt again
     }
 
     return choice;
@@ -54,7 +56,7 @@ void TerminalUI::display_message(const std::string& message, bool isError) {
 
 std::string TerminalUI::get_password_input(const std::string& prompt) {
     std::string input;
-    
+
     if (!prompt.empty()) {
         std::cout << prompt;
     }
@@ -65,9 +67,9 @@ std::string TerminalUI::get_password_input(const std::string& prompt) {
     DWORD mode = 0;
     GetConsoleMode(hStdin, &mode);
     SetConsoleMode(hStdin, mode & (~ENABLE_ECHO_INPUT));
-    
+
     std::getline(std::cin, input);
-    
+
     SetConsoleMode(hStdin, mode);
 #else
     // Unix/Linux/MacOS implementation
@@ -76,23 +78,23 @@ std::string TerminalUI::get_password_input(const std::string& prompt) {
     newt = oldt;
     newt.c_lflag &= ~ECHO;
     tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-    
+
     std::getline(std::cin, input);
-    
+
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
 #endif
 
-    std::cout << std::endl; // For neat output
+    std::cout << std::endl;  // For neat output
     return input;
 }
 
 std::string TerminalUI::get_text_input(const std::string& prompt) {
     std::string input;
-    
+
     if (!prompt.empty()) {
         std::cout << prompt;
     }
-    
+
     std::getline(std::cin, input);
     return input;
 }
@@ -115,31 +117,31 @@ void TerminalUI::display_list(const std::vector<std::string>& items, const std::
         display_message("No items to display.", false);
         return;
     }
-    
+
     size_t maxWidth = header.length();
-    
+
     // Find the maximum width needed
     for (const auto& item : items) {
         if (item.length() > maxWidth) {
             maxWidth = item.length();
         }
     }
-    
+
     // Add padding
     maxWidth += 4;
-    
+
     // Print the header with border
     std::cout << "\n+" << std::string(maxWidth + 2, '-') << "+" << std::endl;
     std::cout << "| " << header << std::string(maxWidth - header.length(), ' ') << " |" << std::endl;
     std::cout << "+" << std::string(maxWidth + 2, '-') << "+" << std::endl;
-    
+
     // Print each item
     for (size_t i = 0; i < items.size(); i++) {
-        std::cout << "| " << (i+1) << ". " << items[i] 
-                  << std::string(maxWidth - items[i].length() - 3 - std::to_string(i+1).length(), ' ') 
-                  << " |" << std::endl;
+        std::cout << "| " << (i + 1) << ". " << items[i]
+                  << std::string(maxWidth - items[i].length() - 3 - std::to_string(i + 1).length(), ' ') << " |"
+                  << std::endl;
     }
-    
+
     // Print the bottom border
     std::cout << "+" << std::string(maxWidth + 2, '-') << "+" << std::endl;
 }
@@ -148,8 +150,8 @@ bool TerminalUI::confirm(const std::string& message) {
     std::string input;
     std::cout << message << " (y/n): ";
     std::cin >> input;
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Clear the buffer
-    
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // Clear the buffer
+
     return (input == "y" || input == "Y" || input == "yes" || input == "Yes");
 }
 
@@ -167,17 +169,17 @@ EncryptionType TerminalUI::selectEncryptionAlgorithm() {
     std::cout << "|    - More secure but slightly slower   |\n";
     std::cout << "+---------------------------------------+\n";
     std::cout << "Please select an encryption algorithm (1-2): ";
-    
+
     if (!(std::cin >> choice)) {
-        std::cin.clear(); // Clear the error flag
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
+        std::cin.clear();                                                    // Clear the error flag
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // Discard invalid input
         display_message("Invalid input. Defaulting to AES-256.", true);
         return EncryptionType::AES;
     }
-    
+
     // Consume the newline
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    
+
     const auto& encryptionMap = EncryptionUtils::getChoiceMapping();
     auto it = encryptionMap.find(choice);
     if (it != encryptionMap.end()) {
@@ -194,14 +196,14 @@ bool TerminalUI::login(int maxAttempts) {
         std::cout << "+---------------------------------------+\n";
         std::cout << "|          PASSWORD MANAGER LOGIN         |\n";
         std::cout << "+---------------------------------------+\n";
-        
+
         if (attempt > 1) {
-            display_message("Login failed. Attempt " + std::to_string(attempt) + 
-                          " of " + std::to_string(maxAttempts), true);
+            display_message("Login failed. Attempt " + std::to_string(attempt) + " of " + std::to_string(maxAttempts),
+                            true);
         }
-        
+
         std::string password = get_password_input("Enter master password: ");
-        
+
         // Validate the password using CredentialsManager
         CredentialsManager manager(ConfigManager::getInstance().getDataPath());
         if (manager.login(password)) {
@@ -209,7 +211,7 @@ bool TerminalUI::login(int maxAttempts) {
             return true;
         }
     }
-    
+
     display_message("Maximum login attempts exceeded. Exiting...", true);
     return false;
 }

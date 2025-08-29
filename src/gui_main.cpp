@@ -1,10 +1,13 @@
 #include "gui_main.h"
-#include "core/UIManagerFactory.h"
-#include <iostream>
-#include "config/GlobalConfig.h"
+
+#include <FL/Fl.H>
+
 #include <exception>
 #include <filesystem>
-#include <FL/Fl.H>
+#include <iostream>
+
+#include "config/GlobalConfig.h"
+#include "core/UIManagerFactory.h"
 
 int gui_main() {
     try {
@@ -13,24 +16,24 @@ int gui_main() {
         if (!configManager.loadConfig(".config")) {
             std::cout << "Warning: Could not load configuration file. Using defaults.\n";
         }
-        
+
         // Create data directory if it doesn't exist
         std::filesystem::path dir(configManager.getDataPath());
         if (!std::filesystem::exists(dir)) {
             std::filesystem::create_directories(dir);
         }
-        
+
         // Initialize FLTK with more lenient error handling
         Fl::scheme("gtk+");
         Fl::visual(FL_DOUBLE | FL_RGB);
-        
+
         // Create UI manager for graphical interface using configured data path
         auto uiManager = UIManagerFactory::createUIManager(UIType::GUI, configManager.getDataPath());
-        
+
         // Initialize and show the UI
         uiManager->initialize();
         uiManager->show();
-        
+
         // Enter FLTK event loop
         return Fl::run();
     } catch (const std::exception& e) {
