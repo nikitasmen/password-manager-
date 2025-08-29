@@ -5,6 +5,9 @@ project(password_manager)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Export compile commands for clang-tidy
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # JSON library - using manual inclusion instead of FetchContent
 # Create a directory for the JSON library header
 set(JSON_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -141,6 +144,31 @@ add_custom_target(create_data_dir ALL
 # --- Base64 Test executable ---
 add_executable(base64_test tests/base64_test.cpp src/core/base64.cpp)
 link_common(base64_test)
+
+# --- Linting targets ---
+find_program(CLANG_FORMAT clang-format)
+if(CLANG_FORMAT)
+    add_custom_target(format
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/lint.sh --format --fix
+        COMMENT "Running clang-format"
+        VERBATIM
+    )
+endif()
+
+find_program(CLANG_TIDY clang-tidy)
+if(CLANG_TIDY)
+    add_custom_target(tidy
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/lint.sh --tidy
+        COMMENT "Running clang-tidy"
+        VERBATIM
+    )
+endif()
+
+add_custom_target(lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/lint.sh --all
+    COMMENT "Running all linters"
+    VERBATIM
+)
 
 # --- Install (optional; skip for local dev to speed up) ---
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
