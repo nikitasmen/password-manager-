@@ -1,22 +1,27 @@
 #include "GuiUIManager.h"
-#include "GuiComponents.h"
-#include "EditCredentialDialog.h"
-#include "UpdateDialog.h"
-#include "../core/api.h"
-#include "../core/clipboard.h"
-#include "../config/GlobalConfig.h"
-#include "../updater/AppUpdater.h"
-#include <FL/fl_ask.H>
+
+#include <FL/Fl_Box.H>  // Add this for labels
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Secret_Input.H>  // Add this for password input
-#include <FL/Fl_Box.H>           // Add this for labels
-#include <sstream>
+#include <FL/fl_ask.H>
+
 #include <filesystem>
+#include <sstream>
+
+#include "../config/GlobalConfig.h"
+#include "../core/api.h"
+#include "../core/clipboard.h"
+#include "../updater/AppUpdater.h"
+#include "EditCredentialDialog.h"
+#include "GuiComponents.h"
+#include "UpdateDialog.h"
 
 GuiUIManager::GuiUIManager(const std::string& dataPath)
     : UIManager(dataPath),
-      loginForm(nullptr), passwordSetup(nullptr), 
-      platformsDisplay(nullptr), clickablePlatformsDisplay(nullptr), 
+      loginForm(nullptr),
+      passwordSetup(nullptr),
+      platformsDisplay(nullptr),
+      clickablePlatformsDisplay(nullptr),
       credentialInputs(nullptr) {
     // Initialize update dialog (GitHub repository info should be configured here)
     updateDialog = std::make_unique<UpdateDialog>();
@@ -26,7 +31,7 @@ GuiUIManager::~GuiUIManager() {
     // Clean up all dialog windows first
     cleanupAddCredentialDialog();
     cleanupViewCredentialDialog();
-    
+
     // Then clean up the main window and its components
     cleanupMainWindow();
 }
@@ -37,17 +42,17 @@ void GuiUIManager::cleanupMainWindow() {
         rootComponent->cleanup();
         rootComponent.reset();
     }
-    
+
     // Reset any component references
     loginForm = nullptr;
     passwordSetup = nullptr;
     platformsDisplay = nullptr;
     credentialInputs = nullptr;
-    
+
     // Clean up the clickable platforms display
     // Note: clickablePlatformsDisplay is a child of mainWindow and will be deleted by FLTK
     clickablePlatformsDisplay = nullptr;
-    
+
     // Finally, destroy the main window
     if (mainWindow) {
         mainWindow->hide();
@@ -58,7 +63,7 @@ void GuiUIManager::cleanupMainWindow() {
 void GuiUIManager::initialize() {
     // Check if this is first time setup or regular login by checking for master password
     bool hasMasterPassword = credManager->hasMasterPassword();
-    
+
     // Create appropriate initial screen
     if (!hasMasterPassword) {
         createSetupScreen();
@@ -71,7 +76,7 @@ int GuiUIManager::show() {
     if (mainWindow) {
         mainWindow->show();
     }
-    
+
     // Return value will be set by the FLTK event loop in the main function
     return 0;
 }
@@ -83,9 +88,9 @@ bool GuiUIManager::login(const std::string& password) {
             showMessage("Error", "Internal error: credential manager not initialized!", true);
             return false;
         }
-        
+
         std::cout << "Attempting to login with password: [length: " << password.length() << "]" << std::endl;
-        
+
         // Try to login using the credentials manager
         if (credManager->login(password)) {
             UIManager::masterPassword = password;
@@ -106,25 +111,25 @@ bool GuiUIManager::login(const std::string& password) {
     }
 }
 
-bool GuiUIManager::setupPassword(const std::string& newPassword, 
-                               const std::string& confirmPassword,
-                               EncryptionType encryptionType) {
+bool GuiUIManager::setupPassword(const std::string& newPassword,
+                                 const std::string& confirmPassword,
+                                 EncryptionType encryptionType) {
     try {
         if (newPassword.empty()) {
             std::cerr << "Error: Empty password provided" << std::endl;
             showMessage("Error", "Please enter a password!", true);
             return false;
         }
-        
+
         if (newPassword != confirmPassword) {
             std::cerr << "Error: Passwords do not match" << std::endl;
             showMessage("Error", "Passwords do not match!", true);
             return false;
         }
-       
+
         // Set the encryption algorithm
         credManager->setEncryptionType(encryptionType);
-        
+
         // Create the new master password
         if (credManager->updatePassword(newPassword)) {
             std::cout << "Password created successfully!" << std::endl;
@@ -144,8 +149,12 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
     }
 }
 
-bool GuiUIManager::addCredential(const std::string& platform, const std::string& username, const std::string& password, std::optional<EncryptionType> encryptionType) {
-    if (!isLoggedIn) return false;
+bool GuiUIManager::addCredential(const std::string& platform,
+                                 const std::string& username,
+                                 const std::string& password,
+                                 std::optional<EncryptionType> encryptionType) {
+    if (!isLoggedIn)
+        return false;
     if (safeAddCredential(platform, username, password, encryptionType)) {
         showMessage("Success", "Credentials added successfully!");
         refreshPlatformsList();
@@ -161,7 +170,7 @@ void GuiUIManager::viewCredential(const std::string& platform) {
         showMessage("Error", "You must be logged in to view credentials", true);
         return;
     }
-    
+
     try {
         auto credsOpt = safeGetCredentials(platform);
         createViewCredentialDialog(platform, credsOpt);
@@ -172,7 +181,8 @@ void GuiUIManager::viewCredential(const std::string& platform) {
 }
 
 bool GuiUIManager::deleteCredential(const std::string& platform) {
-    if (!isLoggedIn) return false;
+    if (!isLoggedIn)
+        return false;
     std::string message = "Are you sure you want to delete credentials for " + platform + "?";
     if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
         if (safeDeleteCredential(platform)) {
@@ -202,7 +212,7 @@ void GuiUIManager::createScreen(const std::string& title, int w, int h, std::fun
 
         // 1. Create the main window for the new screen
         mainWindow = std::make_unique<Fl_Window>(w, h, title.c_str());
-        setWindowCloseHandler(mainWindow.get(), true); // Exit app on close
+        setWindowCloseHandler(mainWindow.get(), true);  // Exit app on close
         mainWindow->begin();
 
         // 2. Create the root container for the screen's components
@@ -227,20 +237,21 @@ void GuiUIManager::createScreen(const std::string& title, int w, int h, std::fun
 void GuiUIManager::createLoginScreen() {
     createScreen("Login", 400, 200, [this]() {
         loginForm = rootComponent->addChild<LoginFormComponent>(
-            mainWindow.get(), 20, 20, 360, 160, 
-            [this](const std::string& pass) { this->login(pass); }
-        );
+            mainWindow.get(), 20, 20, 360, 160, [this](const std::string& pass) { this->login(pass); });
     });
 }
 
 void GuiUIManager::createSetupScreen() {
     createScreen("First Time Setup", 500, 300, [this]() {
         passwordSetup = rootComponent->addChild<PasswordSetupComponent>(
-            mainWindow.get(), 20, 20, 460, 260,
+            mainWindow.get(),
+            20,
+            20,
+            460,
+            260,
             [this](const std::string& newPass, const std::string& confirmPass, EncryptionType encType) {
                 this->setupPassword(newPass, confirmPass, encType);
-            }
-        );
+            });
     });
 }
 
@@ -248,39 +259,42 @@ void GuiUIManager::createMainScreen() {
     try {
         createScreen("Password Manager", 600, 450, [this]() {
             rootComponent->addChild<MenuBarComponent>(
-                mainWindow.get(), 0, 0, 600, 30,
+                mainWindow.get(),
+                0,
+                0,
+                600,
+                30,
                 [this]() { createAddCredentialDialog(); },
                 [this]() { openSettingsDialog(); },
                 [this]() { openUpdateDialog(); },
-                []() { 
+                []() {
                     if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
                         exit(0);
                     }
                 },
                 []() {
                     fl_message_title("About");
-                    std::string aboutMessage = "Password Manager " + VersionInfo::getCurrentVersion() + "\n"
-                                              "A secure, lightweight password management tool\n"
-                                              "2025 - nikitasmen";
+                    std::string aboutMessage = "Password Manager " + VersionInfo::getCurrentVersion() +
+                                               "\n"
+                                               "A secure, lightweight password management tool\n"
+                                               "2025 - nikitasmen";
                     fl_message("%s", aboutMessage.c_str());
-                }
-            );
+                });
 
             // Create the clickable platforms display directly in the main window
-            clickablePlatformsDisplay = new ClickablePlatformsDisplay(
-                20, 50, 560, 300
-            );
+            clickablePlatformsDisplay = new ClickablePlatformsDisplay(20, 50, 560, 300);
             mainWindow->add(clickablePlatformsDisplay);
-            
+
             // Set up click callback
             clickablePlatformsDisplay->setClickCallback(
-                [this](ClickablePlatformsDisplay*, const std::string& platform) {
-                    this->viewCredential(platform);
-                }
-            );
+                [this](ClickablePlatformsDisplay*, const std::string& platform) { this->viewCredential(platform); });
 
             rootComponent->addChild<ActionButtonsComponent>(
-                mainWindow.get(), 20, 360, 240, 25,
+                mainWindow.get(),
+                20,
+                360,
+                240,
+                25,
                 [this]() {
                     const char* platform = fl_input("Enter platform name to view:");
                     if (platform && strlen(platform) > 0) {
@@ -290,13 +304,12 @@ void GuiUIManager::createMainScreen() {
                 [this]() {
                     const char* platform = fl_input("Enter platform name to delete:");
                     if (platform && strlen(platform) > 0) {
-                        if (fl_choice("Are you sure you want to delete this credential?", "Cancel", "Yes", nullptr) == 1) {
+                        if (fl_choice("Are you sure you want to delete this credential?", "Cancel", "Yes", nullptr) ==
+                            1) {
                             deleteCredential(platform);
                         }
                     }
-                }
-            );
-
+                });
         });
     } catch (const std::exception& e) {
         std::cerr << "Error creating main screen: " << e.what() << std::endl;
@@ -307,59 +320,60 @@ void GuiUIManager::createMainScreen() {
 void GuiUIManager::createAddCredentialDialog() {
     // Clean up existing dialog if it exists
     cleanupAddCredentialDialog();
-    
+
     try {
         // Create the dialog window with more height to accommodate the encryption dropdown
         addCredentialWindow = std::make_unique<Fl_Window>(450, 400, "Add New Credentials");
         addCredentialWindow->begin();
-        
+
         // Create root component for the dialog
         addCredentialRoot = std::make_unique<ContainerComponent>(addCredentialWindow.get(), 0, 0, 450, 400);
-        
+
         // Add credential inputs component with more height and space for encryption dropdown
-        credentialInputs = addCredentialRoot->addChild<CredentialInputsComponent>(
-            addCredentialWindow.get(), 25, 20, 400, 300
-        );
-        
+        credentialInputs =
+            addCredentialRoot->addChild<CredentialInputsComponent>(addCredentialWindow.get(), 25, 20, 400, 300);
+
         // Add dialog buttons component positioned at the bottom of the dialog
         addCredentialRoot->addChild<CredentialDialogButtonsComponent>(
-            addCredentialWindow.get(), 125, 340, 200, 30,
+            addCredentialWindow.get(),
+            125,
+            340,
+            200,
+            30,
             [this]() {
                 // Get inputs
                 std::string platform = credentialInputs->getPlatform();
                 std::string username = credentialInputs->getUsername();
                 std::string password = credentialInputs->getPassword();
                 EncryptionType encryptionType = credentialInputs->getEncryptionType();
-                
+
                 // Validate inputs
                 if (platform.empty() || username.empty() || password.empty()) {
                     showMessage("Error", "All fields are required!", true);
                     return;
                 }
-                
+
                 // Add credential with the selected encryption type
                 addCredential(platform, username, password, encryptionType);
                 cleanupAddCredentialDialog();
             },
-            [this]() {
-                cleanupAddCredentialDialog();
-            }
-        );
-        
+            [this]() { cleanupAddCredentialDialog(); });
+
         // Create all components
         addCredentialRoot->create();
-        
+
         // Show the dialog
         addCredentialWindow->end();
         addCredentialWindow->show();
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Exception in createAddCredentialDialog: " << e.what() << std::endl;
         showMessage("Error", "Failed to create add credential dialog", true);
     }
 }
 
-void GuiUIManager::createViewCredentialDialog(const std::string& platform, const std::optional<DecryptedCredential>& credentials) {
+void GuiUIManager::createViewCredentialDialog(const std::string& platform,
+                                              const std::optional<DecryptedCredential>& credentials) {
     // Clean up existing dialog if it exists
     cleanupViewCredentialDialog();
 
@@ -372,9 +386,8 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         viewCredentialRoot = std::make_unique<ContainerComponent>(viewCredentialWindow.get(), 0, 0, 400, 240);
 
         // Add credential display component
-        auto credDisplay = viewCredentialRoot->addChild<CredentialDisplayComponent>(
-            viewCredentialWindow.get(), 20, 20, 360, 120
-        );
+        auto credDisplay =
+            viewCredentialRoot->addChild<CredentialDisplayComponent>(viewCredentialWindow.get(), 20, 20, 360, 120);
         // If credentials are not available, throw an error
         if (!credentials) {
             throw std::runtime_error("No credentials found for platform: " + platform);
@@ -382,17 +395,17 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
         // Format credential information
         std::stringstream ss;
         ss << "Platform: " << platform << "\n";
-        
+
         ss << "Username: " << credentials->username << "\n";
         ss << "Password: " << credentials->password << "\n";
-        
+
         // Button layout configuration
         int buttonStartY = 160;
         int buttonWidth = 100;
         int buttonHeight = 30;
         int buttonSpacing = 10;
         int currentButtonX = 20;
-        
+
         // Add Copy Password button if clipboard is available
         if (ClipboardManager::getInstance().isAvailable()) {
             // Store password for clipboard operation
@@ -400,7 +413,12 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
 
             // Add Copy Password button component
             auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
-                viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Copy Password",
+                viewCredentialWindow.get(),
+                currentButtonX,
+                buttonStartY,
+                buttonWidth,
+                buttonHeight,
+                "Copy Password",
                 [password]() {
                     try {
                         if (ClipboardManager::getInstance().isAvailable()) {
@@ -412,23 +430,27 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
                     } catch (const ClipboardError& e) {
                         fl_alert("Failed to copy password to clipboard: %s", e.what());
                     }
-                }
-            );
+                });
             currentButtonX += buttonWidth + buttonSpacing;
         } else {
             ss << "\nClipboard functionality not available on this system";
         }
-        
+
         // Add Edit button that will open the EditCredentialDialog
         auto editButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Edit Credentials",
+            viewCredentialWindow.get(),
+            currentButtonX,
+            buttonStartY,
+            buttonWidth,
+            buttonHeight,
+            "Edit Credentials",
             [this, platform = platform, username = credentials->username]() {
                 try {
                     // Use the existing logged-in credential manager
                     if (!credManager) {
                         throw std::runtime_error("Not logged in");
                     }
-                    
+
                     // Create and show the edit dialog with the existing manager
                     auto dialog = std::make_unique<EditCredentialDialog>(
                         platform,
@@ -443,30 +465,26 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
                                     createViewCredentialDialog(platform, *updatedCreds);
                                 }
                             }
-                        }
-                    );
-                    
+                        });
+
                     // Show the dialog
                     dialog->show();
-                    
+
                     // The dialog will manage its own lifetime
                     dialog.release();
-                    
+
                 } catch (const std::exception& e) {
                     std::cerr << "Error in edit credentials handler: " << e.what() << std::endl;
                     showMessage("Error", std::string("Failed to edit credentials: ") + e.what(), true);
                 }
-            }
-        );
+            });
 
         // Add close button component
-        currentButtonX += buttonWidth + buttonSpacing; // Move to next position
+        currentButtonX += buttonWidth + buttonSpacing;  // Move to next position
         auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Close",
-            [this]() {
+            viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Close", [this]() {
                 cleanupViewCredentialDialog();
-            }
-        );
+            });
 
         // Create all components FIRST
         viewCredentialRoot->create();
@@ -486,32 +504,32 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform, const
 
 // Generic dialog cleanup helper
 namespace {
-    template<typename WindowPtr, typename RootPtr>
-    void cleanupDialog(WindowPtr& window, RootPtr& root, void*& componentRef) {
-        if (root) {
-            root->cleanup();
-            root.reset();
-        }
-        if (window) {
-            window->hide();
-            window.reset();
-        }
-        if (componentRef) {
-            componentRef = nullptr;
-        }
+template <typename WindowPtr, typename RootPtr>
+void cleanupDialog(WindowPtr& window, RootPtr& root, void*& componentRef) {
+    if (root) {
+        root->cleanup();
+        root.reset();
     }
-    template<typename WindowPtr, typename RootPtr>
-    void cleanupDialog(WindowPtr& window, RootPtr& root) {
-        if (root) {
-            root->cleanup();
-            root.reset();
-        }
-        if (window) {
-            window->hide();
-            window.reset();
-        }
+    if (window) {
+        window->hide();
+        window.reset();
+    }
+    if (componentRef) {
+        componentRef = nullptr;
     }
 }
+template <typename WindowPtr, typename RootPtr>
+void cleanupDialog(WindowPtr& window, RootPtr& root) {
+    if (root) {
+        root->cleanup();
+        root.reset();
+    }
+    if (window) {
+        window->hide();
+        window.reset();
+    }
+}
+}  // namespace
 
 void GuiUIManager::cleanupAddCredentialDialog() {
     cleanupDialog(addCredentialWindow, addCredentialRoot, reinterpret_cast<void*&>(credentialInputs));
@@ -521,10 +539,10 @@ void GuiUIManager::cleanupViewCredentialDialog() {
     cleanupDialog(viewCredentialWindow, viewCredentialRoot);
 }
 
-bool GuiUIManager::updateCredential(const std::string& platform, 
-                                  const std::string& username,
-                                  const std::string& password,
-                                  std::optional<EncryptionType> encryptionType) {
+bool GuiUIManager::updateCredential(const std::string& platform,
+                                    const std::string& username,
+                                    const std::string& password,
+                                    std::optional<EncryptionType> encryptionType) {
     try {
         // Input validation
         if (platform.empty() || username.empty() || password.empty()) {
@@ -588,17 +606,17 @@ void GuiUIManager::refreshPlatformsList() {
     if (!isLoggedIn || !mainWindow || !clickablePlatformsDisplay) {
         return;
     }
-    
+
     try {
         // Get fresh credentials manager and retrieve platforms
         auto tempCredManager = getFreshCredManager();
         std::vector<std::string> platforms = tempCredManager->getAllPlatforms();
-        
+
         // Update the clickable platforms display
         clickablePlatformsDisplay->setPlatforms(platforms);
-        
+
         // The click callback is already set up in createMainScreen
-        
+
         // Force a redraw to update the display
         if (clickablePlatformsDisplay->window()) {
             clickablePlatformsDisplay->window()->redraw();
@@ -610,18 +628,21 @@ void GuiUIManager::refreshPlatformsList() {
 }
 
 void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
-    if (!window) return;
-    
-    window->callback([](Fl_Widget* w, void* data) { 
-        bool exitApp = static_cast<bool>(reinterpret_cast<uintptr_t>(data));
-        if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-            if (exitApp) {
-                exit(0); 
-            } else {
-                w->hide();
+    if (!window)
+        return;
+
+    window->callback(
+        [](Fl_Widget* w, void* data) {
+            bool exitApp = static_cast<bool>(reinterpret_cast<uintptr_t>(data));
+            if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
+                if (exitApp) {
+                    exit(0);
+                } else {
+                    w->hide();
+                }
             }
-        }
-    }, reinterpret_cast<void*>(static_cast<uintptr_t>(exitOnClose)));
+        },
+        reinterpret_cast<void*>(static_cast<uintptr_t>(exitOnClose)));
 }
 
 void GuiUIManager::openSettingsDialog() {
@@ -648,10 +669,15 @@ void GuiUIManager::createSettingsDialog() {
 
     const auto& config = ConfigManager::getInstance().getConfig();
     auto settingsDialog = settingsRoot->addChild<SettingsDialogComponent>(
-        settingsWindow.get(), 0, 0, 550, 600, masterPassword, config,
+        settingsWindow.get(),
+        0,
+        0,
+        550,
+        600,
+        masterPassword,
+        config,
         [this]() { cleanupSettingsDialog(); },
-        [this]() { cleanupSettingsDialog(); }
-    );
+        [this]() { cleanupSettingsDialog(); });
 
     settingsRoot->create();
     settingsWindow->end();

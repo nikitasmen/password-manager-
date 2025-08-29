@@ -1,18 +1,20 @@
 #ifndef EDIT_CREDENTIAL_DIALOG_H
 #define EDIT_CREDENTIAL_DIALOG_H
 
-#include "GuiComponents.h"
-#include "../core/api.h"
-#include <FL/Fl_Window.H>
+#include <FL/Fl_Choice.H>
 #include <FL/Fl_Input.H>
 #include <FL/Fl_Secret_Input.H>
-#include <FL/Fl_Choice.H>
+#include <FL/Fl_Window.H>
+
 #include <memory>
 #include <string>
+
+#include "../core/api.h"
 #include "../utils/EncryptionUtils.h"
+#include "GuiComponents.h"
 
 class EditCredentialDialog {
-private:
+   private:
     std::unique_ptr<Fl_Window> window;
     std::unique_ptr<ContainerComponent> rootComponent;
     Fl_Input* usernameField;         // Store username field for cleanup
@@ -23,11 +25,21 @@ private:
     std::string username;
     CredentialsManager* credManager;
 
-public:
-    EditCredentialDialog(const std::string& platform, const std::string& username, 
-                        CredentialsManager* credManager, std::function<void(bool)> onComplete)
-        : window(nullptr), rootComponent(nullptr), usernameField(nullptr), passwordField(nullptr), encryptionChoice(nullptr),
-          platform(platform), onComplete(onComplete), username(username), credManager(credManager) {}
+   public:
+    EditCredentialDialog(const std::string& platform,
+                         const std::string& username,
+                         CredentialsManager* credManager,
+                         std::function<void(bool)> onComplete)
+        : window(nullptr),
+          rootComponent(nullptr),
+          usernameField(nullptr),
+          passwordField(nullptr),
+          encryptionChoice(nullptr),
+          platform(platform),
+          onComplete(onComplete),
+          username(username),
+          credManager(credManager) {
+    }
 
     ~EditCredentialDialog() {
         cleanup();
@@ -44,17 +56,15 @@ public:
             window->begin();
 
             rootComponent = std::make_unique<ContainerComponent>(window.get(), 0, 0, 450, 320);
-            
+
             // Display platform name (read-only)
-            auto platformDisplay = rootComponent->addChild<DescriptionComponent>(
-                window.get(), 25, 20, 400, 25, "Platform: " + platform
-            );
+            auto platformDisplay =
+                rootComponent->addChild<DescriptionComponent>(window.get(), 25, 20, 400, 25, "Platform: " + platform);
 
             // Username label
-            auto usernameLabel = rootComponent->addChild<DescriptionComponent>(
-                window.get(), 25, 50, 100, 25, "Username:"
-            );
-            
+            auto usernameLabel =
+                rootComponent->addChild<DescriptionComponent>(window.get(), 25, 50, 100, 25, "Username:");
+
             // Create username input field directly using FLTK
             if (!usernameField) {
                 usernameField = new Fl_Input(130, 50, 295, 30);
@@ -65,11 +75,9 @@ public:
             }
 
             // Password label
-            auto passwordLabel = rootComponent->addChild<DescriptionComponent>(
-                window.get(), 25, 90, 100, 25, "Password:"
-            );
+            auto passwordLabel =
+                rootComponent->addChild<DescriptionComponent>(window.get(), 25, 90, 100, 25, "Password:");
 
-            
             // Create password input field directly using FLTK if not already created
             if (!passwordField) {
                 passwordField = new Fl_Secret_Input(130, 90, 295, 30);
@@ -78,12 +86,11 @@ public:
             } else {
                 passwordField->show();
             }
-            
+
             // Encryption type label
-            auto encryptionLabel = rootComponent->addChild<DescriptionComponent>(
-                window.get(), 25, 130, 100, 25, "Encryption:"
-            );
-            
+            auto encryptionLabel =
+                rootComponent->addChild<DescriptionComponent>(window.get(), 25, 130, 100, 25, "Encryption:");
+
             // Create encryption choice dropdown
             if (!encryptionChoice) {
                 encryptionChoice = new Fl_Choice(130, 130, 295, 30);
@@ -109,32 +116,37 @@ public:
 
             // Add buttons (moved down to accommodate encryption dropdown)
             rootComponent->addChild<CredentialDialogButtonsComponent>(
-                window.get(), 125, 250, 200, 30,
+                window.get(),
+                125,
+                250,
+                200,
+                30,
                 [this]() {
                     // Save button callback
                     if (!usernameField || !passwordField || !encryptionChoice) {
                         fl_alert("Input fields not initialized!");
                         return;
                     }
-                    
+
                     std::string newUsername = usernameField->value();
                     std::string newPassword = passwordField->value();
                     EncryptionType newEncryptionType = EncryptionUtils::fromDropdownIndex(encryptionChoice->value());
-                    
+
                     if (newUsername.empty()) {
                         fl_alert("Username cannot be empty!");
                         return;
                     }
-                    
+
                     if (newPassword.empty()) {
                         fl_alert("Password cannot be empty!");
                         return;
                     }
-                    
+
                     if (credManager->updateCredentials(platform, newUsername, newPassword, newEncryptionType)) {
                         fl_message("Credentials updated successfully!");
                         cleanup();
-                        if (onComplete) onComplete(true);
+                        if (onComplete)
+                            onComplete(true);
                     } else {
                         fl_alert("Failed to update credentials!");
                     }
@@ -142,18 +154,18 @@ public:
                 [this]() {
                     // Cancel button callback
                     cleanup();
-                    if (onComplete) onComplete(false);
-                }
-            );
+                    if (onComplete)
+                        onComplete(false);
+                });
 
             rootComponent->create();
             window->end();
             window->show();
-        }
-        catch (const std::exception& e) {
+        } catch (const std::exception& e) {
             fl_alert("Error creating edit credential dialog: %s", e.what());
             cleanup();
-            if (onComplete) onComplete(false);
+            if (onComplete)
+                onComplete(false);
         }
     }
 
@@ -184,4 +196,4 @@ public:
     }
 };
 
-#endif // EDIT_CREDENTIAL_DIALOG_H
+#endif  // EDIT_CREDENTIAL_DIALOG_H

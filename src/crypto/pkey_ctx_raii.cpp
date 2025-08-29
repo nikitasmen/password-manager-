@@ -1,4 +1,5 @@
 #include "pkey_ctx_raii.h"
+
 #include <openssl/err.h>
 
 PKEYContextRAII::PKEYContextRAII(EVP_PKEY* pkey) {

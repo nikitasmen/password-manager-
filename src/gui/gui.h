@@ -7,16 +7,16 @@
 class GuiManager;
 
 class PasswordManagerGUI {
-private:
+   private:
     // GuiManager handles all component orchestration
     std::unique_ptr<GuiManager> guiManager;
 
-public:
+   public:
     PasswordManagerGUI();
     ~PasswordManagerGUI();
-    
+
     // Public interface methods - delegate to GuiManager
     void show();
 };
 
-#endif // GUI_H
+#endif  // GUI_H

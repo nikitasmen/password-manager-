@@ -1,35 +1,37 @@
 #ifndef GUI_COMPONENTS_H
 #define GUI_COMPONENTS_H
 
-#include "GuiComponent.h"
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Button.H>
-#include <FL/Fl_Input.H>
-#include <FL/Fl_Secret_Input.H>
-#include <FL/Fl_Text_Display.H>
-#include <FL/Fl_Text_Buffer.H>
-#include <FL/Fl_Menu_Bar.H>
-#include <FL/Fl_Choice.H>
 #include <FL/Fl_Check_Button.H>
+#include <FL/Fl_Choice.H>
+#include <FL/Fl_Input.H>
+#include <FL/Fl_Menu_Bar.H>
 #include <FL/Fl_Scroll.H>
+#include <FL/Fl_Secret_Input.H>
+#include <FL/Fl_Text_Buffer.H>
+#include <FL/Fl_Text_Display.H>
 #include <FL/fl_ask.H>
-#include <sstream>
+
+#include <algorithm>  // for std::remove_if
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
+
 #include "../config/GlobalConfig.h"
 #include "../config/MigrationHelper.h"
-#include <algorithm> // for std::remove_if
 #include "EncryptionUtils.h"
+#include "GuiComponent.h"
 
 // Base class for text display components
 class ContainerComponent : public GuiComponent {
-private:
+   private:
     std::vector<std::unique_ptr<GuiComponent>> children;
 
-public:
-    ContainerComponent(Fl_Group* parent, int x, int y, int w, int h)
-        : GuiComponent(parent, x, y, w, h) {}
+   public:
+    ContainerComponent(Fl_Group* parent, int x, int y, int w, int h) : GuiComponent(parent, x, y, w, h) {
+    }
 
     void addChild(std::unique_ptr<GuiComponent> child) {
         children.push_back(std::move(child));
@@ -53,7 +55,8 @@ public:
     T* findChild() {
         for (auto& child : children) {
             T* result = dynamic_cast<T*>(child.get());
-            if (result) return result;
+            if (result)
+                return result;
         }
         return nullptr;
     }
@@ -61,30 +64,33 @@ public:
 
 // Base class for text display components
 class TextComponentBase : public GuiComponent {
-protected:
+   protected:
     std::string text;
 
-public:
+   public:
     TextComponentBase(Fl_Group* parent, int x, int y, int w, int h, const std::string& text)
-        : GuiComponent(parent, x, y, w, h), text(text) {}
-        
+        : GuiComponent(parent, x, y, w, h), text(text) {
+    }
+
     virtual void setText(const std::string& newText) {
         text = newText;
     }
-    
-    const std::string& getText() const { return text; }
+
+    const std::string& getText() const {
+        return text;
+    }
 };
 
 // Component for displaying a title
 class TitleComponent : public TextComponentBase {
-private:
+   private:
     int fontSize;
 
-public:
-    TitleComponent(Fl_Group* parent, int x, int y, int w, int h, 
-                  const std::string& title, int fontSize = 20)
-        : TextComponentBase(parent, x, y, w, h, title), fontSize(fontSize) {}
-    
+   public:
+    TitleComponent(Fl_Group* parent, int x, int y, int w, int h, const std::string& title, int fontSize = 20)
+        : TextComponentBase(parent, x, y, w, h, title), fontSize(fontSize) {
+    }
+
     void create() override {
         Fl_Box* titleBox = createWidget<Fl_Box>(x, y, w, h, text.c_str());
         titleBox->labelsize(fontSize);
@@ -93,10 +99,11 @@ public:
 
 // Component for displaying a descriptive text
 class DescriptionComponent : public TextComponentBase {
-public:
+   public:
     DescriptionComponent(Fl_Group* parent, int x, int y, int w, int h, const std::string& text)
-        : TextComponentBase(parent, x, y, w, h, text) {}
-    
+        : TextComponentBase(parent, x, y, w, h, text) {
+    }
+
     void create() override {
         createWidget<Fl_Box>(x, y, w, h, text.c_str());
     }
@@ -104,69 +111,78 @@ public:
 
 // Base component for forms with a callback
 class FormComponentBase : public GuiComponent {
-protected:
+   protected:
     // Common button dimensions
     static constexpr int BUTTON_WIDTH = 100;
     static constexpr int BUTTON_HEIGHT = 30;
     static constexpr int INPUT_HEIGHT = 30;
 
-public:
-    FormComponentBase(Fl_Group* parent, int x, int y, int w, int h)
-        : GuiComponent(parent, x, y, w, h) {}
-    
+   public:
+    FormComponentBase(Fl_Group* parent, int x, int y, int w, int h) : GuiComponent(parent, x, y, w, h) {
+    }
+
     // Helper method to center a button
     int centerX(int buttonWidth) const {
-        return x + (w/2) - (buttonWidth/2);
+        return x + (w / 2) - (buttonWidth / 2);
     }
 };
 
 // Component for login form
 class LoginFormComponent : public FormComponentBase {
-private:
+   private:
     TextCallback onLogin;
     Fl_Secret_Input* passwordInput;
     Fl_Button* loginButton;
 
-public:
+   public:
     LoginFormComponent(Fl_Group* parent, int x, int y, int w, int h, TextCallback onLogin)
-        : FormComponentBase(parent, x, y, w, h), onLogin(onLogin), 
-          passwordInput(nullptr), loginButton(nullptr) {}
-    
+        : FormComponentBase(parent, x, y, w, h), onLogin(onLogin), passwordInput(nullptr), loginButton(nullptr) {
+    }
+
     void create() override {
         // Create password input
         passwordInput = createWidget<Fl_Secret_Input>(x + 50, y, w - 100, INPUT_HEIGHT, "Master Password:");
-        
+
         // Create login button
         loginButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 60, BUTTON_WIDTH, BUTTON_HEIGHT, "Login");
-        CallbackHelper::setCallback(loginButton, this, [this](LoginFormComponent* comp) {
-            comp->onLogin(comp->passwordInput->value());
-        });
+        CallbackHelper::setCallback(
+            loginButton, this, [this](LoginFormComponent* comp) { comp->onLogin(comp->passwordInput->value()); });
     }
-    
-    Fl_Secret_Input* getPasswordInput() const { return passwordInput; }
-    Fl_Button* getLoginButton() const { return loginButton; }
+
+    Fl_Secret_Input* getPasswordInput() const {
+        return passwordInput;
+    }
+    Fl_Button* getLoginButton() const {
+        return loginButton;
+    }
 };
 
 // Component for password setup form
 class PasswordSetupComponent : public FormComponentBase {
-private:
+   private:
     PasswordCallback onSetup;
     Fl_Secret_Input* newPasswordInput;
     Fl_Secret_Input* confirmPasswordInput;
     Fl_Button* createButton;
-    
+
     static constexpr int INPUT_WIDTH = 200;
     static constexpr int LABEL_WIDTH = 180;
 
-public:
+   public:
     PasswordSetupComponent(Fl_Group* parent, int x, int y, int w, int h, PasswordCallback onSetup)
-        : FormComponentBase(parent, x, y, w, h), onSetup(onSetup),
-          newPasswordInput(nullptr), confirmPasswordInput(nullptr), createButton(nullptr) {}
-    
+        : FormComponentBase(parent, x, y, w, h),
+          onSetup(onSetup),
+          newPasswordInput(nullptr),
+          confirmPasswordInput(nullptr),
+          createButton(nullptr) {
+    }
+
     void create() override {
         // Create password inputs
-        newPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "New Master Password:");
-        confirmPasswordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
+        newPasswordInput =
+            createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "New Master Password:");
+        confirmPasswordInput =
+            createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
         // Always fetch the current default encryption from config at creation time
         ConfigManager& config = ConfigManager::getInstance();
         EncryptionType encType = config.getDefaultEncryption();
@@ -179,7 +195,8 @@ public:
             msg = "Encryption: " + encTypeStr + " (Default)";
         }
         // Debug output
-        std::cerr << "[PasswordSetupComponent] encType=" << static_cast<int>(encType) << ", encTypeStr='" << encTypeStr << "'\n";
+        std::cerr << "[PasswordSetupComponent] encType=" << static_cast<int>(encType) << ", encTypeStr='" << encTypeStr
+                  << "'\n";
         Fl_Box* encLabel = createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "");
         encLabel->copy_label(msg.c_str());
 
@@ -188,20 +205,24 @@ public:
         CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
             // Fetch the encryption type again in case config changed
             EncryptionType encType = ConfigManager::getInstance().getDefaultEncryption();
-            comp->onSetup(comp->newPasswordInput->value(), 
-                         comp->confirmPasswordInput->value(),
-                         encType);
+            comp->onSetup(comp->newPasswordInput->value(), comp->confirmPasswordInput->value(), encType);
         });
     }
-    
-    Fl_Secret_Input* getNewPasswordInput() const { return newPasswordInput; }
-    Fl_Secret_Input* getConfirmPasswordInput() const { return confirmPasswordInput; }
-    Fl_Button* getCreateButton() const { return createButton; }
+
+    Fl_Secret_Input* getNewPasswordInput() const {
+        return newPasswordInput;
+    }
+    Fl_Secret_Input* getConfirmPasswordInput() const {
+        return confirmPasswordInput;
+    }
+    Fl_Button* getCreateButton() const {
+        return createButton;
+    }
 };
 
 // Component for menu bar
 class MenuBarComponent : public GuiComponent {
-private:
+   private:
     struct MenuActions {
         ButtonCallback onAddCredential;
         ButtonCallback onSettings;
@@ -209,57 +230,74 @@ private:
         ButtonCallback onExit;
         ButtonCallback onAbout;
     };
-    
+
     MenuActions actions;
     Fl_Menu_Bar* menuBar;
-    std::vector<void*> callbackData; // Store pointers to allocated callback data for cleanup
+    std::vector<void*> callbackData;  // Store pointers to allocated callback data for cleanup
 
     // Generic menu callback using the component's actions
     static void menuCallback(Fl_Widget*, void* data) {
         auto* callbackInfo = static_cast<std::pair<MenuBarComponent*, int>*>(data);
         MenuBarComponent* comp = callbackInfo->first;
         int actionId = callbackInfo->second;
-        
-        switch(actionId) {
-            case 0: comp->actions.onAddCredential(); break;
-            case 1: comp->actions.onSettings(); break;
-            case 2: comp->actions.onCheckUpdates(); break;
-            case 3: comp->actions.onExit(); break;
-            case 4: comp->actions.onAbout(); break;
+
+        switch (actionId) {
+            case 0:
+                comp->actions.onAddCredential();
+                break;
+            case 1:
+                comp->actions.onSettings();
+                break;
+            case 2:
+                comp->actions.onCheckUpdates();
+                break;
+            case 3:
+                comp->actions.onExit();
+                break;
+            case 4:
+                comp->actions.onAbout();
+                break;
         }
     }
 
-public:
-    MenuBarComponent(Fl_Group* parent, int x, int y, int w, int h,
-                    ButtonCallback onAddCredential,
-                    ButtonCallback onSettings,
-                    ButtonCallback onCheckUpdates,
-                    ButtonCallback onExit,
-                    ButtonCallback onAbout)
+   public:
+    MenuBarComponent(Fl_Group* parent,
+                     int x,
+                     int y,
+                     int w,
+                     int h,
+                     ButtonCallback onAddCredential,
+                     ButtonCallback onSettings,
+                     ButtonCallback onCheckUpdates,
+                     ButtonCallback onExit,
+                     ButtonCallback onAbout)
         : GuiComponent(parent, x, y, w, h),
           actions{onAddCredential, onSettings, onCheckUpdates, onExit, onAbout},
-          menuBar(nullptr) {}
-    
+          menuBar(nullptr) {
+    }
+
     void create() override {
         menuBar = createWidget<Fl_Menu_Bar>(x, y, w, h);
-        
+
         // Add menu items with standardized callback approach
-        addMenuItem("File/Add Credential", 0); // Action ID 0
-        addMenuItem("File/Settings", 1);       // Action ID 1
-        addMenuItem("Help/Check for Updates", 2); // Action ID 2
-        addMenuItem("File/Exit", 3);           // Action ID 3 
-        addMenuItem("Help/About", 4);          // Action ID 4
+        addMenuItem("File/Add Credential", 0);     // Action ID 0
+        addMenuItem("File/Settings", 1);           // Action ID 1
+        addMenuItem("Help/Check for Updates", 2);  // Action ID 2
+        addMenuItem("File/Exit", 3);               // Action ID 3
+        addMenuItem("Help/About", 4);              // Action ID 4
     }
-    
+
     // Helper method to add menu items with consistent handling
     void addMenuItem(const char* path, int actionId) {
         auto* callbackInfo = new std::pair<MenuBarComponent*, int>(this, actionId);
-        callbackData.push_back(callbackInfo); // Store for cleanup
+        callbackData.push_back(callbackInfo);  // Store for cleanup
         menuBar->add(path, 0, menuCallback, callbackInfo);
     }
-    
-    Fl_Menu_Bar* getMenuBar() const { return menuBar; }
-    
+
+    Fl_Menu_Bar* getMenuBar() const {
+        return menuBar;
+    }
+
     // Clean up allocated callback data
     void cleanup() override {
         for (void* data : callbackData) {
@@ -272,34 +310,35 @@ public:
 
 // Base component for text displays using buffer
 class BufferedTextDisplayBase : public GuiComponent {
-protected:
+   protected:
     Fl_Text_Display* display;
     Fl_Text_Buffer* buffer;
     std::string label;
 
-public:
+   public:
     BufferedTextDisplayBase(Fl_Group* parent, int x, int y, int w, int h, const std::string& label = "")
-        : GuiComponent(parent, x, y, w, h), display(nullptr), buffer(nullptr), label(label) {}
-    
+        : GuiComponent(parent, x, y, w, h), display(nullptr), buffer(nullptr), label(label) {
+    }
+
     virtual void create() override {
         buffer = new Fl_Text_Buffer();
-        
+
         // Create display with or without label based on provided label
         if (!label.empty()) {
             display = createWidget<Fl_Text_Display>(x, y, w, h, label.c_str());
         } else {
             display = createWidget<Fl_Text_Display>(x, y, w, h);
         }
-        
+
         display->buffer(buffer);
     }
-    
+
     void setText(const std::string& text) {
         if (buffer) {
             buffer->text(text.c_str());
         }
     }
-    
+
     void cleanup() override {
         if (display && buffer) {
             display->buffer(nullptr);
@@ -310,9 +349,13 @@ public:
         }
         GuiComponent::cleanup();
     }
-    
-    Fl_Text_Display* getDisplay() const { return display; }
-    Fl_Text_Buffer* getBuffer() const { return buffer; }
+
+    Fl_Text_Display* getDisplay() const {
+        return display;
+    }
+    Fl_Text_Buffer* getBuffer() const {
+        return buffer;
+    }
 };
 
 // Component for platforms display
@@ -323,7 +366,7 @@ class ClickablePlatformsDisplay;
 using PlatformClickCallback = std::function<void(ClickablePlatformsDisplay*, const std::string& platform)>;
 
 class ClickablePlatformsDisplay : public Fl_Group {
-private:
+   private:
     Fl_Text_Display* display;
     Fl_Text_Buffer* buffer;
     std::vector<std::string> platforms;
@@ -331,14 +374,14 @@ private:
     int handle(int event) override {
         // Always let the base class handle events first
         int result = Fl_Group::handle(event);
-        
+
         // Get the coordinates relative to our widget
         int relX = Fl::event_x() - x();
         int relY = Fl::event_y() - y();
-        
+
         // Check if the event is inside our widget
         bool inside = (relX >= 0 && relX < w() && relY >= 0 && relY < h());
-        
+
         switch (event) {
             case FL_PUSH:
                 // Take focus when clicked
@@ -347,36 +390,36 @@ private:
                 if (Fl::event_inside(display)) {
                     return display->handle(FL_PUSH);
                 }
-                return 1; // We handled the event
-                
+                return 1;  // We handled the event
+
             case FL_RELEASE:
                 // Handle double-clicks
                 if (Fl::event_clicks() > 0) {
                     // Calculate line height based on font size
-                    int lineHeight = display->textsize() + 2; // Add some spacing between lines
-                    
+                    int lineHeight = display->textsize() + 2;  // Add some spacing between lines
+
                     // Calculate the click position relative to the text display
                     // We need to account for the display's position and any internal padding
-                    const int topPadding = 4; // Additional padding at the top of the text area
-                    
+                    const int topPadding = 4;  // Additional padding at the top of the text area
+
                     // Calculate textY relative to the top of the text display
                     // Since display is positioned at the same coordinates as the widget,
-                    int textY = relY; 
-    
+                    int textY = relY;
+
                     // Calculate which line was clicked (0-based)
-                    int rawLine = textY / lineHeight; 
+                    int rawLine = textY / lineHeight;
                     int line = rawLine - 2;
-                    
+
                     // Check if click is outside the display area
                     if (relY < 0 || relY > display->h() || relX < 0 || relX > display->w()) {
                         return 1;
                     }
-                    
+
                     // Check if we have platforms available
                     if (platforms.empty()) {
                         return 1;
                     }
-                    
+
                     // Do not clamp - reject clicks outside the actual content
                     if (line >= 0 && line < static_cast<int>(platforms.size())) {
                         const std::string& platform = platforms[line];
@@ -388,27 +431,28 @@ private:
                     return 1;
                 }
                 break;
-                
+
             case FL_ENTER:
                 window()->cursor(FL_CURSOR_HAND);
                 return 1;
-                
+
             case FL_LEAVE:
                 window()->cursor(FL_CURSOR_DEFAULT);
                 return 1;
         }
-        
+
         return result;
     }
-    
-public:
+
+   public:
     ClickablePlatformsDisplay(int x, int y, int w, int h, const char* label = "Stored Platforms:")
         : Fl_Group(x, y, w, h, label), display(nullptr), buffer(nullptr) {
         try {
             // Create a buffer for the text
             buffer = new Fl_Text_Buffer();
-            if (!buffer) throw std::bad_alloc();
-            
+            if (!buffer)
+                throw std::bad_alloc();
+
             // Create the text display
             display = new Fl_Text_Display(x, y, w, h);
             if (!display) {
@@ -416,7 +460,7 @@ public:
                 buffer = nullptr;
                 throw std::bad_alloc();
             }
-            
+
             // Configure the display
             display->buffer(buffer);
             display->box(FL_DOWN_BOX);
@@ -428,16 +472,16 @@ public:
             display->cursor_color(FL_BLACK);
             display->set_output();
             display->clear_visible_focus();
-            
+
             // Add the display to our group
             begin();
             add(display);
             end();
-            
+
             // Configure the group
             box(FL_DOWN_BOX);
             clear_visible_focus();
-            
+
         } catch (...) {
             // Clean up in case of any exception
             if (buffer) {
@@ -445,27 +489,25 @@ public:
                 buffer = nullptr;
             }
             // display will be cleaned up by FLTK if it was added to the group
-            throw; // Re-throw the exception
+            throw;  // Re-throw the exception
         }
     }
-    
 
-    
     void setPlatforms(const std::vector<std::string>& newPlatforms) {
         if (!display || !buffer) {
             std::cerr << "Error: Display or buffer not initialized" << std::endl;
             return;
         }
-        
+
         platforms = newPlatforms;
-        
+
         try {
             // Update the display text
             std::string text = "Double-click a platform to view credentials:\n\n";
             for (const auto& platform : platforms) {
                 text += platform + "\n";
             }
-            
+
             buffer->text(text.c_str());
             redraw();
         } catch (const std::exception& e) {
@@ -475,11 +517,11 @@ public:
             redraw();
         }
     }
-    
+
     void setClickCallback(PlatformClickCallback cb) {
         clickCallback = std::move(cb);
     }
-    
+
     ~ClickablePlatformsDisplay() {
         // Clean up resources in reverse order of creation
         if (buffer) {
@@ -492,10 +534,11 @@ public:
 
 // Keep the old component for backward compatibility
 class PlatformsDisplayComponent : public BufferedTextDisplayBase {
-public:
+   public:
     PlatformsDisplayComponent(Fl_Group* parent, int x, int y, int w, int h)
-        : BufferedTextDisplayBase(parent, x, y, w, h, "Stored Platforms:") {}
-    
+        : BufferedTextDisplayBase(parent, x, y, w, h, "Stored Platforms:") {
+    }
+
     void create() override {
         BufferedTextDisplayBase::create();
     }
@@ -503,72 +546,69 @@ public:
 
 // Component for action buttons
 class ActionButtonsComponent : public FormComponentBase {
-private:
+   private:
     static constexpr int BUTTON_WIDTH = 100;
     static constexpr int BUTTON_HEIGHT = 25;
     static constexpr int BUTTON_GAP = 20;
-    
+
     ButtonCallback onView;
     ButtonCallback onDelete;
 
-public:
-    ActionButtonsComponent(Fl_Group* parent, int x, int y, int w, int h,
-                          ButtonCallback onView,
-                          ButtonCallback onDelete)
-        : FormComponentBase(parent, x, y, w, h), onView(onView), onDelete(onDelete) {}
-    
+   public:
+    ActionButtonsComponent(Fl_Group* parent, int x, int y, int w, int h, ButtonCallback onView, ButtonCallback onDelete)
+        : FormComponentBase(parent, x, y, w, h), onView(onView), onDelete(onDelete) {
+    }
+
     void create() override {
         // Create view button
         Fl_Button* viewButton = createWidget<Fl_Button>(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, "View");
-        CallbackHelper::setCallback(viewButton, this, [this](ActionButtonsComponent* comp) {
-            comp->onView();
-        });
-        
+        CallbackHelper::setCallback(viewButton, this, [this](ActionButtonsComponent* comp) { comp->onView(); });
+
         // Create delete button
-        Fl_Button* deleteButton = createWidget<Fl_Button>(
-            x + BUTTON_WIDTH + BUTTON_GAP, 
-            y, 
-            BUTTON_WIDTH, 
-            BUTTON_HEIGHT, 
-            "Delete"
-        );
-        CallbackHelper::setCallback(deleteButton, this, [this](ActionButtonsComponent* comp) {
-            comp->onDelete();
-        });
+        Fl_Button* deleteButton =
+            createWidget<Fl_Button>(x + BUTTON_WIDTH + BUTTON_GAP, y, BUTTON_WIDTH, BUTTON_HEIGHT, "Delete");
+        CallbackHelper::setCallback(deleteButton, this, [this](ActionButtonsComponent* comp) { comp->onDelete(); });
     }
 };
 
 // Component for credential inputs
 class CredentialInputsComponent : public FormComponentBase {
-private:
+   private:
     static constexpr int LABEL_WIDTH = 150;
     static constexpr int INPUT_WIDTH = 200;
     static constexpr int VERTICAL_GAP = 50;
-    
+
     Fl_Input* platformInput;
     Fl_Input* usernameInput;
     Fl_Secret_Input* passwordInput;
     Fl_Choice* encryptionChoice;
 
-public:
+   public:
     CredentialInputsComponent(Fl_Group* parent, int x, int y, int w, int h)
         : FormComponentBase(parent, x, y, w, h),
-          platformInput(nullptr), usernameInput(nullptr), passwordInput(nullptr), encryptionChoice(nullptr) {}
-    
+          platformInput(nullptr),
+          usernameInput(nullptr),
+          passwordInput(nullptr),
+          encryptionChoice(nullptr) {
+    }
+
     void create() override {
         platformInput = createWidget<Fl_Input>(x + LABEL_WIDTH, y, INPUT_WIDTH, INPUT_HEIGHT, "Platform:");
-        usernameInput = createWidget<Fl_Input>(x + LABEL_WIDTH, y + VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Username:");
-        passwordInput = createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 2 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Password:");
-        encryptionChoice = createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
-        
+        usernameInput =
+            createWidget<Fl_Input>(x + LABEL_WIDTH, y + VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Username:");
+        passwordInput = createWidget<Fl_Secret_Input>(
+            x + LABEL_WIDTH, y + 2 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Password:");
+        encryptionChoice =
+            createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
+
         // Add encryption options using helper functions
         auto availableTypes = EncryptionUtils::getAllTypes();
         for (const auto& type : availableTypes) {
             encryptionChoice->add(EncryptionUtils::getDisplayName(type));
         }
-        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault())); // Default encryption
+        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));  // Default encryption
     }
-    
+
     // Methods to retrieve credential input values
     struct CredentialData {
         std::string platform;
@@ -576,27 +616,41 @@ public:
         std::string password;
         EncryptionType encryptionType;
     };
-    
+
     CredentialData getCredentialData() const {
-        return {
-            platformInput ? platformInput->value() : "",
-            usernameInput ? usernameInput->value() : "",
-            passwordInput ? passwordInput->value() : "",
-            encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault()
-        };
+        return {platformInput ? platformInput->value() : "",
+                usernameInput ? usernameInput->value() : "",
+                passwordInput ? passwordInput->value() : "",
+                encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value())
+                                 : EncryptionUtils::getDefault()};
     }
-    
-    std::string getPlatform() const { return platformInput ? platformInput->value() : ""; }
-    std::string getUsername() const { return usernameInput ? usernameInput->value() : ""; }
-    std::string getPassword() const { return passwordInput ? passwordInput->value() : ""; }
-    EncryptionType getEncryptionType() const { 
-        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value()) : EncryptionUtils::getDefault();
+
+    std::string getPlatform() const {
+        return platformInput ? platformInput->value() : "";
     }
-    
-    Fl_Input* getPlatformInput() const { return platformInput; }
-    Fl_Input* getUsernameInput() const { return usernameInput; }
-    Fl_Secret_Input* getPasswordInput() const { return passwordInput; }
-    Fl_Choice* getEncryptionChoice() const { return encryptionChoice; }
+    std::string getUsername() const {
+        return usernameInput ? usernameInput->value() : "";
+    }
+    std::string getPassword() const {
+        return passwordInput ? passwordInput->value() : "";
+    }
+    EncryptionType getEncryptionType() const {
+        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value())
+                                : EncryptionUtils::getDefault();
+    }
+
+    Fl_Input* getPlatformInput() const {
+        return platformInput;
+    }
+    Fl_Input* getUsernameInput() const {
+        return usernameInput;
+    }
+    Fl_Secret_Input* getPasswordInput() const {
+        return passwordInput;
+    }
+    Fl_Choice* getEncryptionChoice() const {
+        return encryptionChoice;
+    }
 };
 
 // Dialog button layout configurations
@@ -608,89 +662,86 @@ struct DialogButtonConfig {
 
 // Component for credential dialog buttons
 class CredentialDialogButtonsComponent : public FormComponentBase {
-private:
+   private:
     ButtonCallback onSave;
     ButtonCallback onCancel;
     DialogButtonConfig config;
 
-public:
-    CredentialDialogButtonsComponent(Fl_Group* parent, int x, int y, int w, int h,
-                                    ButtonCallback onSave,
-                                    ButtonCallback onCancel,
-                                    const DialogButtonConfig& config = DialogButtonConfig())
-        : FormComponentBase(parent, x, y, w, h), onSave(onSave), onCancel(onCancel), config(config) {}
-    
+   public:
+    CredentialDialogButtonsComponent(Fl_Group* parent,
+                                     int x,
+                                     int y,
+                                     int w,
+                                     int h,
+                                     ButtonCallback onSave,
+                                     ButtonCallback onCancel,
+                                     const DialogButtonConfig& config = DialogButtonConfig())
+        : FormComponentBase(parent, x, y, w, h), onSave(onSave), onCancel(onCancel), config(config) {
+    }
+
     void create() override {
         // Position buttons with equal spacing
         int totalWidth = 2 * config.buttonWidth + config.buttonGap;
         int startX = centerX(totalWidth);
-        
+
         // Create buttons
         Fl_Button* saveButton = createWidget<Fl_Button>(startX, y, config.buttonWidth, config.buttonHeight, "Save");
-        CallbackHelper::setCallback(saveButton, this, [this](CredentialDialogButtonsComponent* comp) {
-            comp->onSave();
-        });
-        
+        CallbackHelper::setCallback(
+            saveButton, this, [this](CredentialDialogButtonsComponent* comp) { comp->onSave(); });
+
         Fl_Button* cancelButton = createWidget<Fl_Button>(
-            startX + config.buttonWidth + config.buttonGap, 
-            y, 
-            config.buttonWidth, 
-            config.buttonHeight, 
-            "Cancel"
-        );
-        CallbackHelper::setCallback(cancelButton, this, [this](CredentialDialogButtonsComponent* comp) {
-            comp->onCancel();
-        });
+            startX + config.buttonWidth + config.buttonGap, y, config.buttonWidth, config.buttonHeight, "Cancel");
+        CallbackHelper::setCallback(
+            cancelButton, this, [this](CredentialDialogButtonsComponent* comp) { comp->onCancel(); });
     }
 };
 
 // Component for credential display
 class CredentialDisplayComponent : public BufferedTextDisplayBase {
-public:
+   public:
     CredentialDisplayComponent(Fl_Group* parent, int x, int y, int w, int h)
-        : BufferedTextDisplayBase(parent, x, y, w, h) {}
-    
+        : BufferedTextDisplayBase(parent, x, y, w, h) {
+    }
+
     // Base class implementation already handles everything we need
 };
 
 // Component for a generic button with customizable text
 class ButtonComponent : public FormComponentBase {
-private:
+   private:
     ButtonCallback onClick;
     std::string text;
 
-public:
+   public:
     ButtonComponent(Fl_Group* parent, int x, int y, int w, int h, const std::string& buttonText, ButtonCallback onClick)
-        : FormComponentBase(parent, x, y, w, h), onClick(onClick), text(buttonText) {}
-    
+        : FormComponentBase(parent, x, y, w, h), onClick(onClick), text(buttonText) {
+    }
+
     void create() override {
         Fl_Button* button = createWidget<Fl_Button>(x, y, w, h, text.c_str());
-        CallbackHelper::setCallback(button, this, [this](ButtonComponent* comp) {
-            comp->onClick();
-        });
+        CallbackHelper::setCallback(button, this, [this](ButtonComponent* comp) { comp->onClick(); });
     }
 };
 
 // Component for a close button
 class CloseButtonComponent : public FormComponentBase {
-private:
+   private:
     ButtonCallback onClose;
 
-public:
+   public:
     CloseButtonComponent(Fl_Group* parent, int x, int y, int w, int h, ButtonCallback onClose)
-        : FormComponentBase(parent, x, y, w, h), onClose(onClose) {}
-    
+        : FormComponentBase(parent, x, y, w, h), onClose(onClose) {
+    }
+
     void create() override {
         Fl_Button* closeButton = createWidget<Fl_Button>(x, y, w, h, "Close");
-        CallbackHelper::setCallback(closeButton, this, [this](CloseButtonComponent* comp) {
-            comp->onClose();
-        });
+        CallbackHelper::setCallback(closeButton, this, [this](CloseButtonComponent* comp) { comp->onClose(); });
     }
 };
 
 // Settings dialog component for configuring application settings
 class SettingsDialogComponent : public FormComponentBase {
-private:
+   private:
     std::string masterPassword;
     const AppConfig& config;
     Fl_Scroll* scrollArea;
@@ -705,32 +756,37 @@ private:
     Fl_Choice* defaultUIModeChoice;
     Fl_Input* lfsrTapsInput;
     Fl_Input* lfsrInitStateInput;
-    
+
     std::function<void()> onSave;
     std::function<void()> onCancel;
 
-public:
-    SettingsDialogComponent(Fl_Group* parent, int x, int y, int w, int h, 
-                            const std::string& masterPassword_in, 
+   public:
+    SettingsDialogComponent(Fl_Group* parent,
+                            int x,
+                            int y,
+                            int w,
+                            int h,
+                            const std::string& masterPassword_in,
                             const AppConfig& config_in,
-                            std::function<void()> onSave_in = nullptr, 
+                            std::function<void()> onSave_in = nullptr,
                             std::function<void()> onCancel_in = nullptr)
-        : FormComponentBase(parent, x, y, w, h), 
-          masterPassword(masterPassword_in), 
-          config(config_in), 
-          onSave(onSave_in), 
-          onCancel(onCancel_in) {}
+        : FormComponentBase(parent, x, y, w, h),
+          masterPassword(masterPassword_in),
+          config(config_in),
+          onSave(onSave_in),
+          onCancel(onCancel_in) {
+    }
 
     void create() override {
         const int buttonAreaHeight = 60;
         const int contentHeight = h - buttonAreaHeight;
-        
+
         scrollArea = createWidget<Fl_Scroll>(x, y, w, contentHeight);
         scrollArea->begin();
-        
+
         int yPos = y + 10;
         const int labelWidth = 200;
-        const int fieldWidth = w - labelWidth - 40; // Adjust for padding
+        const int fieldWidth = w - labelWidth - 40;  // Adjust for padding
         const int inputX = x + labelWidth + 20;
         const int fieldHeight = 25;
         const int spacing = 35;
@@ -768,7 +824,7 @@ public:
         defaultUIModeChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
         defaultUIModeChoice->add("CLI");
         defaultUIModeChoice->add("GUI");
-        defaultUIModeChoice->add("auto"); // should be lowercase 'auto'
+        defaultUIModeChoice->add("auto");  // should be lowercase 'auto'
         // Correctly set the default UI mode choice
         if (config.defaultUIMode == "CLI") {
             defaultUIModeChoice->value(0);
@@ -783,11 +839,13 @@ public:
         autoClipboardClearCheck->value(config.autoClipboardClear);
         yPos += spacing;
 
-        requirePasswordConfirmationCheck = new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight, "Require Password Confirmation");
+        requirePasswordConfirmationCheck =
+            new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight, "Require Password Confirmation");
         requirePasswordConfirmationCheck->value(config.requirePasswordConfirmation);
         yPos += spacing;
 
-        showEncryptionInCredentialsCheck = new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight, "Show Encryption in Credentials");
+        showEncryptionInCredentialsCheck =
+            new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight, "Show Encryption in Credentials");
         showEncryptionInCredentialsCheck->value(config.showEncryptionInCredentials);
         yPos += spacing;
 
@@ -795,29 +853,34 @@ public:
         lfsrTapsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         lfsrTapsInput->value(vectorToString(config.lfsrTaps).c_str());
         yPos += spacing;
-        
+
         auto lfsrInitStateLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
         lfsrInitStateInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         lfsrInitStateInput->value(vectorToString(config.lfsrInitState).c_str());
         yPos += spacing;
 
         scrollArea->end();
-        
-        int buttonY = y + h - 50;
-        Fl_Button* saveButton = createWidget<Fl_Button>(x + w/2 - 120, buttonY, 100, 30, "Save");
-        Fl_Button* cancelButton = createWidget<Fl_Button>(x + w/2 + 20, buttonY, 100, 30, "Cancel");
-        
-        CallbackHelper::setCallback(saveButton, this, [this](SettingsDialogComponent* comp) { comp->saveSettings(); });
-        CallbackHelper::setCallback(cancelButton, this, [this](SettingsDialogComponent* comp) { if (onCancel) onCancel(); });
 
-        if (parent) parent->redraw();
+        int buttonY = y + h - 50;
+        Fl_Button* saveButton = createWidget<Fl_Button>(x + w / 2 - 120, buttonY, 100, 30, "Save");
+        Fl_Button* cancelButton = createWidget<Fl_Button>(x + w / 2 + 20, buttonY, 100, 30, "Cancel");
+
+        CallbackHelper::setCallback(saveButton, this, [this](SettingsDialogComponent* comp) { comp->saveSettings(); });
+        CallbackHelper::setCallback(cancelButton, this, [this](SettingsDialogComponent* comp) {
+            if (onCancel)
+                onCancel();
+        });
+
+        if (parent)
+            parent->redraw();
     }
 
-private:
+   private:
     std::string vectorToString(const std::vector<int>& vec) {
         std::stringstream ss;
         for (size_t i = 0; i < vec.size(); ++i) {
-            if (i > 0) ss << ",";
+            if (i > 0)
+                ss << ",";
             ss << vec[i];
         }
         return ss.str();
@@ -825,7 +888,8 @@ private:
 
     std::vector<int> stringToVector(const std::string& s) {
         std::vector<int> vec;
-        if (s.empty()) return vec;
+        if (s.empty())
+            return vec;
         std::stringstream ss(s);
         std::string item;
         while (std::getline(ss, item, ',')) {
@@ -874,13 +938,15 @@ private:
         if (success) {
             fl_alert("Settings saved and applied successfully!");
             if (onSave) {
-                onSave(); // This will close the dialog
+                onSave();  // This will close the dialog
             }
         } else {
-            fl_alert("Failed to apply new settings. The password might be incorrect or a migration failed. Check the console for details.");
+            fl_alert(
+                "Failed to apply new settings. The password might be incorrect or a migration failed. Check the "
+                "console for details.");
             // Do not close the dialog on failure
         }
     }
 };
 
-#endif // GUI_COMPONENTS_H
+#endif  // GUI_COMPONENTS_H

@@ -1,9 +1,10 @@
 #ifndef ENCRYPTION_FACTORY_H
 #define ENCRYPTION_FACTORY_H
 
-#include "encryption_interface.h"
 #include <memory>
 #include <vector>
+
+#include "encryption_interface.h"
 
 /**
  * @brief Parameters for creating an encryption instance
@@ -22,14 +23,14 @@ struct EncryptionConfigParameters {
  * @brief Factory class for creating encryption instances
  */
 class EncryptionFactory {
-public:
+   public:
     /**
      * @brief Creates an encryption instance based on the specified parameters
-     * 
+     *
      * @param params The parameters for creating the encryption instance
      * @return std::unique_ptr<IEncryption> The encryption instance
      */
     static std::unique_ptr<IEncryption> create(const EncryptionConfigParameters& params);
 };
 
-#endif // ENCRYPTION_FACTORY_H
+#endif  // ENCRYPTION_FACTORY_H

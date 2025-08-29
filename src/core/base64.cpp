@@ -1,7 +1,8 @@
 #include "base64.h"
+
 #include <vector>
 
-static const std::string base64_chars = 
+static const std::string base64_chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789+/";
@@ -58,7 +59,7 @@ std::string Base64::decode(const std::string& encoded_data) {
     while (in_len-- && encoded_data[in_] != '=') {
         // Check if character is a valid Base64 character
         if (base64_chars.find(encoded_data[in_]) != std::string::npos) {
-            char_array_4[i++] = encoded_data[in_]; 
+            char_array_4[i++] = encoded_data[in_];
             in_++;
             if (i == 4) {
                 for (i = 0; i < 4; i++)
@@ -83,7 +84,7 @@ std::string Base64::decode(const std::string& encoded_data) {
         for (j = i; j < 4; j++) {
             char_array_4[j] = 0;
         }
-        
+
         for (j = 0; j < i; j++) {
             char_array_4[j] = static_cast<unsigned char>(base64_chars.find(char_array_4[j]));
         }

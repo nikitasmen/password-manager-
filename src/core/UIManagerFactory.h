@@ -1,9 +1,10 @@
 #ifndef UI_MANAGER_FACTORY_H
 #define UI_MANAGER_FACTORY_H
 
-#include "../core/UIManager.h"
 #include <memory>
 #include <string>
+
+#include "../core/UIManager.h"
 
 /**
  * @enum UIType
@@ -17,12 +18,12 @@ enum class UIType {
 /**
  * @class UIManagerFactory
  * @brief Factory class for creating UI managers
- * 
+ *
  * This class provides a factory method to create the appropriate
  * UI manager implementation based on the UI type.
  */
 class UIManagerFactory {
-public:
+   public:
     /**
      * @brief Create a UI manager
      * @param type UI type to create
@@ -32,4 +33,4 @@ public:
     static std::unique_ptr<UIManager> createUIManager(UIType type, const std::string& dataPath);
 };
 
-#endif // UI_MANAGER_FACTORY_H
+#endif  // UI_MANAGER_FACTORY_H

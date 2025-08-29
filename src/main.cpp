@@ -1,11 +1,12 @@
-#include "gui_main.h"
-#include "tui_main.h"
-#include "config/GlobalConfig.h"
 #include <iostream>
 #include <string>
 
+#include "config/GlobalConfig.h"
+#include "gui_main.h"
+#include "tui_main.h"
+
 /**
- * @brief Starting point of the application.  
+ * @brief Starting point of the application.
  * Options:
  *   -g, --gui, gui     : Force GUI mode
  *   -t, --tui, tui, cli: Force CLI/TUI mode
@@ -14,7 +15,7 @@
  */
 int main(int argc, char** argv) {
     std::string mode = "";
-    
+
     // Parse command line arguments
     if (argc > 1) {
         std::string arg = argv[1];
@@ -37,14 +38,14 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    
+
     // If no mode specified, get default from config
     if (mode.empty()) {
         try {
             ConfigManager& config = ConfigManager::getInstance();
             config.loadConfig(".config");
             mode = config.getDefaultUIMode();
-            
+
             // Handle "auto" mode by defaulting to GUI if available, otherwise CLI
             if (mode == "auto") {
 #ifdef ENABLE_GUI
@@ -59,7 +60,7 @@ int main(int argc, char** argv) {
             mode = "tui";
         }
     }
-    
+
     // Launch the appropriate interface
     try {
         if (mode == "gui") {

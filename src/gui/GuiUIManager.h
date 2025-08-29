@@ -14,27 +14,29 @@ class UpdateDialog;
 #include <FL/Fl.H>
 #include <FL/Fl_Window.H>
 #include <FL/fl_message.H>
-#include <vector>
+
+#include <functional>
 #include <memory>
 #include <string>
-#include <functional>
+#include <vector>
+
 #include "../core/credential_data.h"
 
 /**
  * @class GuiUIManager
  * @brief Graphical UI implementation of UIManager
- * 
+ *
  * This class implements the UIManager interface to provide
  * a graphical user interface for the password manager.
  */
 class GuiUIManager : public UIManager {
-private:
+   private:
     // Main window
     std::unique_ptr<Fl_Window> mainWindow;
-    
+
     // Root component
     std::unique_ptr<ContainerComponent> rootComponent;
-    
+
     // Dialog windows and their root components
     std::unique_ptr<Fl_Window> addCredentialWindow;
     std::unique_ptr<ContainerComponent> addCredentialRoot;
@@ -43,17 +45,17 @@ private:
     std::unique_ptr<Fl_Window> updatePasswordWindow;  // Added for update password dialog
     std::unique_ptr<Fl_Window> settingsWindow;
     std::unique_ptr<ContainerComponent> settingsRoot;
-    
+
     // Update dialog
     std::unique_ptr<UpdateDialog> updateDialog;
-    
+
     // Component references
     LoginFormComponent* loginForm;
     PasswordSetupComponent* passwordSetup;
-    PlatformsDisplayComponent* platformsDisplay; // Kept for backward compatibility
+    PlatformsDisplayComponent* platformsDisplay;  // Kept for backward compatibility
     ClickablePlatformsDisplay* clickablePlatformsDisplay;
     CredentialInputsComponent* credentialInputs;
-    
+
     // Current credential being updated
     std::string currentPlatform;
     DecryptedCredential currentCredential;
@@ -66,7 +68,7 @@ private:
     void createViewCredentialDialog(const std::string& platform, const std::optional<DecryptedCredential>& credentials);
     void createUpdatePasswordDialog();  // Added for update password dialog
     void createSettingsDialog();
-    
+
     /**
      * @brief Clean up the add credential dialog (uses generic helper)
      */
@@ -90,36 +92,36 @@ private:
     // Helper to reduce boilerplate in screen creation
     void createScreen(const std::string& title, int w, int h, std::function<void()> populateScreen);
 
-public:
+   public:
     /**
      * @brief Constructor
      * @param dataPath Path to the data storage directory
      */
     GuiUIManager(const std::string& dataPath);
-    
+
     /**
      * @brief Destructor
      */
     ~GuiUIManager() override;
-    
+
     /**
      * @brief Initialize the GUI
      */
     void initialize() override;
-    
+
     /**
      * @brief Show the GUI and start the event loop
      * @return Exit code
      */
     int show() override;
-    
+
     /**
      * @brief Handle user login in GUI
      * @param password User's master password
      * @return True if login was successful
      */
     bool login(const std::string& password) override;
-    
+
     /**
      * @brief Set up a new master password through GUI
      * @param newPassword New master password
@@ -127,10 +129,10 @@ public:
      * @param encryptionType The encryption algorithm to use
      * @return True if password setup was successful
      */
-bool setupPassword(const std::string& newPassword, 
-                  const std::string& confirmPassword,
-                  EncryptionType encryptionType) override;
-    
+    bool setupPassword(const std::string& newPassword,
+                       const std::string& confirmPassword,
+                       EncryptionType encryptionType) override;
+
     /**
      * @brief Add a new credential through GUI
      * @param platform Platform name
@@ -139,17 +141,17 @@ bool setupPassword(const std::string& newPassword,
      * @param encryptionType The encryption algorithm to use (optional)
      * @return True if credential was added successfully
      */
-    bool addCredential(const std::string& platform, 
-                      const std::string& username, 
-                      const std::string& password,
-                      std::optional<EncryptionType> encryptionType = std::nullopt) override;
-    
+    bool addCredential(const std::string& platform,
+                       const std::string& username,
+                       const std::string& password,
+                       std::optional<EncryptionType> encryptionType = std::nullopt) override;
+
     /**
      * @brief View credentials for a platform in GUI
      * @param platform Platform name
      */
     void viewCredential(const std::string& platform) override;
-    
+
     /**
      * @brief Delete credentials for a platform through GUI
      * @param platform Platform name
@@ -165,10 +167,10 @@ bool setupPassword(const std::string& newPassword,
      * @param encryptionType Optional new encryption type (if not specified, preserves existing type)
      * @return True if credentials were updated successfully
      */
-    bool updateCredential(const std::string& platform, 
-                         const std::string& username,
-                         const std::string& password,
-                         std::optional<EncryptionType> encryptionType = std::nullopt) override;
+    bool updateCredential(const std::string& platform,
+                          const std::string& username,
+                          const std::string& password,
+                          std::optional<EncryptionType> encryptionType = std::nullopt) override;
 
     /**
      * @brief Display a message in GUI
@@ -177,16 +179,16 @@ bool setupPassword(const std::string& newPassword,
      * @param isError Whether this is an error message
      */
     void showMessage(const std::string& title, const std::string& message, bool isError = false) override;
-    
+
     /**
      * @brief Open the settings dialog
      */
     void openSettingsDialog();
-    
+
     /**
      * @brief Open the update dialog
      */
     void openUpdateDialog();
 };
 
-#endif // GUI_UI_MANAGER_H
+#endif  // GUI_UI_MANAGER_H

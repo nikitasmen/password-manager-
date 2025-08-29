@@ -1,7 +1,9 @@
 #include "gui.h"
-#include "GuiManager.h"
+
 #include <iostream>
+
 #include "../config/GlobalConfig.h"
+#include "GuiManager.h"
 
 #if __has_include(<filesystem>)
 #include <filesystem>
