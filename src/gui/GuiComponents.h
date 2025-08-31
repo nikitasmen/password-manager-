@@ -822,16 +822,16 @@ class SettingsDialogComponent : public FormComponentBase {
 
         auto defaultUIModeLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
         defaultUIModeChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
-        defaultUIModeChoice->add("CLI");
-        defaultUIModeChoice->add("GUI");
-        defaultUIModeChoice->add("auto");  // should be lowercase 'auto'
-        // Correctly set the default UI mode choice
-        if (config.defaultUIMode == "CLI") {
+        defaultUIModeChoice->add("cli");
+        defaultUIModeChoice->add("gui");
+        defaultUIModeChoice->add("auto");
+        // Correctly set the default UI mode choice based on lowercase values
+        if (config.defaultUIMode == "cli") {
             defaultUIModeChoice->value(0);
-        } else if (config.defaultUIMode == "GUI") {
+        } else if (config.defaultUIMode == "gui") {
             defaultUIModeChoice->value(1);
         } else {
-            defaultUIModeChoice->value(2);
+            defaultUIModeChoice->value(2);  // auto or other
         }
         yPos += spacing;
 

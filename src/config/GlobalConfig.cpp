@@ -92,6 +92,8 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
             config_.showEncryptionInCredentials = (value == "true" || value == "1");
         } else if (key == "defaultUIMode") {
             config_.defaultUIMode = value;
+            // Normalize to lowercase for consistency
+            std::transform(config_.defaultUIMode.begin(), config_.defaultUIMode.end(), config_.defaultUIMode.begin(), ::tolower);
         } else if (key == "githubOwner") {
             config_.githubOwner = value;
         } else if (key == "githubRepo") {
@@ -273,7 +275,9 @@ void ConfigManager::setShowEncryptionInCredentials(bool show) {
 }
 
 void ConfigManager::setDefaultUIMode(const std::string& mode) {
-    std::transform(mode.begin(), mode.end(), config_.defaultUIMode.begin(), ::tolower);
+    // Convert to lowercase and store
+    config_.defaultUIMode = mode;
+    std::transform(config_.defaultUIMode.begin(), config_.defaultUIMode.end(), config_.defaultUIMode.begin(), ::tolower);
 }
 
 void ConfigManager::setLfsrTaps(const std::vector<int>& newTaps) {
