@@ -8,7 +8,7 @@ echo "Installing C++ linting tools..."
 if [[ "$OSTYPE" != "darwin"* ]]; then
     echo "This script is designed for macOS. Please install tools manually:"
     echo "- clang-format"
-    echo "- clang-tidy" 
+    echo "- clang-tidy"
     echo "- cppcheck"
     exit 1
 fi
@@ -17,7 +17,7 @@ fi
 if ! command -v brew >/dev/null 2>&1; then
     echo "Homebrew not found. Installing Homebrew first..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    
+
     # Add Homebrew to PATH for Apple Silicon Macs
     if [[ $(uname -m) == "arm64" ]]; then
         echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc

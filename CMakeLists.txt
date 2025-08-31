@@ -85,10 +85,10 @@ function(link_common target)
     # ARGN contains all arguments after 'target'
     set(EXTRA_INCLUDES ${ARGN})
 
-    target_include_directories(${target} PRIVATE 
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/core 
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto 
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/config 
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/config
         ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
         ${CMAKE_CURRENT_SOURCE_DIR}/src/updater
         ${JSON_INCLUDE_DIR}
@@ -96,13 +96,13 @@ function(link_common target)
         ${FLTK_INCLUDE_DIR}
         ${EXTRA_INCLUDES}
     )
-    
+
     # Link libraries
     if(FILESYSTEM_LIB)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()
     target_link_libraries(${target} PRIVATE ${OPENSSL_LIBRARIES})
-    
+
     # Link CURL on Unix systems
     if(NOT WIN32 AND CURL_FOUND)
         target_link_libraries(${target} PRIVATE ${CURL_LIBRARIES})
@@ -113,10 +113,10 @@ endfunction()
 # --- Main executable with unified UI ---
 
 # Single unified application that can run both GUI and CLI modes
-add_executable(password_manager 
-    ${CORE_SOURCES} 
-    ${CLI_SOURCES} 
-    ${GUI_SOURCES} 
+add_executable(password_manager
+    ${CORE_SOURCES}
+    ${CLI_SOURCES}
+    ${GUI_SOURCES}
     src/main.cpp
     src/tui_main.cpp
     src/gui_main.cpp

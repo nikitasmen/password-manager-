@@ -134,27 +134,27 @@ find_cpp_files() {
 # Function to run clang-format
 run_clang_format() {
     echo -e "${BLUE}Running clang-format...${NC}"
-    
+
     if ! command_exists clang-format; then
         echo -e "${RED}Error: clang-format not found. Please install it.${NC}"
         echo "macOS: brew install llvm"
         echo "Ubuntu: sudo apt-get install clang-format"
         return 1
     fi
-    
+
     local files
     IFS=$'\n' read -d '' -r -a files < <(find_source_files && printf '\0')
-    
+
     if [[ ${#files[@]} -eq 0 ]]; then
         echo -e "${YELLOW}No source files found.${NC}"
         return 0
     fi
-    
+
     local format_issues=0
     for file in "${files[@]}"; do
         # Skip empty entries
         [[ -z "$file" ]] && continue
-        
+
         if [[ "$FIX_ISSUES" == true ]]; then
             if [[ "$VERBOSE" == true ]]; then
                 echo "Formatting: $file"
@@ -172,7 +172,7 @@ run_clang_format() {
             fi
         fi
     done
-    
+
     if [[ "$FIX_ISSUES" == true ]]; then
         echo -e "${GREEN}Code formatting complete.${NC}"
     else
@@ -189,28 +189,28 @@ run_clang_format() {
 # Function to run clang-tidy
 run_clang_tidy() {
     echo -e "${BLUE}Running clang-tidy...${NC}"
-    
+
     if ! command_exists clang-tidy; then
         echo -e "${RED}Error: clang-tidy not found. Please install it.${NC}"
         echo "macOS: brew install llvm"
         echo "Ubuntu: sudo apt-get install clang-tidy"
         return 1
     fi
-    
+
     local files
     IFS=$'\n' read -d '' -r -a files < <(find_cpp_files && printf '\0')
-    
+
     if [[ ${#files[@]} -eq 0 ]]; then
         echo -e "${YELLOW}No C++ source files found.${NC}"
         return 0
     fi
-    
+
     # Check if compile_commands.json exists
     if [[ ! -f "$PROJECT_ROOT/build/compile_commands.json" ]]; then
         echo -e "${YELLOW}Warning: compile_commands.json not found.${NC}"
         echo "Consider running: mkdir -p build && cd build && cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON .."
     fi
-    
+
     local tidy_args=()
     if [[ "$FIX_ISSUES" == true ]]; then
         tidy_args+=(--fix)
@@ -218,16 +218,16 @@ run_clang_tidy() {
     if [[ -f "$PROJECT_ROOT/build/compile_commands.json" ]]; then
         tidy_args+=(-p "$PROJECT_ROOT/build")
     fi
-    
+
     local issues=0
     for file in "${files[@]}"; do
         # Skip empty entries
         [[ -z "$file" ]] && continue
-        
+
         if [[ "$VERBOSE" == true ]]; then
             echo "Analyzing: $file"
         fi
-        
+
         local output
         if ! output=$(clang-tidy "${tidy_args[@]}" "$file" 2>&1); then
             echo -e "${YELLOW}Issues found in: $file${NC}"
@@ -237,7 +237,7 @@ run_clang_tidy() {
             ((issues++))
         fi
     done
-    
+
     if [[ $issues -eq 0 ]]; then
         echo -e "${GREEN}No clang-tidy issues found.${NC}"
     else
@@ -252,14 +252,14 @@ run_clang_tidy() {
 # Function to run cppcheck
 run_cppcheck() {
     echo -e "${BLUE}Running cppcheck...${NC}"
-    
+
     if ! command_exists cppcheck; then
         echo -e "${RED}Error: cppcheck not found. Please install it.${NC}"
         echo "macOS: brew install cppcheck"
         echo "Ubuntu: sudo apt-get install cppcheck"
         return 1
     fi
-    
+
     local cppcheck_args=(
         --enable=all
         --inconclusive
@@ -272,18 +272,18 @@ run_cppcheck() {
         --suppress=unusedFunction
         --suppress=unmatchedSuppression
     )
-    
+
     if [[ "$VERBOSE" == true ]]; then
         cppcheck_args+=(--verbose)
     fi
-    
+
     # Add include paths
     for dir in "${SOURCE_DIRS[@]}"; do
         if [[ -d "$PROJECT_ROOT/$dir" ]]; then
             cppcheck_args+=(-I "$PROJECT_ROOT/$dir")
         fi
     done
-    
+
     # Add external include paths
     if [[ -d "/opt/homebrew/include" ]]; then
         cppcheck_args+=(-I "/opt/homebrew/include")
@@ -291,14 +291,14 @@ run_cppcheck() {
     if [[ -d "/usr/local/include" ]]; then
         cppcheck_args+=(-I "/usr/local/include")
     fi
-    
+
     # Add source directories
     for dir in "${SOURCE_DIRS[@]}"; do
         if [[ -d "$PROJECT_ROOT/$dir" ]]; then
             cppcheck_args+=("$PROJECT_ROOT/$dir")
         fi
     done
-    
+
     if cppcheck "${cppcheck_args[@]}"; then
         echo -e "${GREEN}No cppcheck issues found.${NC}"
     else
