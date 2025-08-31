@@ -108,8 +108,12 @@ find_source_files() {
         if [[ -d "$PROJECT_ROOT/$dir" ]]; then
             for ext in "${SOURCE_EXTENSIONS[@]}" "${HEADER_EXTENSIONS[@]}"; do
                 while IFS= read -r -d '' file; do
-                    files+=("$file")
-                done < <(find "$PROJECT_ROOT/$dir" -name "*.$ext" -print0)
+                    # Skip files that start with a dot (hidden files)
+                    basename_file=$(basename "$file")
+                    if [[ ! "$basename_file" =~ ^\. ]]; then
+                        files+=("$file")
+                    fi
+                done < <(find "$PROJECT_ROOT/$dir" -name "*.$ext" -not -path "*/.*" -print0)
             done
         fi
     done
