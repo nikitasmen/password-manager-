@@ -100,7 +100,7 @@ class AppUpdater {
      * @param jsonResponse JSON response from GitHub API
      * @return VersionInfo for latest compatible release
      */
-    const VersionInfo parseReleaseInfo(const std::string& jsonResponse);
+    const VersionInfo parseReleaseInfo(const std::string& jsonResponse) const;
 
     /**
      * @brief Install downloaded update
@@ -113,7 +113,7 @@ class AppUpdater {
      * @brief Update version in configuration file
      * @param newVersion New version to set
      */
-    void updateVersionInConfig(const std::string& newVersion);
+    static void updateVersionInConfig(const std::string& newVersion);
 };
 
 #endif  // APP_UPDATER_H
