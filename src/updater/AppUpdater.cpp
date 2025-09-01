@@ -520,7 +520,7 @@ bool AppUpdater::downloadFile(const std::string& url,
 #endif
 }
 
-VersionInfo AppUpdater::parseReleaseInfo(const std::string& jsonResponse) {
+const VersionInfo AppUpdater::parseReleaseInfo(const std::string& jsonResponse) {
     try {
         json releaseData = json::parse(jsonResponse);
 
