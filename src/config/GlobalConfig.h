@@ -70,10 +70,10 @@ class ConfigManager {
     void updateConfig(const AppConfig& newConfig);
 
     // Get specific config values
-    std::string getVersion() const {
+    const std::string& getVersion() const {
         return config_.version;
     }
-    std::string getDataPath() const {
+    const std::string& getDataPath() const {
         return config_.dataPath;
     }
     EncryptionType getDefaultEncryption() const {
@@ -100,7 +100,7 @@ class ConfigManager {
     bool getShowEncryptionInCredentials() const {
         return config_.showEncryptionInCredentials;
     }
-    std::string getDefaultUIMode() const {
+    const std::string& getDefaultUIMode() const {
         return config_.defaultUIMode;
     }
     const std::vector<int>& getLfsrTaps() const {
@@ -111,10 +111,10 @@ class ConfigManager {
     }
 
     // Update/Repository settings
-    std::string getGithubOwner() const {
+    const std::string& getGithubOwner() const {
         return config_.githubOwner;
     }
-    std::string getGithubRepo() const {
+    const std::string& getGithubRepo() const {
         return config_.githubRepo;
     }
     bool getAutoCheckUpdates() const {
@@ -160,10 +160,10 @@ class ConfigManager {
     AppConfig config_;
 
     // Helper methods for parsing
-    EncryptionType parseEncryptionType(const std::string& value) const;
-    std::string encryptionTypeToString(EncryptionType type) const;
-    std::vector<int> parseIntArray(const std::string& value) const;
-    std::string intArrayToString(const std::vector<int>& array) const;
+    static EncryptionType parseEncryptionType(const std::string& value);
+    static std::string encryptionTypeToString(EncryptionType type);
+    static std::vector<int> parseIntArray(const std::string& value);
+    static std::string intArrayToString(const std::vector<int>& array);
 };
 
 // Helper functions for encryption type management

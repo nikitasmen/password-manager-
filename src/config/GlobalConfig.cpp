@@ -46,7 +46,7 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         } else if (key == "dataPath") {
             config_.dataPath = value;
         } else if (key == "defaultEncryption") {
-            config_.defaultEncryption = parseEncryptionType(value);
+            config_.defaultEncryption = ConfigManager::parseEncryptionType(value);
         } else if (key == "maxLoginAttempts") {
             try {
                 int attempts = std::stoi(value);
@@ -85,9 +85,9 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
                 std::cerr << "Error parsing minPasswordLength: " << e.what() << "\n";
             }
         } else if (key == "lfsrTaps") {
-            config_.lfsrTaps = parseIntArray(value);
+            config_.lfsrTaps = ConfigManager::parseIntArray(value);
         } else if (key == "lfsrInitState") {
-            config_.lfsrInitState = parseIntArray(value);
+            config_.lfsrInitState = ConfigManager::parseIntArray(value);
         } else if (key == "showEncryptionInCredentials") {
             config_.showEncryptionInCredentials = (value == "true" || value == "1");
         } else if (key == "defaultUIMode") {
@@ -139,7 +139,7 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
 
     file << "# Core Settings\n";
     file << "dataPath=" << config_.dataPath << "\n";
-    file << "defaultEncryption=" << encryptionTypeToString(config_.defaultEncryption) << "\n";
+    file << "defaultEncryption=" << ConfigManager::encryptionTypeToString(config_.defaultEncryption) << "\n";
     file << "maxLoginAttempts=" << config_.maxLoginAttempts << "\n\n";
 
     file << "# Clipboard Settings\n";
@@ -151,8 +151,8 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
     file << "minPasswordLength=" << config_.minPasswordLength << "\n\n";
 
     file << "# LFSR Algorithm Settings\n";
-    file << "lfsrTaps=" << intArrayToString(config_.lfsrTaps) << "\n";
-    file << "lfsrInitState=" << intArrayToString(config_.lfsrInitState) << "\n\n";
+    file << "lfsrTaps=" << ConfigManager::intArrayToString(config_.lfsrTaps) << "\n";
+    file << "lfsrInitState=" << ConfigManager::intArrayToString(config_.lfsrInitState) << "\n\n";
 
     file << "# UI Settings\n";
     file << "showEncryptionInCredentials=" << (config_.showEncryptionInCredentials ? "true" : "false") << "\n";
@@ -305,13 +305,8 @@ void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
     }
 
     // Validate that init state only contains 0s and 1s
-    bool validInitState = true;
-    for (int val : newInitState) {
-        if (val != 0 && val != 1) {
-            validInitState = false;
-            break;
-        }
-    }
+    bool validInitState =
+        std::all_of(newInitState.begin(), newInitState.end(), [](int val) { return val == 0 || val == 1; });
 
     if (!validInitState) {
         std::cerr << "Warning: LFSR initial state must contain only 0s and 1s, using default {1, 0, 1}\n";
@@ -408,7 +403,7 @@ void ConfigManager::setUpdateCheckIntervalDays(int days) {
 
 // Implementation of EncryptionUtils helper functions
 
-EncryptionType ConfigManager::parseEncryptionType(const std::string& value) const {
+EncryptionType ConfigManager::parseEncryptionType(const std::string& value) {
     if (value == "LFSR" || value == "0") {
         return EncryptionType::LFSR;
     } else if (value == "AES" || value == "1") {
@@ -419,7 +414,7 @@ EncryptionType ConfigManager::parseEncryptionType(const std::string& value) cons
     return EncryptionType::AES;  // Default fallback
 }
 
-std::string ConfigManager::encryptionTypeToString(EncryptionType type) const {
+std::string ConfigManager::encryptionTypeToString(EncryptionType type) {
     switch (type) {
         case EncryptionType::LFSR:
             return "LFSR";
@@ -432,7 +427,7 @@ std::string ConfigManager::encryptionTypeToString(EncryptionType type) const {
     }
 }
 
-std::vector<int> ConfigManager::parseIntArray(const std::string& value) const {
+std::vector<int> ConfigManager::parseIntArray(const std::string& value) {
     std::vector<int> result;
     std::stringstream ss(value);
     std::string item;
@@ -456,7 +451,7 @@ std::vector<int> ConfigManager::parseIntArray(const std::string& value) const {
     return result;
 }
 
-std::string ConfigManager::intArrayToString(const std::vector<int>& array) const {
+std::string ConfigManager::intArrayToString(const std::vector<int>& array) {
     std::stringstream ss;
     for (size_t i = 0; i < array.size(); ++i) {
         if (i > 0)
