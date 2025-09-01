@@ -147,7 +147,7 @@ bool MigrationHelper::migrateCredentialsForLfsrChange(const std::vector<int>& ol
             auto credDataOpt = storage->getCredentials(platform);
 
             if (credDataOpt) {
-                CredentialData& credentials = *credDataOpt;
+                const CredentialData& credentials = *credDataOpt;
 
                 // Only process LFSR encrypted credentials
                 if (credentials.encryption_type == EncryptionType::LFSR) {
@@ -210,7 +210,6 @@ bool MigrationHelper::updateMasterPasswordWithNewLfsr(const std::vector<int>& ol
                                                     newInitState,
                                                     masterPassword,
                                                     dataPath);
-    return true;
 }
 
 bool MigrationHelper::reencryptCredential(const std::string& platform,
@@ -429,10 +428,10 @@ bool MigrationHelper::applySettingsFromConfig(const AppConfig& oldConfig,
 
     std::cout << "Starting settings migration..." << std::endl;
 
-    bool success = true;
     ConfigManager& configMgr = ConfigManager::getInstance();
 
     try {
+        bool success = true;
         // 1. Handle data path change
         if (!handleDataPathChange(oldConfig.dataPath, newConfig.dataPath)) {
             success = false;
