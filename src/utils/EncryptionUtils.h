@@ -5,7 +5,7 @@
 
 #include "../config/GlobalConfig.h"
 
-namespace EncryptionUtils {
+namespace encryption_utils {
 
 inline int toDropdownIndex(EncryptionType type) {
     switch (type) {
@@ -70,6 +70,6 @@ inline EncryptionType getDefault() {
     return EncryptionType::AES;
 }
 
-}  // namespace EncryptionUtils
+}  // namespace encryption_utils
 
 #endif  // ENCRYPTION_UTILS_H
