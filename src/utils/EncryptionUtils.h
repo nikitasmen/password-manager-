@@ -3,7 +3,7 @@
 
 #include <vector>
 
-#include "GlobalConfig.h"
+#include "../config/GlobalConfig.h"
 
 namespace EncryptionUtils {
 

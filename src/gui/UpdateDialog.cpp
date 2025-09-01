@@ -15,8 +15,8 @@ UpdateDialog::UpdateDialog()
       checkButton(nullptr),
       downloadButton(nullptr),
       closeButton(nullptr),
+      updater(std::make_unique<AppUpdater>()),
       updateAvailable(false) {
-    updater = std::make_unique<AppUpdater>();
     setupUI();
 }
 
@@ -29,8 +29,8 @@ UpdateDialog::UpdateDialog(const std::string& githubOwner, const std::string& gi
       checkButton(nullptr),
       downloadButton(nullptr),
       closeButton(nullptr),
+      updater(std::make_unique<AppUpdater>(githubOwner, githubRepo)),
       updateAvailable(false) {
-    updater = std::make_unique<AppUpdater>(githubOwner, githubRepo);
     setupUI();
 }
 
