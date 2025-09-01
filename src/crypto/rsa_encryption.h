@@ -103,17 +103,17 @@ class RSAEncryption : public IEncryption {
     /**
      * @brief Generate random AES key
      */
-    std::string generateAESKey() const;
+    static std::string generateAESKey();
 
     /**
      * @brief Encrypt data using AES-256-GCM
      */
-    HybridData encryptWithAES(const std::string& plaintext, const std::string& aesKey) const;
+    static HybridData encryptWithAES(const std::string& plaintext, const std::string& aesKey);
 
     /**
      * @brief Decrypt data using AES-256-GCM
      */
-    std::string decryptWithAES(const HybridData& data, const std::string& aesKey) const;
+    static std::string decryptWithAES(const HybridData& data, const std::string& aesKey);
 
     /**
      * @brief Encrypt AES key using RSA
@@ -128,7 +128,7 @@ class RSAEncryption : public IEncryption {
     /**
      * @brief Derive key encryption key from master password
      */
-    std::string deriveKEK(const std::string& masterPassword, const std::string& salt) const;
+    static std::string deriveKEK(const std::string& masterPassword, const std::string& salt);
 
     /**
      * @brief Encrypt private key with master password

@@ -114,7 +114,7 @@ void RSAEncryption::generateKeyPair(int keySize) {
     m_initialized = true;
 }
 
-std::string RSAEncryption::deriveKEK(const std::string& masterPassword, const std::string& salt) const {
+std::string RSAEncryption::deriveKEK(const std::string& masterPassword, const std::string& salt) {
     const int iterations = 100000;  // PBKDF2 iterations
     const int keyLength = 32;       // 256 bits
 
@@ -127,7 +127,7 @@ std::string RSAEncryption::deriveKEK(const std::string& masterPassword, const st
                           EVP_sha256(),
                           keyLength,
                           derivedKey) != 1) {
-        throwOpenSSLError("Failed to derive key encryption key");
+        RSAEncryption::throwOpenSSLError("Failed to derive key encryption key");
     }
 
     return std::string(reinterpret_cast<char*>(derivedKey), keyLength);
@@ -154,7 +154,7 @@ std::string RSAEncryption::encryptPrivateKey() const {
     BIO_free(bio);
 
     // Derive encryption key from master password
-    std::string kek = deriveKEK(m_masterPassword, m_keySalt);
+    std::string kek = RSAEncryption::deriveKEK(m_masterPassword, m_keySalt);
 
     // Encrypt private key with AES-256-GCM
     CipherContextRAII ctx;
@@ -226,7 +226,7 @@ void RSAEncryption::decryptPrivateKey(const std::string& encryptedData) {
     std::string authTag = hexToBytes(parts[3]);
 
     // Derive decryption key
-    std::string kek = deriveKEK(m_masterPassword, salt);
+    std::string kek = RSAEncryption::deriveKEK(m_masterPassword, salt);
 
     // Decrypt private key
     CipherContextRAII ctx;
@@ -321,10 +321,10 @@ bool RSAEncryption::isInitialized() const {
     return m_initialized && m_pkey != nullptr;
 }
 
-std::string RSAEncryption::generateAESKey() const {
+std::string RSAEncryption::generateAESKey() {
     unsigned char key[32];  // 256 bits
     if (RAND_bytes(key, sizeof(key)) != 1) {
-        throwOpenSSLError("Failed to generate AES key");
+        RSAEncryption::throwOpenSSLError("Failed to generate AES key");
     }
     return std::string(reinterpret_cast<char*>(key), sizeof(key));
 }
@@ -401,22 +401,22 @@ std::string RSAEncryption::decryptAESKeyWithRSA(const std::string& encryptedAESK
     return std::string(reinterpret_cast<char*>(decrypted.data()), outLen);
 }
 
-RSAEncryption::HybridData RSAEncryption::encryptWithAES(const std::string& plaintext, const std::string& aesKey) const {
+RSAEncryption::HybridData RSAEncryption::encryptWithAES(const std::string& plaintext, const std::string& aesKey) {
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx)
-        throwOpenSSLError("Failed to create AES cipher context");
+        RSAEncryption::throwOpenSSLError("Failed to create AES cipher context");
 
     // Generate random IV
     unsigned char iv[12];  // GCM recommended IV size
     if (RAND_bytes(iv, sizeof(iv)) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to generate AES IV");
+        RSAEncryption::throwOpenSSLError("Failed to generate AES IV");
     }
 
     if (EVP_EncryptInit_ex(
             ctx, EVP_aes_256_gcm(), nullptr, reinterpret_cast<const unsigned char*>(aesKey.c_str()), iv) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to initialize AES encryption");
+        RSAEncryption::throwOpenSSLError("Failed to initialize AES encryption");
     }
 
     std::vector<unsigned char> encrypted(plaintext.length() + 16);
@@ -427,20 +427,20 @@ RSAEncryption::HybridData RSAEncryption::encryptWithAES(const std::string& plain
                           reinterpret_cast<const unsigned char*>(plaintext.c_str()),
                           plaintext.length()) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to encrypt data with AES");
+        RSAEncryption::throwOpenSSLError("Failed to encrypt data with AES");
     }
 
     int finalLen;
     if (EVP_EncryptFinal_ex(ctx, encrypted.data() + len, &finalLen) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to finalize AES encryption");
+        RSAEncryption::throwOpenSSLError("Failed to finalize AES encryption");
     }
 
     // Get authentication tag
     unsigned char tag[16];
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to get AES authentication tag");
+        RSAEncryption::throwOpenSSLError("Failed to get AES authentication tag");
     }
 
     EVP_CIPHER_CTX_free(ctx);
@@ -453,10 +453,10 @@ RSAEncryption::HybridData RSAEncryption::encryptWithAES(const std::string& plain
     return result;
 }
 
-std::string RSAEncryption::decryptWithAES(const HybridData& data, const std::string& aesKey) const {
+std::string RSAEncryption::decryptWithAES(const HybridData& data, const std::string& aesKey) {
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx)
-        throwOpenSSLError("Failed to create AES cipher context");
+        RSAEncryption::throwOpenSSLError("Failed to create AES cipher context");
 
     if (EVP_DecryptInit_ex(ctx,
                            EVP_aes_256_gcm(),
@@ -464,7 +464,7 @@ std::string RSAEncryption::decryptWithAES(const HybridData& data, const std::str
                            reinterpret_cast<const unsigned char*>(aesKey.c_str()),
                            reinterpret_cast<const unsigned char*>(data.iv.c_str())) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to initialize AES decryption");
+        RSAEncryption::throwOpenSSLError("Failed to initialize AES decryption");
     }
 
     std::vector<unsigned char> decrypted(data.encryptedData.length());
@@ -475,19 +475,19 @@ std::string RSAEncryption::decryptWithAES(const HybridData& data, const std::str
                           reinterpret_cast<const unsigned char*>(data.encryptedData.c_str()),
                           data.encryptedData.length()) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to decrypt data with AES");
+        RSAEncryption::throwOpenSSLError("Failed to decrypt data with AES");
     }
 
     // Set authentication tag using safe helper function
     if (setAuthTag(ctx, data.authTag) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to set AES authentication tag");
+        RSAEncryption::throwOpenSSLError("Failed to set AES authentication tag");
     }
 
     int finalLen;
     if (EVP_DecryptFinal_ex(ctx, decrypted.data() + len, &finalLen) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        throwOpenSSLError("Failed to verify AES authentication or decrypt data");
+        RSAEncryption::throwOpenSSLError("Failed to verify AES authentication or decrypt data");
     }
 
     EVP_CIPHER_CTX_free(ctx);
@@ -530,10 +530,10 @@ std::string RSAEncryption::encrypt(const std::string& plaintext) {
     }
 
     // Generate random AES key
-    std::string aesKey = generateAESKey();
+    std::string aesKey = RSAEncryption::generateAESKey();
 
     // Encrypt data with AES
-    HybridData hybridData = encryptWithAES(plaintext, aesKey);
+    HybridData hybridData = RSAEncryption::encryptWithAES(plaintext, aesKey);
 
     // Encrypt AES key with RSA
     hybridData.encryptedAESKey = encryptAESKeyWithRSA(aesKey);
@@ -554,5 +554,5 @@ std::string RSAEncryption::decrypt(const std::string& ciphertext) {
     std::string aesKey = decryptAESKeyWithRSA(hybridData.encryptedAESKey);
 
     // Decrypt data with AES
-    return decryptWithAES(hybridData, aesKey);
+    return RSAEncryption::decryptWithAES(hybridData, aesKey);
 }
