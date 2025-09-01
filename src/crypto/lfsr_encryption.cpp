@@ -72,10 +72,8 @@ int LFSREncryption::getNextBit() {
         throw EncryptionError("No taps defined for LFSR");
     }
 
-    int feedback = 0;
-    for (int tap : taps_) {
-        feedback ^= state_[tap];
-    }
+    int feedback =
+        std::accumulate(taps_.begin(), taps_.end(), 0, [this](int acc, int tap) { return acc ^ state_[tap]; });
 
     int output = state_.back();
     state_.pop_back();
@@ -173,10 +171,10 @@ std::vector<std::string> LFSREncryption::decryptWithSalt(const std::vector<std::
     }
 
     // Validate all ciphertexts have minimum length
-    for (const auto& ciphertext : ciphertexts) {
-        if (ciphertext.length() < 16) {
-            throw std::runtime_error("Invalid ciphertext for salted LFSR decryption: too short");
-        }
+    if (std::any_of(ciphertexts.begin(), ciphertexts.end(), [](const std::string& ciphertext) {
+            return ciphertext.length() < 16;
+        })) {
+        throw std::runtime_error("Invalid ciphertext for salted LFSR decryption: too short");
     }
 
     std::vector<std::string> plaintexts;
@@ -184,14 +182,9 @@ std::vector<std::string> LFSREncryption::decryptWithSalt(const std::vector<std::
 
     // Check if all ciphertexts share the same salt (new format)
     std::string firstSalt = ciphertexts[0].substr(0, 16);
-    bool sharedSalt = true;
-
-    for (const auto& ciphertext : ciphertexts) {
-        if (ciphertext.substr(0, 16) != firstSalt) {
-            sharedSalt = false;
-            break;
-        }
-    }
+    bool sharedSalt = std::all_of(ciphertexts.begin(), ciphertexts.end(), [&firstSalt](const std::string& ciphertext) {
+        return ciphertext.substr(0, 16) == firstSalt;
+    });
 
     if (sharedSalt) {
         // New format: all ciphertexts share the same salt
