@@ -23,10 +23,10 @@ void TerminalUIManager::initialize() {
 
         // Show encryption options
         TerminalUI::display_message("Select encryption type:");
-        const auto availableTypes = EncryptionUtils::getAllTypes();
+        const auto availableTypes = encryption_utils::getAllTypes();
         for (size_t i = 0; i < availableTypes.size(); ++i) {
             TerminalUI::display_message(std::to_string(i + 1) + ". " +
-                                        EncryptionUtils::getDisplayName(availableTypes[i]));
+                                        encryption_utils::getDisplayName(availableTypes[i]));
         }
 
         int choice = 0;
@@ -68,7 +68,7 @@ int TerminalUIManager::show() {
             // Login flow
             int attempts = 0;
 
-            while (attempts < MAX_LOGIN_ATTEMPTS) {
+            while (attempts < kMaxLoginAttempts) {
                 std::string password = TerminalUI::get_password_input("Enter master password: ");
                 if (login(password)) {
                     return runMenuLoop();
@@ -77,7 +77,7 @@ int TerminalUIManager::show() {
                 TerminalUI::display_message("Invalid password! Try again.", true);
                 attempts++;
 
-                if (attempts == MAX_LOGIN_ATTEMPTS) {
+                if (attempts == kMaxLoginAttempts) {
                     TerminalUI::display_message("Too many failed attempts. Exiting...", true);
                     return 1;
                 }
@@ -282,7 +282,7 @@ int TerminalUIManager::runMenuLoop() {
                 // Update password
                 std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
                 std::string confirmPassword = TerminalUI::get_password_input("Confirm new master password: ");
-                setupPassword(newPassword, confirmPassword, EncryptionUtils::getDefault());
+                setupPassword(newPassword, confirmPassword, encryption_utils::getDefault());
                 TerminalUI::pause_screen();
                 TerminalUI::clear_screen();
                 break;
@@ -296,11 +296,11 @@ int TerminalUIManager::runMenuLoop() {
                 TerminalUI::display_message("\n+---------------------------------------+");
                 TerminalUI::display_message("|    SELECT ENCRYPTION ALGORITHM       |");
                 TerminalUI::display_message("+---------------------------------------+");
-                const auto availableTypes = EncryptionUtils::getAllTypes();
+                const auto availableTypes = encryption_utils::getAllTypes();
 
                 for (size_t i = 0; i < availableTypes.size(); ++i) {
                     TerminalUI::display_message(std::to_string(i + 1) + ". " +
-                                                EncryptionUtils::getDisplayName(availableTypes[i]));
+                                                encryption_utils::getDisplayName(availableTypes[i]));
 
                     // Add detailed descriptions for each encryption type
                     if (availableTypes[i] == EncryptionType::AES) {
@@ -322,7 +322,7 @@ int TerminalUIManager::runMenuLoop() {
                 }
 
                 int choice = 0;
-                EncryptionType selectedEncryption = EncryptionUtils::getDefault();
+                EncryptionType selectedEncryption = encryption_utils::getDefault();
 
                 while (true) {
                     std::string input = TerminalUI::get_text_input("Enter your choice (1-" +

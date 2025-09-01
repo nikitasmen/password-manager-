@@ -180,13 +180,13 @@ EncryptionType TerminalUI::selectEncryptionAlgorithm() {
     // Consume the newline
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-    const auto& encryptionMap = EncryptionUtils::getChoiceMapping();
+    const auto& encryptionMap = encryption_utils::getChoiceMapping();
     auto it = encryptionMap.find(choice);
     if (it != encryptionMap.end()) {
         return it->second;
     } else {
         display_message("Invalid choice. Defaulting to AES + LFSR.", true);
-        return EncryptionUtils::getDefault();
+        return encryption_utils::getDefault();
     }
 }
 
