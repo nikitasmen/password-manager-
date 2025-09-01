@@ -75,12 +75,6 @@ class AppUpdater {
      */
     static std::string getPlatformBinaryName();
 
-    /**
-     * @brief Clean up orphaned backup files from previous failed updates
-     * @return true if cleanup was successful or no files to clean
-     */
-    static bool cleanupOrphanedBackups();
-
    private:
     std::string githubOwner;
     std::string githubRepo;

@@ -337,6 +337,11 @@ AppUpdater::AppUpdater(const std::string& owner, const std::string& repo) : gith
 #endif
 }
 
+void AppUpdater::updateVersionInConfig(const std::string& newVersion) {
+    ConfigManager& config = ConfigManager::getInstance();
+    config.setVersion(newVersion);
+}
+
 void AppUpdater::checkForUpdates(std::function<void(bool, const std::string&, const VersionInfo&)> callback) {
     try {
         std::string apiUrl = "https://api.github.com/repos/" + githubOwner + "/" + githubRepo + "/releases/latest";
@@ -628,64 +633,6 @@ bool AppUpdater::installUpdate(const std::string& downloadedPath) {
 
     } catch (const std::exception& e) {
         std::cerr << "Error installing update: " << e.what() << std::endl;
-        return false;
-    }
-}
-
-void AppUpdater::updateVersionInConfig(const std::string& newVersion) {
-    ConfigManager& config = ConfigManager::getInstance();
-    config.setVersion(newVersion);
-}
-
-bool AppUpdater::cleanupOrphanedBackups() {
-    try {
-        // Get current executable path
-        std::string currentPath;
-
-#ifdef _WIN32
-        char buffer[MAX_PATH];
-        GetModuleFileNameA(nullptr, buffer, MAX_PATH);
-        currentPath = buffer;
-#else
-        char buffer[1024];
-        ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
-        if (len != -1) {
-            buffer[len] = '\0';
-            currentPath = buffer;
-        } else {
-            // For macOS, we might not be able to determine the path this way
-            std::cerr << "Could not determine executable path for backup cleanup on macOS" << std::endl;
-            return false;
-        }
-#endif
-
-        if (currentPath.empty()) {
-            std::cerr << "Could not determine current executable path for backup cleanup" << std::endl;
-            return false;
-        }
-
-        // Check for backup files that might exist
-        std::string backupPath = currentPath + ".backup";
-        std::error_code ec;
-
-        if (fs::exists(backupPath)) {
-            std::cout << "Found orphaned backup file: " << backupPath << std::endl;
-
-            // Remove the orphaned backup
-            fs::remove(backupPath, ec);
-            if (ec) {
-                std::cerr << "Failed to remove orphaned backup file: " << backupPath << " (Error: " << ec.message()
-                          << ")" << std::endl;
-                return false;
-            } else {
-                std::cout << "Successfully removed orphaned backup file" << std::endl;
-            }
-        }
-
-        return true;
-
-    } catch (const std::exception& e) {
-        std::cerr << "Error during backup cleanup: " << e.what() << std::endl;
         return false;
     }
 }
