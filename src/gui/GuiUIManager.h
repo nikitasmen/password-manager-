@@ -97,7 +97,7 @@ class GuiUIManager : public UIManager {
      * @brief Constructor
      * @param dataPath Path to the data storage directory
      */
-    GuiUIManager(const std::string& dataPath);
+    explicit GuiUIManager(const std::string& dataPath);
 
     /**
      * @brief Destructor

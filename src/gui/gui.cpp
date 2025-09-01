@@ -3,7 +3,7 @@
 #include <iostream>
 
 #include "../config/GlobalConfig.h"
-#include "GuiManager.h"
+#include "GuiUIManager.h"
 
 #if __has_include(<filesystem>)
 #include <filesystem>
