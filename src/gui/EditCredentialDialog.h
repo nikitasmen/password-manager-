@@ -101,14 +101,7 @@ class EditCredentialDialog {
                 }
                 // Get current credential's encryption type and set as default
                 auto existingCreds = credManager->getCredentials(platform);
-                if (existingCreds) {
-                    // We need to get the stored credential data to check encryption type
-                    // This is a bit tricky since we don't have direct access to the storage
-                    // For now, set to default and let user change if needed
-                    encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));
-                } else {
-                    encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));
-                }
+                encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));
                 window->add(encryptionChoice);
             } else {
                 encryptionChoice->show();
