@@ -71,10 +71,11 @@ static int setAuthTag(EVP_CIPHER_CTX* ctx, const std::string& authTag) {
     return EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(authTag.length()), tagBuffer.data());
 }
 
-[[noreturn]] void RSAEncryption::throwOpenSSLError(const std::string& message) const {
-    char buf[256];
-    ERR_error_string(ERR_get_error(), buf);
-    throw std::runtime_error(message + ": " + buf);
+[[noreturn]] void RSAEncryption::throwOpenSSLError(const std::string& message) {
+    unsigned long errorCode = ERR_get_error();
+    char errorBuffer[256];
+    ERR_error_string_n(errorCode, errorBuffer, sizeof(errorBuffer));
+    throw std::runtime_error(message + ": " + std::string(errorBuffer));
 }
 
 RSAEncryption::RSAEncryption(int keySize) : m_pkey(nullptr), m_keySize(keySize), m_initialized(false) {
@@ -493,7 +494,7 @@ std::string RSAEncryption::decryptWithAES(const HybridData& data, const std::str
     return std::string(reinterpret_cast<char*>(decrypted.data()), len + finalLen);
 }
 
-std::string RSAEncryption::serializeHybridData(const HybridData& data) const {
+std::string RSAEncryption::serializeHybridData(const HybridData& data) {
     std::string result;
     result += bytesToHex(toUnsignedCharView(data.encryptedAESKey), data.encryptedAESKey.length()) + "|";
     result += bytesToHex(toUnsignedCharView(data.iv), data.iv.length()) + "|";
@@ -502,7 +503,7 @@ std::string RSAEncryption::serializeHybridData(const HybridData& data) const {
     return result;
 }
 
-RSAEncryption::HybridData RSAEncryption::deserializeHybridData(const std::string& serialized) const {
+RSAEncryption::HybridData RSAEncryption::deserializeHybridData(const std::string& serialized) {
     std::vector<std::string> parts;
     std::stringstream ss(serialized);
     std::string part;
@@ -538,7 +539,7 @@ std::string RSAEncryption::encrypt(const std::string& plaintext) {
     hybridData.encryptedAESKey = encryptAESKeyWithRSA(aesKey);
 
     // Serialize and return
-    return serializeHybridData(hybridData);
+    return RSAEncryption::serializeHybridData(hybridData);
 }
 
 std::string RSAEncryption::decrypt(const std::string& ciphertext) {
@@ -547,7 +548,7 @@ std::string RSAEncryption::decrypt(const std::string& ciphertext) {
     }
 
     // Deserialize hybrid data
-    HybridData hybridData = deserializeHybridData(ciphertext);
+    HybridData hybridData = RSAEncryption::deserializeHybridData(ciphertext);
 
     // Decrypt AES key with RSA
     std::string aesKey = decryptAESKeyWithRSA(hybridData.encryptedAESKey);

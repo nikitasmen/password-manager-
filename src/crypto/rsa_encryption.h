@@ -93,12 +93,12 @@ class RSAEncryption : public IEncryption {
     /**
      * @brief Serialize hybrid data to string
      */
-    std::string serializeHybridData(const HybridData& data) const;
+    static std::string serializeHybridData(const HybridData& data);
 
     /**
      * @brief Deserialize hybrid data from string
      */
-    HybridData deserializeHybridData(const std::string& serialized) const;
+    static HybridData deserializeHybridData(const std::string& serialized);
 
     /**
      * @brief Generate random AES key
@@ -140,7 +140,7 @@ class RSAEncryption : public IEncryption {
      */
     void decryptPrivateKey(const std::string& encryptedData);
 
-    [[noreturn]] void throwOpenSSLError(const std::string& message) const;
+    [[noreturn]] static void throwOpenSSLError(const std::string& message);
 
     EVP_PKEY* m_pkey;
     std::string m_masterPassword;
