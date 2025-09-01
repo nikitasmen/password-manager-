@@ -66,11 +66,10 @@ int TerminalUIManager::show() {
             return runMenuLoop();
         } else {
             // Login flow
-            std::string password;
             int attempts = 0;
 
             while (attempts < MAX_LOGIN_ATTEMPTS) {
-                password = TerminalUI::get_password_input("Enter master password: ");
+                std::string password = TerminalUI::get_password_input("Enter master password: ");
                 if (login(password)) {
                     return runMenuLoop();
                 }
