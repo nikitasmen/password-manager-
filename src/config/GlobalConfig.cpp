@@ -462,7 +462,7 @@ std::string ConfigManager::intArrayToString(const std::vector<int>& array) {
 }
 
 // Implementation of EncryptionUtils helper functions
-namespace EncryptionUtils {
+namespace encryption_utils {
 
 const char* getDisplayName(EncryptionType type) {
     switch (type) {
@@ -513,4 +513,4 @@ const std::map<int, EncryptionType>& getChoiceMapping() {
 
     return choiceMap;
 }
-}  // namespace EncryptionUtils
+}  // namespace encryption_utils
