@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "GlobalConfig.h"
+#include "../config/GlobalConfig.h"
 
 struct CredentialData {
     std::string encrypted_user;
