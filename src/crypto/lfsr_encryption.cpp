@@ -11,7 +11,7 @@
 LFSREncryption::LFSREncryption(const std::vector<int>& taps,
                                const std::vector<int>& initialState,
                                const std::string& salt)
-    : taps_(taps), initialState_(initialState), state_(initialState), originalState_(initialState) {
+    : taps_(taps), initialState_(initialState), originalState_(initialState), state_(initialState) {
     if (initialState.empty()) {
         throw EncryptionError("Initial state cannot be empty for LFSR encryption");
     }
