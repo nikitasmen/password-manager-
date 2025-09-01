@@ -21,28 +21,13 @@
 
 #include "../config/GlobalConfig.h"
 #include "../config/MigrationHelper.h"
-#include "EncryptionUtils.h"
+#include "../utils/EncryptionUtils.h"
 #include "GuiComponent.h"
 
 // Base class for text display components
 class ContainerComponent : public GuiComponent {
-   private:
-    std::vector<std::unique_ptr<GuiComponent>> children;
-
    public:
     ContainerComponent(Fl_Group* parent, int x, int y, int w, int h) : GuiComponent(parent, x, y, w, h) {
-    }
-
-    void addChild(std::unique_ptr<GuiComponent> child) {
-        children.push_back(std::move(child));
-    }
-
-    template <typename T, typename... Args>
-    T* addChild(Args&&... args) {
-        auto child = std::make_unique<T>(std::forward<Args>(args)...);
-        T* ptr = child.get();
-        children.push_back(std::move(child));
-        return ptr;
     }
 
     void create() override {
@@ -184,9 +169,9 @@ class PasswordSetupComponent : public FormComponentBase {
         confirmPasswordInput =
             createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
         // Always fetch the current default encryption from config at creation time
-        ConfigManager& config = ConfigManager::getInstance();
+        const ConfigManager& config = ConfigManager::getInstance();
         EncryptionType encType = config.getDefaultEncryption();
-        const char* encTypeCStr = EncryptionUtils::getDisplayName(encType);
+        const char* encTypeCStr = encryption_utils::getDisplayName(encType);
         std::string encTypeStr = encTypeCStr ? std::string(encTypeCStr) : "Unknown";
         std::string msg;
         if (encTypeStr == "Unknown") {
@@ -233,11 +218,10 @@ class MenuBarComponent : public GuiComponent {
 
     MenuActions actions;
     Fl_Menu_Bar* menuBar;
-    std::vector<void*> callbackData;  // Store pointers to allocated callback data for cleanup
 
     // Generic menu callback using the component's actions
     static void menuCallback(Fl_Widget*, void* data) {
-        auto* callbackInfo = static_cast<std::pair<MenuBarComponent*, int>*>(data);
+        const auto* callbackInfo = static_cast<std::pair<MenuBarComponent*, int>*>(data);
         MenuBarComponent* comp = callbackInfo->first;
         int actionId = callbackInfo->second;
 
@@ -379,9 +363,6 @@ class ClickablePlatformsDisplay : public Fl_Group {
         int relX = Fl::event_x() - x();
         int relY = Fl::event_y() - y();
 
-        // Check if the event is inside our widget
-        bool inside = (relX >= 0 && relX < w() && relY >= 0 && relY < h());
-
         switch (event) {
             case FL_PUSH:
                 // Take focus when clicked
@@ -400,7 +381,6 @@ class ClickablePlatformsDisplay : public Fl_Group {
 
                     // Calculate the click position relative to the text display
                     // We need to account for the display's position and any internal padding
-                    const int topPadding = 4;  // Additional padding at the top of the text area
 
                     // Calculate textY relative to the top of the text display
                     // Since display is positioned at the same coordinates as the widget,
@@ -538,17 +518,11 @@ class PlatformsDisplayComponent : public BufferedTextDisplayBase {
     PlatformsDisplayComponent(Fl_Group* parent, int x, int y, int w, int h)
         : BufferedTextDisplayBase(parent, x, y, w, h, "Stored Platforms:") {
     }
-
-    void create() override {
-        BufferedTextDisplayBase::create();
-    }
 };
 
 // Component for action buttons
 class ActionButtonsComponent : public FormComponentBase {
    private:
-    static constexpr int BUTTON_WIDTH = 100;
-    static constexpr int BUTTON_HEIGHT = 25;
     static constexpr int BUTTON_GAP = 20;
 
     ButtonCallback onView;
@@ -602,11 +576,12 @@ class CredentialInputsComponent : public FormComponentBase {
             createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
 
         // Add encryption options using helper functions
-        auto availableTypes = EncryptionUtils::getAllTypes();
+        auto availableTypes = encryption_utils::getAllTypes();
         for (const auto& type : availableTypes) {
-            encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+            encryptionChoice->add(encryption_utils::getDisplayName(type));
         }
-        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));  // Default encryption
+        encryptionChoice->value(
+            encryption_utils::toDropdownIndex(encryption_utils::getDefault()));  // Default encryption
     }
 
     // Methods to retrieve credential input values
@@ -621,8 +596,8 @@ class CredentialInputsComponent : public FormComponentBase {
         return {platformInput ? platformInput->value() : "",
                 usernameInput ? usernameInput->value() : "",
                 passwordInput ? passwordInput->value() : "",
-                encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value())
-                                 : EncryptionUtils::getDefault()};
+                encryptionChoice ? encryption_utils::fromDropdownIndex(encryptionChoice->value())
+                                 : encryption_utils::getDefault()};
     }
 
     std::string getPlatform() const {
@@ -635,8 +610,8 @@ class CredentialInputsComponent : public FormComponentBase {
         return passwordInput ? passwordInput->value() : "";
     }
     EncryptionType getEncryptionType() const {
-        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value())
-                                : EncryptionUtils::getDefault();
+        return encryptionChoice ? encryption_utils::fromDropdownIndex(encryptionChoice->value())
+                                : encryption_utils::getDefault();
     }
 
     Fl_Input* getPlatformInput() const {
@@ -773,6 +748,18 @@ class SettingsDialogComponent : public FormComponentBase {
         : FormComponentBase(parent, x, y, w, h),
           masterPassword(masterPassword_in),
           config(config_in),
+          scrollArea(nullptr),
+          dataPathInput(nullptr),
+          defaultEncryptionChoice(nullptr),
+          maxLoginAttemptsInput(nullptr),
+          clipboardTimeoutInput(nullptr),
+          autoClipboardClearCheck(nullptr),
+          requirePasswordConfirmationCheck(nullptr),
+          minPasswordLengthInput(nullptr),
+          showEncryptionInCredentialsCheck(nullptr),
+          defaultUIModeChoice(nullptr),
+          lfsrTapsInput(nullptr),
+          lfsrInitStateInput(nullptr),
           onSave(onSave_in),
           onCancel(onCancel_in) {
     }
@@ -792,35 +779,35 @@ class SettingsDialogComponent : public FormComponentBase {
         const int spacing = 35;
 
         // Use the passed-in config object, NOT the singleton
-        auto dataPathLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Data Path:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Data Path:");
         dataPathInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         dataPathInput->value(config.dataPath.c_str());
         yPos += spacing;
 
-        auto defaultEncryptionLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
         defaultEncryptionChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
-        for (const auto& type : EncryptionUtils::getAllTypes()) {
-            defaultEncryptionChoice->add(EncryptionUtils::getDisplayName(type));
+        for (const auto& type : encryption_utils::getAllTypes()) {
+            defaultEncryptionChoice->add(encryption_utils::getDisplayName(type));
         }
-        defaultEncryptionChoice->value(EncryptionUtils::toDropdownIndex(config.defaultEncryption));
+        defaultEncryptionChoice->value(encryption_utils::toDropdownIndex(config.defaultEncryption));
         yPos += spacing;
 
-        auto maxLoginAttemptsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
         maxLoginAttemptsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         maxLoginAttemptsInput->value(std::to_string(config.maxLoginAttempts).c_str());
         yPos += spacing;
 
-        auto clipboardTimeoutLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Clipboard Timeout (s):");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Clipboard Timeout (s):");
         clipboardTimeoutInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         clipboardTimeoutInput->value(std::to_string(config.clipboardTimeoutSeconds).c_str());
         yPos += spacing;
 
-        auto minPasswordLengthLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Min Password Length:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Min Password Length:");
         minPasswordLengthInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         minPasswordLengthInput->value(std::to_string(config.minPasswordLength).c_str());
         yPos += spacing;
 
-        auto defaultUIModeLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
         defaultUIModeChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
         defaultUIModeChoice->add("cli");
         defaultUIModeChoice->add("gui");
@@ -849,14 +836,14 @@ class SettingsDialogComponent : public FormComponentBase {
         showEncryptionInCredentialsCheck->value(config.showEncryptionInCredentials);
         yPos += spacing;
 
-        auto lfsrTapsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Taps (comma-sep):");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Taps (comma-sep):");
         lfsrTapsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         lfsrTapsInput->value(vectorToString(config.lfsrTaps).c_str());
         yPos += spacing;
 
-        auto lfsrInitStateLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
         lfsrInitStateInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
-        lfsrInitStateInput->value(vectorToString(config.lfsrInitState).c_str());
+        lfsrInitStateInput->value(vectorToString(config.lfsrInitState_).c_str());
         yPos += spacing;
 
         scrollArea->end();
@@ -866,7 +853,7 @@ class SettingsDialogComponent : public FormComponentBase {
         Fl_Button* cancelButton = createWidget<Fl_Button>(x + w / 2 + 20, buttonY, 100, 30, "Cancel");
 
         CallbackHelper::setCallback(saveButton, this, [this](SettingsDialogComponent* comp) { comp->saveSettings(); });
-        CallbackHelper::setCallback(cancelButton, this, [this](SettingsDialogComponent* comp) {
+        CallbackHelper::setCallback(cancelButton, this, [this](const SettingsDialogComponent* comp) {
             if (onCancel)
                 onCancel();
         });
@@ -876,7 +863,7 @@ class SettingsDialogComponent : public FormComponentBase {
     }
 
    private:
-    std::string vectorToString(const std::vector<int>& vec) {
+    static std::string vectorToString(const std::vector<int>& vec) {
         std::stringstream ss;
         for (size_t i = 0; i < vec.size(); ++i) {
             if (i > 0)
@@ -886,7 +873,7 @@ class SettingsDialogComponent : public FormComponentBase {
         return ss.str();
     }
 
-    std::vector<int> stringToVector(const std::string& s) {
+    static std::vector<int> stringToVector(const std::string& s) {
         std::vector<int> vec;
         if (s.empty())
             return vec;
@@ -910,7 +897,7 @@ class SettingsDialogComponent : public FormComponentBase {
         AppConfig newConfig;
         try {
             newConfig.dataPath = dataPathInput->value();
-            newConfig.defaultEncryption = EncryptionUtils::fromDropdownIndex(defaultEncryptionChoice->value());
+            newConfig.defaultEncryption = encryption_utils::fromDropdownIndex(defaultEncryptionChoice->value());
             newConfig.maxLoginAttempts = std::stoi(maxLoginAttemptsInput->value());
             newConfig.clipboardTimeoutSeconds = std::stoi(clipboardTimeoutInput->value());
             newConfig.autoClipboardClear = autoClipboardClearCheck->value();
@@ -920,7 +907,7 @@ class SettingsDialogComponent : public FormComponentBase {
             newConfig.defaultUIMode = defaultUIModeChoice->menu()[defaultUIModeChoice->value()].label();
 
             newConfig.lfsrTaps = stringToVector(lfsrTapsInput->value());
-            newConfig.lfsrInitState = stringToVector(lfsrInitStateInput->value());
+            newConfig.lfsrInitState_ = stringToVector(lfsrInitStateInput->value());
         } catch (const std::invalid_argument& ia) {
             fl_alert("Invalid number format in one of the fields.");
             return;

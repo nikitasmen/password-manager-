@@ -92,7 +92,7 @@ class JsonStorage {
      * @param dataPath Path where data files will be stored
      * @param filename Name of the JSON storage file
      */
-    JsonStorage(const std::string& dataPath = "data", const std::string& filename = "secure_storage.json");
+    explicit JsonStorage(const std::string& dataPath = "data", const std::string& filename = "secure_storage.json");
 
     /**
      * @brief Destructor to ensure data is saved
@@ -128,11 +128,11 @@ class JsonStorage {
     /**
      * @brief Update existing credentials for a platform
      *
-     * @param platformName Name of the platform
+     * @param platform Name of the platform
      * @param credData The credential data to update
      * @return bool True if credentials were updated successfully
      */
-    bool updateCredentials(const std::string& platformName, const CredentialData& credData);
+    bool updateCredentials(const std::string& platform, const CredentialData& credData);
 
     /**
      * @brief Delete stored credentials for a platform

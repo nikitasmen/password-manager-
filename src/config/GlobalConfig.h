@@ -1,15 +1,16 @@
 #ifndef GLOBALCONFIG_H
 #define GLOBALCONFIG_H
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
 
 // Global configuration constants
-const int MAX_LOGIN_ATTEMPTS = 3;  // Maximum allowed login attempts before exiting
+const int kMaxLoginAttempts = 3;  // Maximum allowed login attempts before exiting
 
 // Encryption algorithm options
-enum class EncryptionType {
+enum class EncryptionType : std::uint8_t {
     LFSR = 0,  // Linear Feedback Shift Register (basic)
     AES = 1,   // Advanced Encryption Standard (stronger)
     RSA = 2,   // RSA (asymmetric, used for credential encryption via hybrid encryption)
@@ -37,7 +38,7 @@ struct AppConfig {
 
     // LFSR settings
     std::vector<int> lfsrTaps = {0, 2};
-    std::vector<int> lfsrInitState = {1, 0, 1};
+    std::vector<int> lfsrInitState_ = {1, 0, 1};
 
     // UI settings
     bool showEncryptionInCredentials = true;
@@ -62,7 +63,7 @@ class ConfigManager {
     bool saveConfig(const std::string& configPath = ".config");
 
     // Get current configuration
-    const AppConfig& getConfig() const {
+    [[nodiscard]] const AppConfig& getConfig() const {
         return config_;
     }
 
@@ -70,57 +71,57 @@ class ConfigManager {
     void updateConfig(const AppConfig& newConfig);
 
     // Get specific config values
-    std::string getVersion() const {
+    [[nodiscard]] const std::string& getVersion() const {
         return config_.version;
     }
-    std::string getDataPath() const {
+    [[nodiscard]] const std::string& getDataPath() const {
         return config_.dataPath;
     }
-    EncryptionType getDefaultEncryption() const {
+    [[nodiscard]] EncryptionType getDefaultEncryption() const {
         return config_.defaultEncryption;
     }
-    bool isAutoClipboardClearEnabled() const {
+    [[nodiscard]] bool isAutoClipboardClearEnabled() const {
         return config_.autoClipboardClear;
     }
-    int getMaxLoginAttempts() const {
+    [[nodiscard]] int getMaxLoginAttempts() const {
         return config_.maxLoginAttempts;
     }
-    int getClipboardTimeoutSeconds() const {
+    [[nodiscard]] int getClipboardTimeoutSeconds() const {
         return config_.clipboardTimeoutSeconds;
     }
-    bool getAutoClipboardClear() const {
+    [[nodiscard]] bool getAutoClipboardClear() const {
         return config_.autoClipboardClear;
     }
-    bool getRequirePasswordConfirmation() const {
+    [[nodiscard]] bool getRequirePasswordConfirmation() const {
         return config_.requirePasswordConfirmation;
     }
-    int getMinPasswordLength() const {
+    [[nodiscard]] int getMinPasswordLength() const {
         return config_.minPasswordLength;
     }
-    bool getShowEncryptionInCredentials() const {
+    [[nodiscard]] bool getShowEncryptionInCredentials() const {
         return config_.showEncryptionInCredentials;
     }
-    std::string getDefaultUIMode() const {
+    [[nodiscard]] const std::string& getDefaultUIMode() const {
         return config_.defaultUIMode;
     }
-    const std::vector<int>& getLfsrTaps() const {
+    [[nodiscard]] const std::vector<int>& getLfsrTaps() const {
         return config_.lfsrTaps;
     }
-    const std::vector<int>& getLfsrInitState() const {
-        return config_.lfsrInitState;
+    [[nodiscard]] const std::vector<int>& getLfsrInitState() const {
+        return config_.lfsrInitState_;
     }
 
     // Update/Repository settings
-    std::string getGithubOwner() const {
+    [[nodiscard]] const std::string& getGithubOwner() const {
         return config_.githubOwner;
     }
-    std::string getGithubRepo() const {
+    [[nodiscard]] const std::string& getGithubRepo() const {
         return config_.githubRepo;
     }
-    bool getAutoCheckUpdates() const {
+    [[nodiscard]] bool getAutoCheckUpdates() const {
         return config_.autoCheckUpdates;
     }
-    int getUpdateCheckIntervalDays() const {
+    [[nodiscard]] int getUpdateCheckIntervalDays() const {
         return config_.updateCheckIntervalDays;
     }
 
@@ -160,14 +161,14 @@ class ConfigManager {
     AppConfig config_;
 
     // Helper methods for parsing
-    EncryptionType parseEncryptionType(const std::string& value) const;
-    std::string encryptionTypeToString(EncryptionType type) const;
-    std::vector<int> parseIntArray(const std::string& value) const;
-    std::string intArrayToString(const std::vector<int>& array) const;
+    static EncryptionType parseEncryptionType(const std::string& value);
+    static std::string encryptionTypeToString(EncryptionType type);
+    static std::vector<int> parseIntArray(const std::string& value);
+    static std::string intArrayToString(const std::vector<int>& array);
 };
 
 // Helper functions for encryption type management
-namespace EncryptionUtils {
+namespace encryption_utils {
 // Get human-readable name for an encryption type
 const char* getDisplayName(EncryptionType type);
 
@@ -185,6 +186,6 @@ EncryptionType getDefault();
 
 // Get encryption type mapping for menu choices
 const std::map<int, EncryptionType>& getChoiceMapping();
-}  // namespace EncryptionUtils
+}  // namespace encryption_utils
 
 #endif  // GLOBALCONFIG_H

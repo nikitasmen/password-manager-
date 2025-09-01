@@ -85,7 +85,7 @@ class TerminalUI {
      * @param maxAttempts Maximum number of login attempts
      * @return bool True if login successful, false otherwise
      */
-    static bool login(int maxAttempts = MAX_LOGIN_ATTEMPTS);
+    static bool login(int maxAttempts = kMaxLoginAttempts);
 };
 
 #endif  // UI_H

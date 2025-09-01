@@ -218,7 +218,7 @@ std::string JsonStorage::getMasterPassword() const {
             std::string encodedPassword = currentData[masterPasswordKey];
             // Try to decode base64, fallback to raw if it fails
             try {
-                return Base64::decode(encodedPassword);
+                return base64::decode(encodedPassword);
             } catch (const std::exception& e) {
                 std::cerr << "Base64 decode failed, treating as plaintext: " << e.what() << std::endl;
                 return encodedPassword;  // Return as-is for backward compatibility
@@ -244,7 +244,7 @@ bool JsonStorage::updateMasterPassword(const std::string& password) {
         }
 
         // Encode the password in Base64 to ensure it's valid UTF-8 in JSON
-        std::string encodedPassword = Base64::encode(password);
+        std::string encodedPassword = base64::encode(password);
         credentialsData[masterPasswordKey] = encodedPassword;
 
         modified = true;
@@ -274,8 +274,8 @@ bool JsonStorage::addCredentials(const std::string& platformName, const Credenti
         }
 
         // Encode credentials in Base64 to ensure they're valid UTF-8 in JSON
-        std::string encodedUsername = Base64::encode(credData.encrypted_user);
-        std::string encodedPassword = Base64::encode(credData.encrypted_pass);
+        std::string encodedUsername = base64::encode(credData.encrypted_user);
+        std::string encodedPassword = base64::encode(credData.encrypted_pass);
 
         // Create platform entry with username and password
         nlohmann::json platformData;
@@ -325,8 +325,8 @@ bool JsonStorage::updateCredentials(const std::string& platform, const Credentia
         }
 
         // Update platform entry
-        std::string encodedUsername = Base64::encode(credData.encrypted_user);
-        std::string encodedPassword = Base64::encode(credData.encrypted_pass);
+        std::string encodedUsername = base64::encode(credData.encrypted_user);
+        std::string encodedPassword = base64::encode(credData.encrypted_pass);
 
         credentialsData["platforms"][platform]["username"] = encodedUsername;
         credentialsData["platforms"][platform]["password"] = encodedPassword;
@@ -444,8 +444,8 @@ std::optional<CredentialData> JsonStorage::getCredentials(const std::string& pla
 
             if (platform.contains("username") && platform.contains("password")) {
                 CredentialData data;
-                data.encrypted_user = Base64::decode(platform["username"].get<std::string>());
-                data.encrypted_pass = Base64::decode(platform["password"].get<std::string>());
+                data.encrypted_user = base64::decode(platform["username"].get<std::string>());
+                data.encrypted_pass = base64::decode(platform["password"].get<std::string>());
                 int encTypeInt = platform.contains("encryption_type") ? platform["encryption_type"].get<int>()
                                                                       : 0;  // Default to LFSR
                 data.encryption_type = static_cast<EncryptionType>(encTypeInt);

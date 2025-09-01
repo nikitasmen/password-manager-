@@ -22,15 +22,18 @@ ClipboardManager& ClipboardManager::getInstance() {
     return instance;
 }
 
-ClipboardManager::ClipboardManager() {
+ClipboardManager::ClipboardManager() : strategy_(createPlatformStrategy()) {
+}
+
+std::unique_ptr<IClipboardStrategy> ClipboardManager::createPlatformStrategy() {
 #ifdef _WIN32
-    strategy_ = std::make_unique<WindowsClipboardStrategy>();
+    return std::make_unique<WindowsClipboardStrategy>();
 #elif defined(__APPLE__)
-    strategy_ = std::make_unique<MacOSClipboardStrategy>();
+    return std::make_unique<MacOSClipboardStrategy>();
 #elif defined(__linux__)
-    strategy_ = std::make_unique<LinuxClipboardStrategy>();
+    return std::make_unique<LinuxClipboardStrategy>();
 #else
-    strategy_ = nullptr;  // No platform support
+    return nullptr;  // No platform support
 #endif
 }
 

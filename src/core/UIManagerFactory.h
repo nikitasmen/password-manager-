@@ -1,6 +1,7 @@
 #ifndef UI_MANAGER_FACTORY_H
 #define UI_MANAGER_FACTORY_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -10,7 +11,7 @@
  * @enum UIType
  * @brief Enum for different UI types
  */
-enum class UIType {
+enum class UIType : std::uint8_t {
     TERMINAL,  // Terminal/Console UI
     GUI        // Graphical User Interface
 };

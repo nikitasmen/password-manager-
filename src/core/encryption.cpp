@@ -1,6 +1,8 @@
 #include "./encryption.h"
 
+#include <algorithm>
 #include <iomanip>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -18,7 +20,7 @@ Encryption::Encryption(EncryptionType algorithm,
                        const vector<int>& taps,
                        const vector<int>& initState,
                        const string& password)
-    : algorithm_(algorithm), taps_(taps), initialState_(initState), masterPassword_(password) {
+    : taps_(taps), initialState_(initState), masterPassword_(password), algorithm_(algorithm) {
     if (algorithm_ == EncryptionType::LFSR) {
         if (taps_.empty()) {
             taps_ = {0, 2};  // Default taps for LFSR
@@ -94,9 +96,10 @@ vector<string> Encryption::encryptWithSalt(const vector<string>& plaintexts) {
         // Fallback to regular encryption if not a salted encryptor
         vector<string> results;
         results.reserve(plaintexts.size());
-        for (const auto& plaintext : plaintexts) {
-            results.push_back(encrypt(plaintext));
-        }
+        std::transform(
+            plaintexts.begin(), plaintexts.end(), std::back_inserter(results), [this](const auto& plaintext) {
+                return encrypt(plaintext);
+            });
         return results;
     } catch (const exception& e) {
         throw runtime_error(string("Salted encryption failed: ") + e.what());
@@ -117,9 +120,10 @@ vector<string> Encryption::decryptWithSalt(const vector<string>& ciphertexts) {
         // Fallback to regular decryption if not a salted decryptor
         vector<string> results;
         results.reserve(ciphertexts.size());
-        for (const auto& ciphertext : ciphertexts) {
-            results.push_back(decrypt(ciphertext));
-        }
+        std::transform(
+            ciphertexts.begin(), ciphertexts.end(), std::back_inserter(results), [this](const auto& ciphertext) {
+                return decrypt(ciphertext);
+            });
         return results;
     } catch (const exception& e) {
         throw runtime_error(string("Salted decryption failed: ") + e.what());

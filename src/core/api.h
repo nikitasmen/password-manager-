@@ -27,29 +27,32 @@ class CredentialsManager {
     EncryptionType encryptionType;           // Current encryption algorithm
     std::string currentMasterPassword;       // Stores the current master password in memory
     std::vector<int> lfsrTaps;               // LFSR taps for encryption
-    std::vector<int> lfsrInitState;          // LFSR initial state for encryption
+    std::vector<int> lfsrInitState_;         // LFSR initial state for encryption
 
     // Create a new encryptor with current settings
     void createEncryptor(EncryptionType type, const std::string& password);
 
     // Helper methods to reduce code duplication
-    bool validateCredentialInputs(const std::string& platform, const std::string& user, const std::string& pass) const;
-    std::unique_ptr<IEncryption> createCredentialEncryptor(const CredentialData& credData) const;
-    std::unique_ptr<IEncryption> createCredentialEncryptor(
+    [[nodiscard]] bool validateCredentialInputs(const std::string& platform,
+                                                const std::string& user,
+                                                const std::string& pass) const;
+    [[nodiscard]] std::unique_ptr<IEncryption> createCredentialEncryptor(const CredentialData& credData) const;
+    [[nodiscard]] std::unique_ptr<IEncryption> createCredentialEncryptor(
         EncryptionType type,
         const std::optional<std::string>& publicKey = std::nullopt,
         const std::optional<std::string>& privateKey = std::nullopt) const;
     std::pair<std::string, std::string> encryptCredentialPair(IEncryption* encryptor,
                                                               const std::string& user,
                                                               const std::string& pass) const;
-    CredentialData createCredentialData(EncryptionType type,
-                                        const std::string& encryptedUser,
-                                        const std::string& encryptedPass,
-                                        const std::optional<std::string>& publicKey = std::nullopt,
-                                        const std::optional<std::string>& privateKey = std::nullopt) const;
+    static CredentialData createCredentialData(EncryptionType type,
+                                               const std::string& encryptedUser,
+                                               const std::string& encryptedPass,
+                                               const std::optional<std::string>& publicKey = std::nullopt,
+                                               const std::optional<std::string>& privateKey = std::nullopt);
 
     // Helper method to extract RSA keys from encryptor
-    std::pair<std::optional<std::string>, std::optional<std::string>> extractRSAKeys(IEncryption* encryptor) const;
+    std::pair<std::optional<std::string>, std::optional<std::string>> extractRSAKeys(
+        const IEncryption* encryptor) const;
 
    public:
     /**

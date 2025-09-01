@@ -22,7 +22,7 @@ class TerminalUIManager : public UIManager {
      * @brief Constructor
      * @param dataPath Path to the data storage directory
      */
-    TerminalUIManager(const std::string& dataPath);
+    explicit TerminalUIManager(const std::string& dataPath);
 
     /**
      * @brief Initialize the terminal UI

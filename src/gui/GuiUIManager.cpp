@@ -18,13 +18,12 @@
 
 GuiUIManager::GuiUIManager(const std::string& dataPath)
     : UIManager(dataPath),
+      updateDialog(std::make_unique<UpdateDialog>()),
       loginForm(nullptr),
       passwordSetup(nullptr),
       platformsDisplay(nullptr),
       clickablePlatformsDisplay(nullptr),
       credentialInputs(nullptr) {
-    // Initialize update dialog (GitHub repository info should be configured here)
-    updateDialog = std::make_unique<UpdateDialog>();
 }
 
 GuiUIManager::~GuiUIManager() {

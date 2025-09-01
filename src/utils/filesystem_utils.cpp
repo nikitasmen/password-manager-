@@ -25,7 +25,7 @@ bool isDirectory(const std::string& path) {
 bool safeRemove(const std::string& path) {
     try {
         std::error_code ec;
-        bool result = fs::remove(path, ec);
+        fs::remove(path, ec);
         if (ec) {
             std::cerr << "Error removing file: " << path << " - " << ec.message() << std::endl;
             return false;
@@ -40,7 +40,7 @@ bool safeRemove(const std::string& path) {
 bool createDirectories(const std::string& path) {
     try {
         std::error_code ec;
-        bool result = fs::create_directories(path, ec);
+        fs::create_directories(path, ec);
         if (ec) {
             std::cerr << "Error creating directories: " << path << " - " << ec.message() << std::endl;
             return false;

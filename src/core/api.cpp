@@ -29,7 +29,7 @@ void CredentialsManager::createEncryptor(EncryptionType type, const std::string&
     encryptionType = type;
     currentMasterPassword = password;
     lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
-    lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
+    lfsrInitState_ = ConfigManager::getInstance().getLfsrInitState();
 
     auto params = EncryptionParamsBuilder::create(type, password);
     encryptor = EncryptionFactory::create(params);
@@ -66,28 +66,28 @@ std::unique_ptr<IEncryption> CredentialsManager::createCredentialEncryptor(
     EncryptionType type,
     const std::optional<std::string>& publicKey,
     const std::optional<std::string>& privateKey) const {
-    std::unique_ptr<IEncryption> encryptor;
+    std::unique_ptr<IEncryption> localEncryptor;
 
     if (type == EncryptionType::RSA) {
         auto params =
             EncryptionParamsBuilder::createRSA(currentMasterPassword, publicKey.value_or(""), privateKey.value_or(""));
-        encryptor = EncryptionFactory::create(params);
+        localEncryptor = EncryptionFactory::create(params);
     } else {
         auto params = EncryptionParamsBuilder::create(type, currentMasterPassword);
-        encryptor = EncryptionFactory::create(params);
+        localEncryptor = EncryptionFactory::create(params);
     }
 
-    if (!encryptor) {
+    if (!localEncryptor) {
         throw std::runtime_error("Failed to create encryptor for type: " + std::to_string(static_cast<int>(type)));
     }
 
-    encryptor->setMasterPassword(currentMasterPassword);
-    return encryptor;
+    localEncryptor->setMasterPassword(currentMasterPassword);
+    return localEncryptor;
 }
 
 std::pair<std::optional<std::string>, std::optional<std::string>> CredentialsManager::extractRSAKeys(
-    IEncryption* encryptor) const {
-    auto rsaEncryptor = dynamic_cast<RSAEncryption*>(encryptor);
+    const IEncryption* encryptor) const {
+    const auto rsaEncryptor = dynamic_cast<const RSAEncryption*>(encryptor);
     if (!rsaEncryptor) {
         throw std::runtime_error("Failed to cast to RSAEncryption for key retrieval.");
     }
@@ -111,7 +111,7 @@ CredentialData CredentialsManager::createCredentialData(EncryptionType type,
                                                         const std::string& encryptedUser,
                                                         const std::string& encryptedPass,
                                                         const std::optional<std::string>& publicKey,
-                                                        const std::optional<std::string>& privateKey) const {
+                                                        const std::optional<std::string>& privateKey) {
     CredentialData credData;
     credData.encryption_type = type;
     credData.encrypted_user = encryptedUser;
@@ -286,8 +286,8 @@ bool CredentialsManager::addCredentials(const std::string& platform,
         }
 
         // Create credential data and store
-        CredentialData credData =
-            createCredentialData(credEncType, encryptedPair.first, encryptedPair.second, publicKey, privateKey);
+        CredentialData credData = CredentialsManager::createCredentialData(
+            credEncType, encryptedPair.first, encryptedPair.second, publicKey, privateKey);
         storage->addCredentials(platform, credData);
 
         return true;
@@ -323,10 +323,10 @@ std::optional<DecryptedCredential> CredentialsManager::getCredentials(const std:
         DecryptedCredential decryptedCredential;
 
         // Use helper method to create encryptor
-        auto encryptor = createCredentialEncryptor(credentialData);
+        auto credentialEncryptor = createCredentialEncryptor(credentialData);
 
         // Decrypt the data using appropriate method based on encryption type
-        if (auto saltedDecryptor = dynamic_cast<ISaltedEncryption*>(encryptor.get())) {
+        if (auto saltedDecryptor = dynamic_cast<ISaltedEncryption*>(credentialEncryptor.get())) {
             std::vector<std::string> encrypted_data = {credentialData.encrypted_user, credentialData.encrypted_pass};
             std::vector<std::string> decrypted_data = saltedDecryptor->decryptWithSalt(encrypted_data);
             if (decrypted_data.size() == 2) {
@@ -336,8 +336,8 @@ std::optional<DecryptedCredential> CredentialsManager::getCredentials(const std:
                 return std::nullopt;
             }
         } else {
-            decryptedCredential.username = encryptor->decrypt(credentialData.encrypted_user);
-            decryptedCredential.password = encryptor->decrypt(credentialData.encrypted_pass);
+            decryptedCredential.username = credentialEncryptor->decrypt(credentialData.encrypted_user);
+            decryptedCredential.password = credentialEncryptor->decrypt(credentialData.encrypted_pass);
         }
 
         return decryptedCredential;
@@ -432,8 +432,8 @@ bool CredentialsManager::updateCredentials(const std::string& platform,
         }
 
         // Create updated credential data
-        CredentialData credData =
-            createCredentialData(finalEncType, encryptedPair.first, encryptedPair.second, publicKey, privateKey);
+        CredentialData credData = CredentialsManager::createCredentialData(
+            finalEncType, encryptedPair.first, encryptedPair.second, publicKey, privateKey);
 
         // Update the credentials using the dedicated update method
         return storage->updateCredentials(platform, credData);

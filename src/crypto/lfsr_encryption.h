@@ -14,7 +14,7 @@ class LFSREncryption : public ISaltedEncryption {
     void setMasterPassword(const std::string& password) override;
     std::string encrypt(const std::string& plaintext) override;
     std::string decrypt(const std::string& ciphertext) override;
-    EncryptionType getType() const override {
+    [[nodiscard]] EncryptionType getType() const override {
         return EncryptionType::LFSR;
     }
 

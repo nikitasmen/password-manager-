@@ -97,7 +97,7 @@ class MigrationHelper {
                                     Encryption* newEncryptor,
                                     JsonStorage* storage);
 
-    std::string generateRandomSalt();
+    static std::string generateRandomSalt();
 
     /**
      * @brief Apply all settings from newConfig, comparing with oldConfig, and perform necessary migrations.
@@ -113,9 +113,9 @@ class MigrationHelper {
      * @param masterPassword The plaintext master password (required for migrations)
      * @return bool True if all migrations and updates succeeded
      */
-    bool applySettingsFromConfig(const AppConfig& oldConfig,
-                                 const AppConfig& newConfig,
-                                 const std::string& masterPassword);
+    static bool applySettingsFromConfig(const AppConfig& oldConfig,
+                                        const AppConfig& newConfig,
+                                        const std::string& masterPassword);
 
    private:
     static MigrationHelper instance_;

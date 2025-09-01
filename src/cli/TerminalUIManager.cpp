@@ -23,10 +23,10 @@ void TerminalUIManager::initialize() {
 
         // Show encryption options
         TerminalUI::display_message("Select encryption type:");
-        const auto availableTypes = EncryptionUtils::getAllTypes();
-        for (size_t i = 0; i < availableTypes.size(); ++i) {
+        const auto kAvailableTypes = encryption_utils::getAllTypes();
+        for (size_t i = 0; i < kAvailableTypes.size(); ++i) {
             TerminalUI::display_message(std::to_string(i + 1) + ". " +
-                                        EncryptionUtils::getDisplayName(availableTypes[i]));
+                                        encryption_utils::getDisplayName(kAvailableTypes[i]));
         }
 
         int choice = 0;
@@ -36,8 +36,8 @@ void TerminalUIManager::initialize() {
             std::string input = TerminalUI::get_text_input("Enter your choice: ");
             try {
                 choice = std::stoi(input);
-                if (choice >= 1 && static_cast<size_t>(choice) <= availableTypes.size()) {
-                    encryptionType = availableTypes[choice - 1];
+                if (choice >= 1 && static_cast<size_t>(choice) <= kAvailableTypes.size()) {
+                    encryptionType = kAvailableTypes[choice - 1];
                     break;
                 }
                 TerminalUI::display_message("Invalid choice. Please enter a valid number.", true);
@@ -66,11 +66,10 @@ int TerminalUIManager::show() {
             return runMenuLoop();
         } else {
             // Login flow
-            std::string password;
             int attempts = 0;
 
-            while (attempts < MAX_LOGIN_ATTEMPTS) {
-                password = TerminalUI::get_password_input("Enter master password: ");
+            while (attempts < kMaxLoginAttempts) {
+                std::string password = TerminalUI::get_password_input("Enter master password: ");
                 if (login(password)) {
                     return runMenuLoop();
                 }
@@ -78,7 +77,7 @@ int TerminalUIManager::show() {
                 TerminalUI::display_message("Invalid password! Try again.", true);
                 attempts++;
 
-                if (attempts == MAX_LOGIN_ATTEMPTS) {
+                if (attempts == kMaxLoginAttempts) {
                     TerminalUI::display_message("Too many failed attempts. Exiting...", true);
                     return 1;
                 }
@@ -94,12 +93,12 @@ int TerminalUIManager::show() {
 
 bool TerminalUIManager::login(const std::string& password) {
     try {
-        if (credManager->login(password)) {
+        bool loginSuccess = credManager->login(password);
+        if (loginSuccess) {
             isLoggedIn = true;
             masterPassword = password;
-            return true;
         }
-        return false;
+        return loginSuccess;
     } catch (const std::exception& e) {
         showMessage("Error", e.what(), true);
         return false;
@@ -142,8 +141,9 @@ bool TerminalUIManager::addCredential(const std::string& platform,
                                       const std::string& username,
                                       const std::string& password,
                                       std::optional<EncryptionType> encryptionType) {
-    if (!isLoggedIn)
+    if (!isLoggedIn) {
         return false;
+    }
 
     try {
         if (encryptionType.has_value()) {
@@ -192,8 +192,9 @@ bool TerminalUIManager::addCredential(const std::string& platform,
 }
 
 void TerminalUIManager::viewCredential(const std::string& platform) {
-    if (!isLoggedIn)
+    if (!isLoggedIn) {
         return;
+    }
     try {
         auto credsOpt = safeGetCredentials(platform);
         if (!credsOpt) {
@@ -246,18 +247,19 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
 }
 
 bool TerminalUIManager::deleteCredential(const std::string& platform) {
-    if (!isLoggedIn)
+    if (!isLoggedIn) {
         return false;
+    }
     std::string confirmation =
         TerminalUI::get_text_input("Are you sure you want to delete credentials for " + platform + "? (y/n): ");
     if (confirmation == "y" || confirmation == "Y") {
-        if (safeDeleteCredential(platform)) {
+        bool deleteSuccess = safeDeleteCredential(platform);
+        if (deleteSuccess) {
             showMessage("Success", "Credentials deleted successfully!");
-            return true;
         } else {
             showMessage("Error", "Failed to delete credentials!", true);
-            return false;
         }
+        return deleteSuccess;
     }
     return false;
 }
@@ -272,18 +274,19 @@ void TerminalUIManager::showMessage(const std::string& title, const std::string&
 }
 
 int TerminalUIManager::runMenuLoop() {
-    if (!isLoggedIn)
+    if (!isLoggedIn) {
         return 1;
+    }
 
-    int menu_choice;
+    int menuChoice = 0;
     do {
-        menu_choice = TerminalUI::display_menu();
-        switch (menu_choice) {
+        menuChoice = TerminalUI::display_menu();
+        switch (menuChoice) {
             case 1: {
                 // Update password
                 std::string newPassword = TerminalUI::get_password_input("Enter new master password: ");
                 std::string confirmPassword = TerminalUI::get_password_input("Confirm new master password: ");
-                setupPassword(newPassword, confirmPassword, EncryptionUtils::getDefault());
+                setupPassword(newPassword, confirmPassword, encryption_utils::getDefault());
                 TerminalUI::pause_screen();
                 TerminalUI::clear_screen();
                 break;
@@ -297,22 +300,22 @@ int TerminalUIManager::runMenuLoop() {
                 TerminalUI::display_message("\n+---------------------------------------+");
                 TerminalUI::display_message("|    SELECT ENCRYPTION ALGORITHM       |");
                 TerminalUI::display_message("+---------------------------------------+");
-                const auto availableTypes = EncryptionUtils::getAllTypes();
+                const auto kAvailableTypesMenu = encryption_utils::getAllTypes();
 
-                for (size_t i = 0; i < availableTypes.size(); ++i) {
+                for (size_t i = 0; i < kAvailableTypesMenu.size(); ++i) {
                     TerminalUI::display_message(std::to_string(i + 1) + ". " +
-                                                EncryptionUtils::getDisplayName(availableTypes[i]));
+                                                encryption_utils::getDisplayName(kAvailableTypesMenu[i]));
 
                     // Add detailed descriptions for each encryption type
-                    if (availableTypes[i] == EncryptionType::AES) {
+                    if (kAvailableTypesMenu[i] == EncryptionType::AES) {
                         TerminalUI::display_message("   • Industry-standard symmetric encryption");
                         TerminalUI::display_message("   • Fast and secure for most use cases");
                         TerminalUI::display_message("   • Recommended for general use");
-                    } else if (availableTypes[i] == EncryptionType::LFSR) {
+                    } else if (kAvailableTypesMenu[i] == EncryptionType::LFSR) {
                         TerminalUI::display_message("   • Linear Feedback Shift Register");
                         TerminalUI::display_message("   • Lightweight stream cipher");
                         TerminalUI::display_message("   • Faster but less secure than AES");
-                    } else if (availableTypes[i] == EncryptionType::RSA) {
+                    } else if (kAvailableTypesMenu[i] == EncryptionType::RSA) {
                         TerminalUI::display_message("   • RSA-2048 asymmetric encryption");
                         TerminalUI::display_message("   • ⚠️  WARNING: Key generation takes time!");
                         TerminalUI::display_message("   • Uses public/private key pairs");
@@ -323,15 +326,15 @@ int TerminalUIManager::runMenuLoop() {
                 }
 
                 int choice = 0;
-                EncryptionType selectedEncryption = EncryptionUtils::getDefault();
+                EncryptionType selectedEncryption = encryption_utils::getDefault();
 
                 while (true) {
                     std::string input = TerminalUI::get_text_input("Enter your choice (1-" +
-                                                                   std::to_string(availableTypes.size()) + "): ");
+                                                                   std::to_string(kAvailableTypesMenu.size()) + "): ");
                     try {
                         choice = std::stoi(input);
-                        if (choice >= 1 && static_cast<size_t>(choice) <= availableTypes.size()) {
-                            selectedEncryption = availableTypes[choice - 1];
+                        if (choice >= 1 && static_cast<size_t>(choice) <= kAvailableTypesMenu.size()) {
+                            selectedEncryption = kAvailableTypesMenu[choice - 1];
 
                             // Special confirmation for RSA encryption
                             if (selectedEncryption == EncryptionType::RSA) {
@@ -411,8 +414,11 @@ int TerminalUIManager::runMenuLoop() {
                 TerminalUI::clear_screen();
                 break;
             }
+            default:
+                // Invalid menu choice - do nothing, the loop will continue
+                break;
         }
-    } while (menu_choice != 0);
+    } while (menuChoice != 0);
 
     return 0;
 }
@@ -426,13 +432,13 @@ bool TerminalUIManager::updateCredential(const std::string& platform,
     }
 
     try {
-        if (credManager->updateCredentials(platform, username, password, encryptionType)) {
+        bool updateSuccess = credManager->updateCredentials(platform, username, password, encryptionType);
+        if (updateSuccess) {
             showMessage("Success", "Credentials updated successfully!");
-            return true;
         } else {
             showMessage("Error", "Failed to update credentials!", true);
-            return false;
         }
+        return updateSuccess;
     } catch (const std::exception& e) {
         showMessage("Error", "Exception during credential update: " + std::string(e.what()), true);
         return false;

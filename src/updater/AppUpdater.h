@@ -75,12 +75,6 @@ class AppUpdater {
      */
     static std::string getPlatformBinaryName();
 
-    /**
-     * @brief Clean up orphaned backup files from previous failed updates
-     * @return true if cleanup was successful or no files to clean
-     */
-    static bool cleanupOrphanedBackups();
-
    private:
     std::string githubOwner;
     std::string githubRepo;
@@ -106,7 +100,7 @@ class AppUpdater {
      * @param jsonResponse JSON response from GitHub API
      * @return VersionInfo for latest compatible release
      */
-    VersionInfo parseReleaseInfo(const std::string& jsonResponse);
+    const VersionInfo parseReleaseInfo(const std::string& jsonResponse) const;
 
     /**
      * @brief Install downloaded update
@@ -119,7 +113,7 @@ class AppUpdater {
      * @brief Update version in configuration file
      * @param newVersion New version to set
      */
-    void updateVersionInConfig(const std::string& newVersion);
+    static void updateVersionInConfig(const std::string& newVersion);
 };
 
 #endif  // APP_UPDATER_H
