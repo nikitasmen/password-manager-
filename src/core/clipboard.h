@@ -128,6 +128,9 @@ class ClipboardManager {
     ClipboardManager();
     std::unique_ptr<IClipboardStrategy> strategy_;
 
+    // Helper method for platform-specific strategy creation
+    static std::unique_ptr<IClipboardStrategy> createPlatformStrategy();
+
     // Singleton pattern - delete copy constructor and assignment operator
     ClipboardManager(const ClipboardManager&) = delete;
     ClipboardManager& operator=(const ClipboardManager&) = delete;
