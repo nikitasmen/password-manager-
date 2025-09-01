@@ -32,7 +32,7 @@ std::vector<unsigned char> AESEncryption::generateSalt() {
     return salt;
 }
 
-std::vector<unsigned char> AESEncryption::deriveKey(const std::vector<unsigned char>& salt) {
+const std::vector<unsigned char> AESEncryption::deriveKey(const std::vector<unsigned char>& salt) const {
     if (masterPassword_.empty()) {
         throw EncryptionError("Master password not set");
     }

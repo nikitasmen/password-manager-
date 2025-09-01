@@ -83,10 +83,10 @@ class Encryption : public IEncryption {
      * @param initState Initial state for LFSR (only used if algorithm is LFSR)
      * @param password The master password to use for encryption/decryption
      */
-    Encryption(EncryptionType algorithm = EncryptionType::AES,
-               const std::vector<int>& taps = {0, 2},
-               const std::vector<int>& initState = {1, 0, 1, 1, 0, 1, 0, 1},
-               const std::string& password = "");
+    explicit Encryption(EncryptionType algorithm = EncryptionType::AES,
+                        const std::vector<int>& taps = {0, 2},
+                        const std::vector<int>& initState = {1, 0, 1, 1, 0, 1, 0, 1},
+                        const std::string& password = "");
 
     /**
      * @brief Static method to decrypt a master password

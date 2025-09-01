@@ -50,7 +50,7 @@ class IEncryption {
 // Extended interface for salted encryption/decryption
 class ISaltedEncryption : public IEncryption {
    public:
-    virtual ~ISaltedEncryption() = default;
+    virtual ~ISaltedEncryption() override = default;
 
     // Batch encryption/decryption with salt
     virtual std::vector<std::string> encryptWithSalt(const std::vector<std::string>& plaintexts) = 0;

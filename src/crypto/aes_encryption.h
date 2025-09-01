@@ -38,8 +38,8 @@ class AESEncryption : public IEncryption {
     void setMasterPassword(const std::string& password) override;
 
    private:
-    std::vector<unsigned char> generateSalt();
-    std::vector<unsigned char> deriveKey(const std::vector<unsigned char>& salt);
+    static std::vector<unsigned char> generateSalt();
+    const std::vector<unsigned char> deriveKey(const std::vector<unsigned char>& salt) const;
 
     std::string masterPassword_;
     mutable std::mutex mutex_;
