@@ -96,8 +96,10 @@ vector<string> Encryption::encryptWithSalt(const vector<string>& plaintexts) {
         // Fallback to regular encryption if not a salted encryptor
         vector<string> results;
         results.reserve(plaintexts.size());
-        std::transform(plaintexts.begin(), plaintexts.end(), std::back_inserter(results),
-                       [this](const auto& plaintext) { return encrypt(plaintext); });
+        std::transform(
+            plaintexts.begin(), plaintexts.end(), std::back_inserter(results), [this](const auto& plaintext) {
+                return encrypt(plaintext);
+            });
         return results;
     } catch (const exception& e) {
         throw runtime_error(string("Salted encryption failed: ") + e.what());
@@ -118,8 +120,10 @@ vector<string> Encryption::decryptWithSalt(const vector<string>& ciphertexts) {
         // Fallback to regular decryption if not a salted decryptor
         vector<string> results;
         results.reserve(ciphertexts.size());
-        std::transform(ciphertexts.begin(), ciphertexts.end(), std::back_inserter(results),
-                       [this](const auto& ciphertext) { return decrypt(ciphertext); });
+        std::transform(
+            ciphertexts.begin(), ciphertexts.end(), std::back_inserter(results), [this](const auto& ciphertext) {
+                return decrypt(ciphertext);
+            });
         return results;
     } catch (const exception& e) {
         throw runtime_error(string("Salted decryption failed: ") + e.what());
