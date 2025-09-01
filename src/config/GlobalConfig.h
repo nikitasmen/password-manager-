@@ -38,7 +38,7 @@ struct AppConfig {
 
     // LFSR settings
     std::vector<int> lfsrTaps = {0, 2};
-    std::vector<int> lfsrInitState = {1, 0, 1};
+    std::vector<int> lfsrInitState_ = {1, 0, 1};
 
     // UI settings
     bool showEncryptionInCredentials = true;
@@ -108,7 +108,7 @@ class ConfigManager {
         return config_.lfsrTaps;
     }
     [[nodiscard]] const std::vector<int>& getLfsrInitState() const {
-        return config_.lfsrInitState;
+        return config_.lfsrInitState_;
     }
 
     // Update/Repository settings

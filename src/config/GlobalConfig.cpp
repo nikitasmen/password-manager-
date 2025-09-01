@@ -87,7 +87,7 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         } else if (key == "lfsrTaps") {
             config_.lfsrTaps = ConfigManager::parseIntArray(value);
         } else if (key == "lfsrInitState") {
-            config_.lfsrInitState = ConfigManager::parseIntArray(value);
+            config_.lfsrInitState_ = ConfigManager::parseIntArray(value);
         } else if (key == "showEncryptionInCredentials") {
             config_.showEncryptionInCredentials = (value == "true" || value == "1");
         } else if (key == "defaultUIMode") {
@@ -152,7 +152,7 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
 
     file << "# LFSR Algorithm Settings\n";
     file << "lfsrTaps=" << ConfigManager::intArrayToString(config_.lfsrTaps) << "\n";
-    file << "lfsrInitState=" << ConfigManager::intArrayToString(config_.lfsrInitState) << "\n\n";
+    file << "lfsrInitState=" << ConfigManager::intArrayToString(config_.lfsrInitState_) << "\n\n";
 
     file << "# UI Settings\n";
     file << "showEncryptionInCredentials=" << (config_.showEncryptionInCredentials ? "true" : "false") << "\n";
@@ -226,7 +226,7 @@ void ConfigManager::setDefaultEncryption(EncryptionType newType,
     // If the new type is LFSR, also update LFSR settings
     if (newType == EncryptionType::LFSR) {
         config_.lfsrTaps = newLfsrTaps;
-        config_.lfsrInitState = newLfsrInitState;
+        config_.lfsrInitState_ = newLfsrInitState;
     }
 
     // Save the updated config
