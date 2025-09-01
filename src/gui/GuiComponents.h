@@ -184,7 +184,7 @@ class PasswordSetupComponent : public FormComponentBase {
         confirmPasswordInput =
             createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
         // Always fetch the current default encryption from config at creation time
-        ConfigManager& config = ConfigManager::getInstance();
+        const ConfigManager& config = ConfigManager::getInstance();
         EncryptionType encType = config.getDefaultEncryption();
         const char* encTypeCStr = EncryptionUtils::getDisplayName(encType);
         std::string encTypeStr = encTypeCStr ? std::string(encTypeCStr) : "Unknown";
@@ -237,7 +237,7 @@ class MenuBarComponent : public GuiComponent {
 
     // Generic menu callback using the component's actions
     static void menuCallback(Fl_Widget*, void* data) {
-        auto* callbackInfo = static_cast<std::pair<MenuBarComponent*, int>*>(data);
+        const auto* callbackInfo = static_cast<std::pair<MenuBarComponent*, int>*>(data);
         MenuBarComponent* comp = callbackInfo->first;
         int actionId = callbackInfo->second;
 
@@ -379,9 +379,6 @@ class ClickablePlatformsDisplay : public Fl_Group {
         int relX = Fl::event_x() - x();
         int relY = Fl::event_y() - y();
 
-        // Check if the event is inside our widget
-        bool inside = (relX >= 0 && relX < w() && relY >= 0 && relY < h());
-
         switch (event) {
             case FL_PUSH:
                 // Take focus when clicked
@@ -400,7 +397,6 @@ class ClickablePlatformsDisplay : public Fl_Group {
 
                     // Calculate the click position relative to the text display
                     // We need to account for the display's position and any internal padding
-                    const int topPadding = 4;  // Additional padding at the top of the text area
 
                     // Calculate textY relative to the top of the text display
                     // Since display is positioned at the same coordinates as the widget,
@@ -792,12 +788,12 @@ class SettingsDialogComponent : public FormComponentBase {
         const int spacing = 35;
 
         // Use the passed-in config object, NOT the singleton
-        auto dataPathLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Data Path:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Data Path:");
         dataPathInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         dataPathInput->value(config.dataPath.c_str());
         yPos += spacing;
 
-        auto defaultEncryptionLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
         defaultEncryptionChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
         for (const auto& type : EncryptionUtils::getAllTypes()) {
             defaultEncryptionChoice->add(EncryptionUtils::getDisplayName(type));
@@ -805,22 +801,22 @@ class SettingsDialogComponent : public FormComponentBase {
         defaultEncryptionChoice->value(EncryptionUtils::toDropdownIndex(config.defaultEncryption));
         yPos += spacing;
 
-        auto maxLoginAttemptsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
         maxLoginAttemptsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         maxLoginAttemptsInput->value(std::to_string(config.maxLoginAttempts).c_str());
         yPos += spacing;
 
-        auto clipboardTimeoutLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Clipboard Timeout (s):");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Clipboard Timeout (s):");
         clipboardTimeoutInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         clipboardTimeoutInput->value(std::to_string(config.clipboardTimeoutSeconds).c_str());
         yPos += spacing;
 
-        auto minPasswordLengthLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Min Password Length:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Min Password Length:");
         minPasswordLengthInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         minPasswordLengthInput->value(std::to_string(config.minPasswordLength).c_str());
         yPos += spacing;
 
-        auto defaultUIModeLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default UI Mode:");
         defaultUIModeChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
         defaultUIModeChoice->add("cli");
         defaultUIModeChoice->add("gui");
@@ -849,12 +845,12 @@ class SettingsDialogComponent : public FormComponentBase {
         showEncryptionInCredentialsCheck->value(config.showEncryptionInCredentials);
         yPos += spacing;
 
-        auto lfsrTapsLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Taps (comma-sep):");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Taps (comma-sep):");
         lfsrTapsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         lfsrTapsInput->value(vectorToString(config.lfsrTaps).c_str());
         yPos += spacing;
 
-        auto lfsrInitStateLabel = new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
         lfsrInitStateInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         lfsrInitStateInput->value(vectorToString(config.lfsrInitState).c_str());
         yPos += spacing;
@@ -866,7 +862,7 @@ class SettingsDialogComponent : public FormComponentBase {
         Fl_Button* cancelButton = createWidget<Fl_Button>(x + w / 2 + 20, buttonY, 100, 30, "Cancel");
 
         CallbackHelper::setCallback(saveButton, this, [this](SettingsDialogComponent* comp) { comp->saveSettings(); });
-        CallbackHelper::setCallback(cancelButton, this, [this](SettingsDialogComponent* comp) {
+        CallbackHelper::setCallback(cancelButton, this, [this](const SettingsDialogComponent* comp) {
             if (onCancel)
                 onCancel();
         });
