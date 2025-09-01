@@ -15,7 +15,7 @@ enum class EncryptionType : std::uint8_t {
     AES = 1,   // Advanced Encryption Standard (stronger)
     RSA = 2,   // RSA (asymmetric, used for credential encryption via hybrid encryption)
     // Keep this as the last entry to track count
-    COUNT = 3
+    COUNT
 };
 
 // Configuration structure for file-based settings
