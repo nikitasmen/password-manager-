@@ -87,7 +87,7 @@ class GuiUIManager : public UIManager {
     void cleanupSettingsDialog();
     void cleanupMainWindow();
     void refreshPlatformsList();
-    void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false);
+    static void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false);
 
     // Helper to reduce boilerplate in screen creation
     void createScreen(const std::string& title, int w, int h, std::function<void()> populateScreen);

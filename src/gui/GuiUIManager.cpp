@@ -18,12 +18,12 @@
 
 GuiUIManager::GuiUIManager(const std::string& dataPath)
     : UIManager(dataPath),
+      updateDialog(std::make_unique<UpdateDialog>()),
       loginForm(nullptr),
       passwordSetup(nullptr),
       platformsDisplay(nullptr),
       clickablePlatformsDisplay(nullptr),
-      credentialInputs(nullptr),
-      updateDialog(std::make_unique<UpdateDialog>()) {
+      credentialInputs(nullptr) {
 }
 
 GuiUIManager::~GuiUIManager() {
