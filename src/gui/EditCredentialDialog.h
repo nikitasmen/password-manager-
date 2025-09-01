@@ -95,13 +95,13 @@ class EditCredentialDialog {
             if (!encryptionChoice) {
                 encryptionChoice = new Fl_Choice(130, 130, 295, 30);
                 // Add encryption options
-                auto availableTypes = EncryptionUtils::getAllTypes();
+                auto availableTypes = encryption_utils::getAllTypes();
                 for (const auto& type : availableTypes) {
-                    encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+                    encryptionChoice->add(encryption_utils::getDisplayName(type));
                 }
                 // Get current credential's encryption type and set as default
                 auto existingCreds = credManager->getCredentials(platform);
-                encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));
+                encryptionChoice->value(encryption_utils::toDropdownIndex(encryption_utils::getDefault()));
                 window->add(encryptionChoice);
             } else {
                 encryptionChoice->show();
@@ -123,7 +123,7 @@ class EditCredentialDialog {
 
                     std::string newUsername = usernameField->value();
                     std::string newPassword = passwordField->value();
-                    EncryptionType newEncryptionType = EncryptionUtils::fromDropdownIndex(encryptionChoice->value());
+                    EncryptionType newEncryptionType = encryption_utils::fromDropdownIndex(encryptionChoice->value());
 
                     if (newUsername.empty()) {
                         fl_alert("Username cannot be empty!");

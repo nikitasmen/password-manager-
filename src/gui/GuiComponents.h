@@ -171,7 +171,7 @@ class PasswordSetupComponent : public FormComponentBase {
         // Always fetch the current default encryption from config at creation time
         const ConfigManager& config = ConfigManager::getInstance();
         EncryptionType encType = config.getDefaultEncryption();
-        const char* encTypeCStr = EncryptionUtils::getDisplayName(encType);
+        const char* encTypeCStr = encryption_utils::getDisplayName(encType);
         std::string encTypeStr = encTypeCStr ? std::string(encTypeCStr) : "Unknown";
         std::string msg;
         if (encTypeStr == "Unknown") {
@@ -576,11 +576,12 @@ class CredentialInputsComponent : public FormComponentBase {
             createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
 
         // Add encryption options using helper functions
-        auto availableTypes = EncryptionUtils::getAllTypes();
+        auto availableTypes = encryption_utils::getAllTypes();
         for (const auto& type : availableTypes) {
-            encryptionChoice->add(EncryptionUtils::getDisplayName(type));
+            encryptionChoice->add(encryption_utils::getDisplayName(type));
         }
-        encryptionChoice->value(EncryptionUtils::toDropdownIndex(EncryptionUtils::getDefault()));  // Default encryption
+        encryptionChoice->value(
+            encryption_utils::toDropdownIndex(encryption_utils::getDefault()));  // Default encryption
     }
 
     // Methods to retrieve credential input values
@@ -595,8 +596,8 @@ class CredentialInputsComponent : public FormComponentBase {
         return {platformInput ? platformInput->value() : "",
                 usernameInput ? usernameInput->value() : "",
                 passwordInput ? passwordInput->value() : "",
-                encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value())
-                                 : EncryptionUtils::getDefault()};
+                encryptionChoice ? encryption_utils::fromDropdownIndex(encryptionChoice->value())
+                                 : encryption_utils::getDefault()};
     }
 
     std::string getPlatform() const {
@@ -609,8 +610,8 @@ class CredentialInputsComponent : public FormComponentBase {
         return passwordInput ? passwordInput->value() : "";
     }
     EncryptionType getEncryptionType() const {
-        return encryptionChoice ? EncryptionUtils::fromDropdownIndex(encryptionChoice->value())
-                                : EncryptionUtils::getDefault();
+        return encryptionChoice ? encryption_utils::fromDropdownIndex(encryptionChoice->value())
+                                : encryption_utils::getDefault();
     }
 
     Fl_Input* getPlatformInput() const {
@@ -785,10 +786,10 @@ class SettingsDialogComponent : public FormComponentBase {
 
         new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
         defaultEncryptionChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
-        for (const auto& type : EncryptionUtils::getAllTypes()) {
-            defaultEncryptionChoice->add(EncryptionUtils::getDisplayName(type));
+        for (const auto& type : encryption_utils::getAllTypes()) {
+            defaultEncryptionChoice->add(encryption_utils::getDisplayName(type));
         }
-        defaultEncryptionChoice->value(EncryptionUtils::toDropdownIndex(config.defaultEncryption));
+        defaultEncryptionChoice->value(encryption_utils::toDropdownIndex(config.defaultEncryption));
         yPos += spacing;
 
         new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
@@ -896,7 +897,7 @@ class SettingsDialogComponent : public FormComponentBase {
         AppConfig newConfig;
         try {
             newConfig.dataPath = dataPathInput->value();
-            newConfig.defaultEncryption = EncryptionUtils::fromDropdownIndex(defaultEncryptionChoice->value());
+            newConfig.defaultEncryption = encryption_utils::fromDropdownIndex(defaultEncryptionChoice->value());
             newConfig.maxLoginAttempts = std::stoi(maxLoginAttemptsInput->value());
             newConfig.clipboardTimeoutSeconds = std::stoi(clipboardTimeoutInput->value());
             newConfig.autoClipboardClear = autoClipboardClearCheck->value();
