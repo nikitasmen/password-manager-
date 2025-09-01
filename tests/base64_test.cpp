@@ -6,8 +6,8 @@
 int main() {
     // Test with regular alphanumeric text
     std::string regular = "Hello123World";
-    std::string encoded = Base64::encode(regular);
-    std::string decoded = Base64::decode(encoded);
+    std::string encoded = base64::encode(regular);
+    std::string decoded = base64::decode(encoded);
 
     std::cout << "Regular text test:" << std::endl;
     std::cout << "Original: " << regular << std::endl;
@@ -18,8 +18,8 @@ int main() {
 
     // Test with special characters and symbols
     std::string symbols = "!@#$%^&*()_+-=[]{}|;':\",./<>?\\`~";
-    encoded = Base64::encode(symbols);
-    decoded = Base64::decode(encoded);
+    encoded = base64::encode(symbols);
+    decoded = base64::decode(encoded);
 
     std::cout << "Symbols test:" << std::endl;
     std::cout << "Original: " << symbols << std::endl;
@@ -30,8 +30,8 @@ int main() {
 
     // Test with Unicode characters
     std::string unicode = "你好，世界! Привет мир! こんにちは世界!";
-    encoded = Base64::encode(unicode);
-    decoded = Base64::decode(encoded);
+    encoded = base64::encode(unicode);
+    decoded = base64::decode(encoded);
 
     std::cout << "Unicode test:" << std::endl;
     std::cout << "Original: " << unicode << std::endl;

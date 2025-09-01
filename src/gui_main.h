@@ -4,6 +4,6 @@
 /**
  * @brief main gui app runner function
  */
-int gui_main();
+int guiMain();
 
 #endif

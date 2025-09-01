@@ -9,7 +9,7 @@
 #include "config/GlobalConfig.h"
 #include "core/UIManagerFactory.h"
 
-int gui_main() {
+int guiMain() {
     try {
         // Load configuration from file
         ConfigManager& configManager = ConfigManager::getInstance();

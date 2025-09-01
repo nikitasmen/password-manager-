@@ -29,7 +29,7 @@ void CredentialsManager::createEncryptor(EncryptionType type, const std::string&
     encryptionType = type;
     currentMasterPassword = password;
     lfsrTaps = ConfigManager::getInstance().getLfsrTaps();
-    lfsrInitState = ConfigManager::getInstance().getLfsrInitState();
+    lfsrInitState_ = ConfigManager::getInstance().getLfsrInitState();
 
     auto params = EncryptionParamsBuilder::create(type, password);
     encryptor = EncryptionFactory::create(params);

@@ -7,7 +7,7 @@ static const std::string base64_chars =
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789+/";
 
-std::string Base64::encode(const std::string& data) {
+std::string base64::encode(const std::string& data) {
     std::string ret;
     int i = 0;
     unsigned char char_array_3[3];
@@ -48,7 +48,7 @@ std::string Base64::encode(const std::string& data) {
     return ret;
 }
 
-std::string Base64::decode(const std::string& encoded_data) {
+std::string base64::decode(const std::string& encoded_data) {
     int in_len = static_cast<int>(encoded_data.size());
     int i = 0;
     int in_ = 0;

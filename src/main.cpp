@@ -65,14 +65,14 @@ int main(int argc, char** argv) {
     try {
         if (mode == "gui") {
 #ifdef ENABLE_GUI
-            return gui_main();
+            return guiMain();
 #else
             std::cerr << "GUI mode not available in this build.\n";
             return 1;
 #endif
         } else if (mode == "tui" || mode == "cli") {
 #ifdef ENABLE_CLI
-            return tui_main();
+            return tuiMain();
 #else
             std::cerr << "CLI mode not available in this build.\n";
             return 1;

@@ -843,7 +843,7 @@ class SettingsDialogComponent : public FormComponentBase {
 
         new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
         lfsrInitStateInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
-        lfsrInitStateInput->value(vectorToString(config.lfsrInitState).c_str());
+        lfsrInitStateInput->value(vectorToString(config.lfsrInitState_).c_str());
         yPos += spacing;
 
         scrollArea->end();
@@ -907,7 +907,7 @@ class SettingsDialogComponent : public FormComponentBase {
             newConfig.defaultUIMode = defaultUIModeChoice->menu()[defaultUIModeChoice->value()].label();
 
             newConfig.lfsrTaps = stringToVector(lfsrTapsInput->value());
-            newConfig.lfsrInitState = stringToVector(lfsrInitStateInput->value());
+            newConfig.lfsrInitState_ = stringToVector(lfsrInitStateInput->value());
         } catch (const std::invalid_argument& ia) {
             fl_alert("Invalid number format in one of the fields.");
             return;

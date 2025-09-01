@@ -10,13 +10,13 @@
  * @brief Parameters for creating an encryption instance
  */
 struct EncryptionConfigParameters {
-    EncryptionType type;
-    std::string masterPassword;
-    std::string publicKey;
-    std::string privateKey;  // For RSA: contains encrypted private key data
-    std::vector<int> lfsrTaps;
-    std::vector<int> lfsrInitState;
-    std::string salt;
+    EncryptionType type{};
+    std::string masterPassword{};
+    std::string publicKey{};
+    std::string privateKey{};  // For RSA: contains encrypted private key data
+    std::vector<int> lfsrTaps{};
+    std::vector<int> lfsrInitState{};
+    std::string salt{};
 };
 
 /**

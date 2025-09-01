@@ -61,9 +61,9 @@ bool handleEncryptionSettingsChange(const AppConfig& oldConfig,
     const auto oldEnc = oldConfig.defaultEncryption;
     const auto newEnc = newConfig.defaultEncryption;
     const auto& oldTaps = oldConfig.lfsrTaps;
-    const auto& oldInit = oldConfig.lfsrInitState;
+    const auto& oldInit = oldConfig.lfsrInitState_;
     const auto& newTaps = newConfig.lfsrTaps;
-    const auto& newInit = newConfig.lfsrInitState;
+    const auto& newInit = newConfig.lfsrInitState_;
 
     bool lfsrParamsChanged = (oldTaps != newTaps) || (oldInit != newInit);
 

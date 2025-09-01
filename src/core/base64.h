@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace Base64 {
+namespace base64 {
 /**
  * @brief Encode binary data to Base64 string
  *
@@ -19,6 +19,6 @@ std::string encode(const std::string& data);
  * @return std::string Decoded binary data
  */
 std::string decode(const std::string& encoded_data);
-}  // namespace Base64
+}  // namespace base64
 
 #endif  // BASE64_H

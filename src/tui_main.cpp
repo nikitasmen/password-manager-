@@ -6,7 +6,7 @@
 #include "config/GlobalConfig.h"
 #include "core/UIManagerFactory.h"
 
-int tui_main() {
+int tuiMain() {
     try {
         // Load configuration from file
         ConfigManager& configManager = ConfigManager::getInstance();

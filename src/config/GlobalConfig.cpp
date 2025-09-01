@@ -299,7 +299,7 @@ void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
     // Validate that init state is not empty
     if (newInitState.empty()) {
         std::cerr << "Warning: Empty LFSR initial state provided, using default {1, 0, 1}\n";
-        config_.lfsrInitState = {1, 0, 1};
+        config_.lfsrInitState_ = {1, 0, 1};
         // init_state = {1, 0, 1}; // Removed global update
         return;
     }
@@ -310,12 +310,12 @@ void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
 
     if (!validInitState) {
         std::cerr << "Warning: LFSR initial state must contain only 0s and 1s, using default {1, 0, 1}\n";
-        config_.lfsrInitState = {1, 0, 1};
+        config_.lfsrInitState_ = {1, 0, 1};
         // init_state = {1, 0, 1}; // Removed global update
         return;
     }
 
-    config_.lfsrInitState = newInitState;
+    config_.lfsrInitState_ = newInitState;
     // init_state = newInitState; // Removed global update
 }
 
@@ -340,7 +340,7 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps,
 
     // Store old settings in case of failure
     auto oldTaps = config_.lfsrTaps;
-    auto oldInitState = config_.lfsrInitState;
+    auto oldInitState = config_.lfsrInitState_;
 
     try {
         // Migrate existing credentials with the new LFSR settings
@@ -354,7 +354,7 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps,
             std::cerr << "Migration failed - reverting LFSR settings" << std::endl;
             // Restore old settings
             config_.lfsrTaps = oldTaps;
-            config_.lfsrInitState = oldInitState;
+            config_.lfsrInitState_ = oldInitState;
             // taps = oldTaps; // Removed global update
             // init_state = oldInitState; // Removed global update
             return false;
@@ -362,7 +362,7 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps,
 
         // Update settings after successful migration
         config_.lfsrTaps = newTaps;
-        config_.lfsrInitState = newInitState;
+        config_.lfsrInitState_ = newInitState;
         // taps = newTaps; // Removed global update
         // init_state = newInitState; // Removed global update
 
@@ -372,7 +372,7 @@ bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps,
         // Restore old settings if anything fails
         std::cerr << "Error updating LFSR settings: " << e.what() << "\n";
         config_.lfsrTaps = oldTaps;
-        config_.lfsrInitState = oldInitState;
+        config_.lfsrInitState_ = oldInitState;
         // taps = oldTaps; // Removed global update
         // init_state = oldInitState; // Removed global update
         return false;
