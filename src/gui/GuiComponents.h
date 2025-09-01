@@ -21,28 +21,13 @@
 
 #include "../config/GlobalConfig.h"
 #include "../config/MigrationHelper.h"
-#include "EncryptionUtils.h"
+#include "../utils/EncryptionUtils.h"
 #include "GuiComponent.h"
 
 // Base class for text display components
 class ContainerComponent : public GuiComponent {
-   private:
-    std::vector<std::unique_ptr<GuiComponent>> children;
-
    public:
     ContainerComponent(Fl_Group* parent, int x, int y, int w, int h) : GuiComponent(parent, x, y, w, h) {
-    }
-
-    void addChild(std::unique_ptr<GuiComponent> child) {
-        children.push_back(std::move(child));
-    }
-
-    template <typename T, typename... Args>
-    T* addChild(Args&&... args) {
-        auto child = std::make_unique<T>(std::forward<Args>(args)...);
-        T* ptr = child.get();
-        children.push_back(std::move(child));
-        return ptr;
     }
 
     void create() override {
@@ -233,7 +218,6 @@ class MenuBarComponent : public GuiComponent {
 
     MenuActions actions;
     Fl_Menu_Bar* menuBar;
-    std::vector<void*> callbackData;  // Store pointers to allocated callback data for cleanup
 
     // Generic menu callback using the component's actions
     static void menuCallback(Fl_Widget*, void* data) {
@@ -534,17 +518,11 @@ class PlatformsDisplayComponent : public BufferedTextDisplayBase {
     PlatformsDisplayComponent(Fl_Group* parent, int x, int y, int w, int h)
         : BufferedTextDisplayBase(parent, x, y, w, h, "Stored Platforms:") {
     }
-
-    void create() override {
-        BufferedTextDisplayBase::create();
-    }
 };
 
 // Component for action buttons
 class ActionButtonsComponent : public FormComponentBase {
    private:
-    static constexpr int BUTTON_WIDTH = 100;
-    static constexpr int BUTTON_HEIGHT = 25;
     static constexpr int BUTTON_GAP = 20;
 
     ButtonCallback onView;
@@ -769,6 +747,18 @@ class SettingsDialogComponent : public FormComponentBase {
         : FormComponentBase(parent, x, y, w, h),
           masterPassword(masterPassword_in),
           config(config_in),
+          scrollArea(nullptr),
+          dataPathInput(nullptr),
+          defaultEncryptionChoice(nullptr),
+          maxLoginAttemptsInput(nullptr),
+          clipboardTimeoutInput(nullptr),
+          autoClipboardClearCheck(nullptr),
+          requirePasswordConfirmationCheck(nullptr),
+          minPasswordLengthInput(nullptr),
+          showEncryptionInCredentialsCheck(nullptr),
+          defaultUIModeChoice(nullptr),
+          lfsrTapsInput(nullptr),
+          lfsrInitStateInput(nullptr),
           onSave(onSave_in),
           onCancel(onCancel_in) {
     }
@@ -872,7 +862,7 @@ class SettingsDialogComponent : public FormComponentBase {
     }
 
    private:
-    std::string vectorToString(const std::vector<int>& vec) {
+    static std::string vectorToString(const std::vector<int>& vec) {
         std::stringstream ss;
         for (size_t i = 0; i < vec.size(); ++i) {
             if (i > 0)
@@ -882,7 +872,7 @@ class SettingsDialogComponent : public FormComponentBase {
         return ss.str();
     }
 
-    std::vector<int> stringToVector(const std::string& s) {
+    static std::vector<int> stringToVector(const std::string& s) {
         std::vector<int> vec;
         if (s.empty())
             return vec;
