@@ -10,7 +10,6 @@ static const std::string base64_chars =
 std::string Base64::encode(const std::string& data) {
     std::string ret;
     int i = 0;
-    int j = 0;
     unsigned char char_array_3[3];
     unsigned char char_array_4[4];
     unsigned int in_len = static_cast<unsigned int>(data.size());
@@ -31,6 +30,7 @@ std::string Base64::encode(const std::string& data) {
     }
 
     if (i) {
+        int j;
         for (j = i; j < 3; j++)
             char_array_3[j] = '\0';
 
@@ -51,7 +51,6 @@ std::string Base64::encode(const std::string& data) {
 std::string Base64::decode(const std::string& encoded_data) {
     int in_len = static_cast<int>(encoded_data.size());
     int i = 0;
-    int j = 0;
     int in_ = 0;
     unsigned char char_array_4[4], char_array_3[3];
     std::string ret;
@@ -80,6 +79,7 @@ std::string Base64::decode(const std::string& encoded_data) {
     }
 
     if (i) {
+        int j;
         // Handle any remaining characters
         for (j = i; j < 4; j++) {
             char_array_4[j] = 0;
