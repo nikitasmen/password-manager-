@@ -1,5 +1,3 @@
-#!/bin/bash
-
 # Password Manager Build Script
 # This script builds the unified password manager executable supporting both GUI and CLI modes
 
