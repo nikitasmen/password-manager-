@@ -1,5 +1,5 @@
 #include "cipher_context_raii.h"
-
+#include <stdexcept>
 #include <openssl/err.h>
 
 CipherContextRAII::CipherContextRAII() {

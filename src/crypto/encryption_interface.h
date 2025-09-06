@@ -1,6 +1,7 @@
 #ifndef ENCRYPTION_INTERFACE_H
 #define ENCRYPTION_INTERFACE_H
 
+#include <stdexcept>
 #include <string>
 #include <vector>
 
