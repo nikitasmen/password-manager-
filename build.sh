@@ -137,7 +137,14 @@ build_with_cmake() {
     
     # Configure CMake
     echo -e "${YELLOW}Configuring build with CMake...${NC}"
-    
+
+    # Drop the cache if its compiler path vanished (e.g. nix store path GC'd after a toolchain bump)
+    cached_cxx=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' CMakeCache.txt 2>/dev/null)
+    if [ -n "$cached_cxx" ] && [ ! -x "$cached_cxx" ]; then
+        echo -e "${YELLOW}Cached compiler $cached_cxx is gone, resetting CMake cache${NC}"
+        rm -rf CMakeCache.txt CMakeFiles
+    fi
+
     if [ "$DEBUG" = true ]; then
         cmake -DCMAKE_BUILD_TYPE=Debug .
     else
@@ -166,11 +173,11 @@ build_with_cmake() {
     # Build and run tests if requested
     if [ "$TESTS" = true ]; then
         echo -e "${YELLOW}Building and running tests...${NC}"
-        make base64_test
-        if [ -f "./base64_test" ]; then
-            echo -e "${YELLOW}Running base64 tests...${NC}"
-            ./base64_test
-        fi
+        make base64_test vault_test
+        echo -e "${YELLOW}Running base64 tests...${NC}"
+        ./base64_test || exit 1
+        echo -e "${YELLOW}Running vault tests...${NC}"
+        ./vault_test || exit 1
     fi
 }
 

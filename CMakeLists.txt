@@ -42,26 +42,26 @@ endif()
 
 # --- Source files ---
 set(CORE_SOURCES
-    src/core/api.cpp
-    src/core/EncryptionParamsBuilder.cpp
     src/core/base64.cpp
-    src/core/encryption.cpp
-    src/core/json_storage.cpp
     src/core/terminal_ui.cpp
     src/core/UIManager.cpp
     src/core/UIManagerFactory.cpp
     src/core/clipboard.cpp
     src/config/GlobalConfig.cpp
-    src/config/MigrationHelper.cpp
-    src/crypto/encryption_factory.cpp
-    src/crypto/aes_encryption.cpp
-    src/crypto/lfsr_encryption.cpp
-    src/crypto/rsa_encryption.cpp
     src/crypto/cipher_context_raii.cpp
-    src/crypto/pkey_ctx_raii.cpp
     src/utils/filesystem_utils.cpp
     src/utils/error_utils.cpp
     src/utils/backup_utils.cpp
+)
+
+# Client-side vault: crypto, format, stores, sync (docs/PROTOCOL.md)
+set(VAULT_SOURCES
+    src/vault/Crypto.cpp
+    src/vault/VaultFormat.cpp
+    src/vault/LocalFileStore.cpp
+    src/vault/Syncer.cpp
+    src/vault/VaultService.cpp
+    src/vault/EspStore.cpp
 )
 
 set(CLI_SOURCES
@@ -91,6 +91,7 @@ function(link_common target)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/config
         ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
         ${CMAKE_CURRENT_SOURCE_DIR}/src/updater
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/vault
         ${JSON_INCLUDE_DIR}
         ${OPENSSL_INCLUDE_DIR}
         ${FLTK_INCLUDE_DIR}
@@ -115,6 +116,7 @@ endfunction()
 # Single unified application that can run both GUI and CLI modes
 add_executable(password_manager
     ${CORE_SOURCES}
+    ${VAULT_SOURCES}
     ${CLI_SOURCES}
     ${GUI_SOURCES}
     src/main.cpp
@@ -144,6 +146,11 @@ add_custom_target(create_data_dir ALL
 # --- Base64 Test executable ---
 add_executable(base64_test tests/base64_test.cpp src/core/base64.cpp)
 link_common(base64_test)
+
+# --- Vault tests (protocol vectors + sync) ---
+add_executable(vault_test tests/vault_test.cpp ${VAULT_SOURCES} src/core/base64.cpp src/crypto/cipher_context_raii.cpp)
+target_compile_definitions(vault_test PRIVATE VECTORS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/protocol_vectors.json")
+link_common(vault_test)
 
 # --- Linting targets ---
 find_program(CLANG_FORMAT clang-format)

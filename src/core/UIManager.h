@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "../config/GlobalConfig.h"
-#include "api.h"  // Include complete CredentialsManager definition
+#include "../vault/VaultService.h"
 
 /**
  * @class UIManager
@@ -18,18 +18,22 @@
  */
 class UIManager {
    protected:
-    // Common data shared by all UI implementations
-    std::unique_ptr<CredentialsManager> credManager;
+    // Common data shared by all UI implementations. UIs talk only to the vault service, never to stores or crypto.
+    std::unique_ptr<VaultService> vault;
     bool isLoggedIn;
-    std::string masterPassword;
     std::string dataPath;
 
+    // Wrap VaultService calls: log and return false/nullopt instead of throwing into UI code.
     bool safeAddCredential(const std::string& platform,
                            const std::string& username,
                            const std::string& password,
-                           std::optional<EncryptionType> encryptionType);
-    std::optional<DecryptedCredential> safeGetCredentials(const std::string& platform);
+                           std::optional<CipherAlg> encryptionType);
+    std::optional<Credential> safeGetCredentials(const std::string& platform);
     bool safeDeleteCredential(const std::string& platform);
+    std::vector<std::string> safeGetPlatforms();
+    bool safeChangeMasterPassword(const std::string& newPassword);
+    // One line for the user: where the vault is kept and whether the ESP32 is reachable.
+    std::string syncStatusText() const;
 
    public:
     /**
@@ -70,7 +74,7 @@ class UIManager {
      */
     virtual bool setupPassword(const std::string& newPassword,
                                const std::string& confirmPassword,
-                               EncryptionType encryptionType) = 0;
+                               CipherAlg encryptionType) = 0;
 
     /**
      * @brief Add a new credential
@@ -83,7 +87,7 @@ class UIManager {
     virtual bool addCredential(const std::string& platform,
                                const std::string& username,
                                const std::string& password,
-                               std::optional<EncryptionType> encryptionType = std::nullopt) = 0;
+                               std::optional<CipherAlg> encryptionType = std::nullopt) = 0;
 
     /**
      * @brief View credentials for a platform
@@ -109,7 +113,7 @@ class UIManager {
     virtual bool updateCredential(const std::string& platform,
                                   const std::string& username,
                                   const std::string& password,
-                                  std::optional<EncryptionType> encryptionType = std::nullopt) = 0;
+                                  std::optional<CipherAlg> encryptionType = std::nullopt) = 0;
 
     /**
      * @brief Display a message to the user
@@ -123,7 +127,6 @@ class UIManager {
      * @brief Get a fresh credentials manager instance
      * @return New credentials manager with current login state
      */
-    std::unique_ptr<CredentialsManager> getFreshCredManager();
 };
 
 #endif  // UI_MANAGER_H

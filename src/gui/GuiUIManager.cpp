@@ -6,10 +6,11 @@
 #include <FL/fl_ask.H>
 
 #include <filesystem>
+#include <iostream>
 #include <sstream>
 
 #include "../config/GlobalConfig.h"
-#include "../core/api.h"
+#include "../utils/EncryptionUtils.h"
 #include "../core/clipboard.h"
 #include "../updater/AppUpdater.h"
 #include "EditCredentialDialog.h"
@@ -60,11 +61,8 @@ void GuiUIManager::cleanupMainWindow() {
 }
 
 void GuiUIManager::initialize() {
-    // Check if this is first time setup or regular login by checking for master password
-    bool hasMasterPassword = credManager->hasMasterPassword();
-
-    // Create appropriate initial screen
-    if (!hasMasterPassword) {
+    // First run on this device and no vault on the ESP32 either -> setup; otherwise login
+    if (!vault || !vault->exists()) {
         createSetupScreen();
     } else {
         createLoginScreen();
@@ -82,18 +80,12 @@ int GuiUIManager::show() {
 
 bool GuiUIManager::login(const std::string& password) {
     try {
-        if (!credManager) {
-            std::cerr << "Error: credential manager not initialized!" << std::endl;
-            showMessage("Error", "Internal error: credential manager not initialized!", true);
+        if (!vault) {
+            showMessage("Error", "Internal error: vault not initialized!", true);
             return false;
         }
 
-        std::cout << "Attempting to login with password: [length: " << password.length() << "]" << std::endl;
-
-        // Try to login using the credentials manager
-        if (credManager->login(password)) {
-            UIManager::masterPassword = password;
-            std::cout << "Login successful!" << std::endl;
+        if (vault->unlock(password)) {
             isLoggedIn = true;
             createMainScreen();
             refreshPlatformsList();
@@ -112,7 +104,7 @@ bool GuiUIManager::login(const std::string& password) {
 
 bool GuiUIManager::setupPassword(const std::string& newPassword,
                                  const std::string& confirmPassword,
-                                 EncryptionType encryptionType) {
+                                 CipherAlg encryptionType) {
     try {
         if (newPassword.empty()) {
             std::cerr << "Error: Empty password provided" << std::endl;
@@ -126,24 +118,15 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
             return false;
         }
 
-        // Set the encryption algorithm
-        credManager->setEncryptionType(encryptionType);
-
-        // Create the new master password
-        if (credManager->updatePassword(newPassword)) {
-            std::cout << "Password created successfully!" << std::endl;
-            showMessage("Success", "Master password created successfully!");
-
-            // Automatically log the user in
-            return login(newPassword);
-        } else {
-            std::cerr << "Failed to create master password" << std::endl;
-            showMessage("Error", "Failed to create master password!", true);
-            return false;
-        }
+        vault->create(newPassword, encryptionType);
+        isLoggedIn = true;
+        showMessage("Success", "Vault created.\n" + syncStatusText());
+        createMainScreen();
+        refreshPlatformsList();
+        return true;
     } catch (const std::exception& e) {
         std::cerr << "Exception in setupPassword: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred during password setup", true);
+        showMessage("Error", std::string("Failed to create the vault: ") + e.what(), true);
         return false;
     }
 }
@@ -151,7 +134,7 @@ bool GuiUIManager::setupPassword(const std::string& newPassword,
 bool GuiUIManager::addCredential(const std::string& platform,
                                  const std::string& username,
                                  const std::string& password,
-                                 std::optional<EncryptionType> encryptionType) {
+                                 std::optional<CipherAlg> encryptionType) {
     if (!isLoggedIn)
         return false;
     if (safeAddCredential(platform, username, password, encryptionType)) {
@@ -248,7 +231,7 @@ void GuiUIManager::createSetupScreen() {
             20,
             460,
             260,
-            [this](const std::string& newPass, const std::string& confirmPass, EncryptionType encType) {
+            [this](const std::string& newPass, const std::string& confirmPass, CipherAlg encType) {
                 this->setupPassword(newPass, confirmPass, encType);
             });
     });
@@ -344,7 +327,7 @@ void GuiUIManager::createAddCredentialDialog() {
                 std::string platform = credentialInputs->getPlatform();
                 std::string username = credentialInputs->getUsername();
                 std::string password = credentialInputs->getPassword();
-                EncryptionType encryptionType = credentialInputs->getEncryptionType();
+                CipherAlg encryptionType = credentialInputs->getEncryptionType();
 
                 // Validate inputs
                 if (platform.empty() || username.empty() || password.empty()) {
@@ -372,7 +355,7 @@ void GuiUIManager::createAddCredentialDialog() {
 }
 
 void GuiUIManager::createViewCredentialDialog(const std::string& platform,
-                                              const std::optional<DecryptedCredential>& credentials) {
+                                              const std::optional<Credential>& credentials) {
     // Clean up existing dialog if it exists
     cleanupViewCredentialDialog();
 
@@ -389,7 +372,10 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform,
             viewCredentialRoot->addChild<CredentialDisplayComponent>(viewCredentialWindow.get(), 20, 20, 360, 120);
         // If credentials are not available, throw an error
         if (!credentials) {
-            throw std::runtime_error("No credentials found for platform: " + platform);
+            throw std::runtime_error(vault->lastSyncStatus() == VaultService::SyncStatus::Offline &&
+                                             !ConfigManager::getInstance().getConfig().localCopy
+                                         ? syncStatusText()
+                                         : "No credentials found for platform: " + platform);
         }
         // Format credential information
         std::stringstream ss;
@@ -397,6 +383,8 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform,
 
         ss << "Username: " << credentials->username << "\n";
         ss << "Password: " << credentials->password << "\n";
+        if (ConfigManager::getInstance().getShowEncryptionInCredentials())
+            ss << "Encryption: " << encryption_utils::getDisplayName(credentials->alg) << "\n";
 
         // Button layout configuration
         int buttonStartY = 160;
@@ -443,18 +431,15 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform,
             buttonWidth,
             buttonHeight,
             "Edit Credentials",
-            [this, platform = platform, username = credentials->username]() {
+            [this, current = *credentials]() {
                 try {
-                    // Use the existing logged-in credential manager
-                    if (!credManager) {
-                        throw std::runtime_error("Not logged in");
-                    }
-
-                    // Create and show the edit dialog with the existing manager
+                    const std::string platform = current.platform;
+                    // The dialog only collects input; saving goes through the vault like every other write
                     auto dialog = std::make_unique<EditCredentialDialog>(
-                        platform,
-                        username,
-                        credManager.get(),  // Use the logged-in manager
+                        current,
+                        [this, platform](const std::string& user, const std::string& pass, CipherAlg alg) {
+                            return UIManager::updateCredential(platform, user, pass, alg);
+                        },
                         [this, platform](bool success) {
                             if (success) {
                                 // Refresh the view with updated credentials
@@ -463,6 +448,7 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform,
                                 if (updatedCreds) {
                                     createViewCredentialDialog(platform, *updatedCreds);
                                 }
+                                refreshPlatformsList();
                             }
                         });
 
@@ -541,60 +527,21 @@ void GuiUIManager::cleanupViewCredentialDialog() {
 bool GuiUIManager::updateCredential(const std::string& platform,
                                     const std::string& username,
                                     const std::string& password,
-                                    std::optional<EncryptionType> encryptionType) {
-    try {
-        // Input validation
-        if (platform.empty() || username.empty() || password.empty()) {
-            showMessage("Error", "Platform, username, and password cannot be empty", true);
-            return false;
-        }
-
-        // Get a fresh credential manager instance
-        auto tempCredManager = getFreshCredManager();
-        if (!tempCredManager) {
-            showMessage("Error", "Failed to initialize credential manager", true);
-            return false;
-        }
-
-        // Get the current credential to check if it exists
-        auto existingCreds = tempCredManager->getCredentials(platform);
-        if (!existingCreds) {
-            showMessage("Error", "No credentials found for platform: " + platform, true);
-            return false;
-        }
-
-        // Check if anything actually changed
-        if (existingCreds->username == username && existingCreds->password == password) {
-            showMessage("Info", "No changes detected");
-            return true;
-        }
-
-        // Use the new CredentialsManager::updateCredentials method with optional encryption type
-        if (!tempCredManager->updateCredentials(platform, username, password, encryptionType)) {
-            showMessage("Error", "Failed to update credentials", true);
-            return false;
-        }
-
-        // Refresh the UI if we're currently viewing the updated credential
-        if (viewCredentialWindow && viewCredentialWindow->shown()) {
-            cleanupViewCredentialDialog();
-            auto updatedCreds = tempCredManager->getCredentials(platform);
-            if (updatedCreds) {
-                createViewCredentialDialog(platform, *updatedCreds);
-            }
-        }
-
-        // Refresh the platforms list in case the update affects sorting
-        refreshPlatformsList();
-
-        showMessage("Success", "Credentials updated successfully");
-        return true;
-
-    } catch (const std::exception& e) {
-        std::cerr << "Error updating credential: " << e.what() << std::endl;
-        showMessage("Error", std::string("Failed to update credentials: ") + e.what(), true);
+                                    std::optional<CipherAlg> encryptionType) {
+    if (platform.empty() || username.empty() || password.empty()) {
+        showMessage("Error", "Platform, username, and password cannot be empty", true);
         return false;
     }
+    if (!UIManager::updateCredential(platform, username, password, encryptionType)) {
+        showMessage("Error", "Failed to update credentials for " + platform, true);
+        return false;
+    }
+    if (viewCredentialWindow && viewCredentialWindow->shown()) {
+        cleanupViewCredentialDialog();
+        if (auto updated = safeGetCredentials(platform)) createViewCredentialDialog(platform, *updated);
+    }
+    refreshPlatformsList();
+    return true;
 }
 
 void GuiUIManager::cleanupSettingsDialog() {
@@ -607,12 +554,9 @@ void GuiUIManager::refreshPlatformsList() {
     }
 
     try {
-        // Get fresh credentials manager and retrieve platforms
-        auto tempCredManager = getFreshCredManager();
-        std::vector<std::string> platforms = tempCredManager->getAllPlatforms();
-
-        // Update the clickable platforms display
-        clickablePlatformsDisplay->setPlatforms(platforms);
+        clickablePlatformsDisplay->setPlatforms(safeGetPlatforms());
+        // The title bar doubles as the sync indicator
+        mainWindow->copy_label(("Password Manager  —  " + syncStatusText()).c_str());
 
         // The click callback is already set up in createMainScreen
 
@@ -645,8 +589,7 @@ void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
 }
 
 void GuiUIManager::openSettingsDialog() {
-    // Explicitly load from the .config file in the project root
-    ConfigManager::getInstance().loadConfig(".config");
+    ConfigManager::getInstance().loadConfig();
     createSettingsDialog();
     settingsWindow->show();
 }
@@ -673,7 +616,6 @@ void GuiUIManager::createSettingsDialog() {
         0,
         550,
         600,
-        masterPassword,
         config,
         [this]() { cleanupSettingsDialog(); },
         [this]() { cleanupSettingsDialog(); });

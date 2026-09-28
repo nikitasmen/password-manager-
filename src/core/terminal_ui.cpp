@@ -5,7 +5,6 @@
 #include <limits>
 
 #include "../config/GlobalConfig.h"
-#include "../core/api.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -153,65 +152,4 @@ bool TerminalUI::confirm(const std::string& message) {
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // Clear the buffer
 
     return (input == "y" || input == "Y" || input == "yes" || input == "Yes");
-}
-
-EncryptionType TerminalUI::selectEncryptionAlgorithm() {
-    int choice;
-    std::cout << "\n+---------------------------------------+\n";
-    std::cout << "|      SELECT ENCRYPTION ALGORITHM       |\n";
-    std::cout << "+---------------------------------------+\n";
-    std::cout << "| 1) LFSR (Linear Feedback Shift Reg.)   |\n";
-    std::cout << "|    - Basic stream cipher               |\n";
-    std::cout << "|    - Faster but less secure            |\n";
-    std::cout << "+---------------------------------------+\n";
-    std::cout << "| 2) AES-256 (Advanced Encryption)       |\n";
-    std::cout << "|    - Industry-standard algorithm       |\n";
-    std::cout << "|    - More secure but slightly slower   |\n";
-    std::cout << "+---------------------------------------+\n";
-    std::cout << "Please select an encryption algorithm (1-2): ";
-
-    if (!(std::cin >> choice)) {
-        std::cin.clear();                                                    // Clear the error flag
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // Discard invalid input
-        display_message("Invalid input. Defaulting to AES-256.", true);
-        return EncryptionType::AES;
-    }
-
-    // Consume the newline
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-
-    const auto& encryptionMap = encryption_utils::getChoiceMapping();
-    auto it = encryptionMap.find(choice);
-    if (it != encryptionMap.end()) {
-        return it->second;
-    } else {
-        display_message("Invalid choice. Defaulting to AES + LFSR.", true);
-        return encryption_utils::getDefault();
-    }
-}
-
-bool TerminalUI::login(int maxAttempts) {
-    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-        clear_screen();
-        std::cout << "+---------------------------------------+\n";
-        std::cout << "|          PASSWORD MANAGER LOGIN         |\n";
-        std::cout << "+---------------------------------------+\n";
-
-        if (attempt > 1) {
-            display_message("Login failed. Attempt " + std::to_string(attempt) + " of " + std::to_string(maxAttempts),
-                            true);
-        }
-
-        std::string password = get_password_input("Enter master password: ");
-
-        // Validate the password using CredentialsManager
-        CredentialsManager manager(ConfigManager::getInstance().getDataPath());
-        if (manager.login(password)) {
-            display_message("Login successful!");
-            return true;
-        }
-    }
-
-    display_message("Maximum login attempts exceeded. Exiting...", true);
-    return false;
 }

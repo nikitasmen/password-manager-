@@ -10,13 +10,15 @@
 #include <string>
 #include <vector>
 
+#include "../vault/Crypto.h"
+
 // Forward declaration of GuiComponent for use in CallbackHelper
 class GuiComponent;
 
 // Type aliases to make callback creation more readable
 using ButtonCallback = std::function<void()>;
 using TextCallback = std::function<void(const std::string&)>;
-using PasswordCallback = std::function<void(const std::string&, const std::string&, EncryptionType)>;
+using PasswordCallback = std::function<void(const std::string&, const std::string&, CipherAlg)>;
 
 // Base class for callback data to enable type erasure
 struct CallbackDataBase {

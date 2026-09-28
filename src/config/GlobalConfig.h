@@ -6,26 +6,20 @@
 #include <string>
 #include <vector>
 
+#include "../vault/Crypto.h"
+
 // Global configuration constants
 const int kMaxLoginAttempts = 3;  // Maximum allowed login attempts before exiting
 
 // Encryption algorithm options
-enum class EncryptionType : std::uint8_t {
-    LFSR = 0,  // Linear Feedback Shift Register (basic)
-    AES = 1,   // Advanced Encryption Standard (stronger)
-    RSA = 2,   // RSA (asymmetric, used for credential encryption via hybrid encryption)
-    // Keep this as the last entry to track count
-    COUNT
-};
-
 // Configuration structure for file-based settings
 struct AppConfig {
     // Application version
     std::string version = "v1.7.0";
 
     // Core settings
-    std::string dataPath = "./data";
-    EncryptionType defaultEncryption = EncryptionType::AES;
+    std::string dataPath;  // empty = ConfigManager::dataDir()
+    CipherAlg defaultCipher = CipherAlg::Aes256Gcm;          // for new entries (docs/PROTOCOL.md §2)
     int maxLoginAttempts = 3;
 
     // Clipboard settings
@@ -36,13 +30,18 @@ struct AppConfig {
     bool requirePasswordConfirmation = true;
     int minPasswordLength = 8;
 
-    // LFSR settings
-    std::vector<int> lfsrTaps = {0, 2};
-    std::vector<int> lfsrInitState_ = {1, 0, 1};
-
     // UI settings
     bool showEncryptionInCredentials = true;
     std::string defaultUIMode = "auto";  // "cli", "gui", or "auto"
+
+    // ESP32 vault store; empty espHost = local only (no sync)
+    std::string espHost;
+    bool localCopy = true;  // false = device-only: the ESP32 is the only store, nothing kept on this machine
+    int espPort = 443;
+    // Relative paths resolve against configDir(); `esp32/pki.sh install <name>` puts these files there.
+    std::string espCert = "server.pem";        // the board's pinned server cert
+    std::string espClientCert = "device.pem";  // this device's certificate
+    std::string espClientKey = "device.key";   // ...and its private key
 
     // Update/Repository settings
     std::string githubOwner = "nikitasmen";
@@ -56,11 +55,16 @@ class ConfigManager {
    public:
     static ConfigManager& getInstance();
 
-    // Load configuration from file
-    bool loadConfig(const std::string& configPath = ".config");
+    // One location for every client (GUI, TUI, clients/python), independent of the working directory (XDG):
+    static std::string configDir();   // $XDG_CONFIG_HOME/pwvault, default ~/.config/pwvault
+    static std::string configFile();  // configDir()/config
+    static std::string dataDir();     // $XDG_DATA_HOME/pwvault, default ~/.local/share/pwvault
 
-    // Save configuration to file
-    bool saveConfig(const std::string& configPath = ".config");
+    // Load configuration from file (creates it with defaults if missing); resolves paths to absolute
+    bool loadConfig(const std::string& configPath = configFile());
+
+    // Save configuration to file (owner-only)
+    bool saveConfig(const std::string& configPath = configFile());
 
     // Get current configuration
     [[nodiscard]] const AppConfig& getConfig() const {
@@ -77,38 +81,11 @@ class ConfigManager {
     [[nodiscard]] const std::string& getDataPath() const {
         return config_.dataPath;
     }
-    [[nodiscard]] EncryptionType getDefaultEncryption() const {
-        return config_.defaultEncryption;
-    }
-    [[nodiscard]] bool isAutoClipboardClearEnabled() const {
-        return config_.autoClipboardClear;
-    }
-    [[nodiscard]] int getMaxLoginAttempts() const {
-        return config_.maxLoginAttempts;
-    }
-    [[nodiscard]] int getClipboardTimeoutSeconds() const {
-        return config_.clipboardTimeoutSeconds;
-    }
-    [[nodiscard]] bool getAutoClipboardClear() const {
-        return config_.autoClipboardClear;
-    }
-    [[nodiscard]] bool getRequirePasswordConfirmation() const {
-        return config_.requirePasswordConfirmation;
-    }
-    [[nodiscard]] int getMinPasswordLength() const {
-        return config_.minPasswordLength;
-    }
     [[nodiscard]] bool getShowEncryptionInCredentials() const {
         return config_.showEncryptionInCredentials;
     }
     [[nodiscard]] const std::string& getDefaultUIMode() const {
         return config_.defaultUIMode;
-    }
-    [[nodiscard]] const std::vector<int>& getLfsrTaps() const {
-        return config_.lfsrTaps;
-    }
-    [[nodiscard]] const std::vector<int>& getLfsrInitState() const {
-        return config_.lfsrInitState_;
     }
 
     // Update/Repository settings
@@ -118,74 +95,16 @@ class ConfigManager {
     [[nodiscard]] const std::string& getGithubRepo() const {
         return config_.githubRepo;
     }
-    [[nodiscard]] bool getAutoCheckUpdates() const {
-        return config_.autoCheckUpdates;
-    }
-    [[nodiscard]] int getUpdateCheckIntervalDays() const {
-        return config_.updateCheckIntervalDays;
-    }
 
     // Set specific config values
     void setVersion(const std::string& version);
-    void setDataPath(const std::string& path);
-    // Set default encryption and migrate master password if needed
-    // Deprecated: Use the new method that accepts LFSR settings
-    void setDefaultEncryption(EncryptionType newType, const std::string& masterPassword);
-
-    // New method for handling encryption change with LFSR settings
-    void setDefaultEncryption(EncryptionType newType,
-                              const std::string& masterPassword,
-                              const std::vector<int>& newLfsrTaps,
-                              const std::vector<int>& newLfsrInitState);
-    void setMaxLoginAttempts(int attempts);
-    void setClipboardTimeoutSeconds(int seconds);
-    void setAutoClipboardClear(bool enabled);
-    void setRequirePasswordConfirmation(bool required);
-    void setMinPasswordLength(int length);
-    void setShowEncryptionInCredentials(bool show);
-    void setDefaultUIMode(const std::string& mode);
-    void setLfsrTaps(const std::vector<int>& newTaps);
-    void setLfsrInitState(const std::vector<int>& newInitState);
-    bool updateLfsrSettings(const std::vector<int>& newTaps,
-                            const std::vector<int>& newInitState,
-                            const std::string& masterPassword);
-
-    // Update/Repository settings
-    void setGithubOwner(const std::string& owner);
-    void setGithubRepo(const std::string& repo);
-    void setAutoCheckUpdates(bool enabled);
-    void setUpdateCheckIntervalDays(int days);
 
    private:
     ConfigManager() = default;
+    void resolvePaths();
     AppConfig config_;
-
-    // Helper methods for parsing
-    static EncryptionType parseEncryptionType(const std::string& value);
-    static std::string encryptionTypeToString(EncryptionType type);
-    static std::vector<int> parseIntArray(const std::string& value);
-    static std::string intArrayToString(const std::vector<int>& array);
+    std::string configFile_;  // the file loadConfig() read; relative paths in it resolve against its folder
 };
 
-// Helper functions for encryption type management
-namespace encryption_utils {
-// Get human-readable name for an encryption type
-const char* getDisplayName(EncryptionType type);
-
-// Get all available encryption types
-std::vector<EncryptionType> getAllTypes();
-
-// Convert dropdown index to encryption type
-EncryptionType fromDropdownIndex(int index);
-
-// Convert encryption type to dropdown index
-int toDropdownIndex(EncryptionType type);
-
-// Get default encryption type
-EncryptionType getDefault();
-
-// Get encryption type mapping for menu choices
-const std::map<int, EncryptionType>& getChoiceMapping();
-}  // namespace encryption_utils
 
 #endif  // GLOBALCONFIG_H

@@ -1,5 +1,8 @@
 #include <iostream>
 #include <string>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #include "config/GlobalConfig.h"
 #include "gui_main.h"
@@ -11,9 +14,18 @@
  *   -g, --gui, gui     : Force GUI mode
  *   -t, --tui, tui, cli: Force CLI/TUI mode
  *   -h, --help         : Show help
- * If no option is specified, the app will start with default mode from .config
+ * If no option is specified, the app will start with defaultUIMode from ~/.config/pwvault/config
  */
 int main(int argc, char** argv) {
+#ifndef _WIN32
+    // Under sudo, HOME often still points at the user's home, so root would create files there that the user
+    // then can't read (config, vault). A password manager has no reason to run as root anyway.
+    if (geteuid() == 0) {
+        std::cerr << "Don't run the password manager as root (sudo): it would create root-owned files in your\n"
+                     "config folder that your own user then can't read. Run it as yourself.\n";
+        return 1;
+    }
+#endif
     std::string mode = "";
 
     // Parse command line arguments
@@ -30,7 +42,7 @@ int main(int argc, char** argv) {
             std::cout << "  -g, --gui, gui     : Start in GUI mode\n";
             std::cout << "  -t, --tui, tui, cli: Start in CLI/TUI mode\n";
             std::cout << "  -h, --help         : Show this help\n";
-            std::cout << "\nIf no mode is specified, the default from .config file will be used.\n";
+            std::cout << "\nIf no mode is specified, defaultUIMode from " << ConfigManager::configFile() << " is used.\n";
             return 0;
         } else {
             std::cerr << "Unknown option: " << arg << "\n";
@@ -43,7 +55,7 @@ int main(int argc, char** argv) {
     if (mode.empty()) {
         try {
             ConfigManager& config = ConfigManager::getInstance();
-            config.loadConfig(".config");
+            config.loadConfig();
             mode = config.getDefaultUIMode();
 
             // Handle "auto" mode by defaulting to GUI if available, otherwise CLI

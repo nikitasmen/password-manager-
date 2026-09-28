@@ -1,73 +1,39 @@
 #ifndef ENCRYPTION_UTILS_H
 #define ENCRYPTION_UTILS_H
 
+// UI helpers for choosing a cipher: dropdown index <-> CipherAlg, display names.
+
 #include <vector>
 
 #include "../config/GlobalConfig.h"
+#include "../vault/Crypto.h"
 
 namespace encryption_utils {
 
-inline int toDropdownIndex(EncryptionType type) {
-    switch (type) {
-        case EncryptionType::AES:
-            return 0;
-        case EncryptionType::LFSR:
-            return 1;
-        case EncryptionType::RSA:
-            return 2;
-        default:
-            return 0;  // Default to AES
+inline const char* getDisplayName(CipherAlg alg) {
+    switch (alg) {
+        case CipherAlg::Aes256Gcm:
+            return "AES-256-GCM";
+        case CipherAlg::ChaCha20Poly1305:
+            return "ChaCha20-Poly1305";
     }
+    return "Unknown";
 }
 
-inline EncryptionType fromDropdownIndex(int index) {
-    switch (index) {
-        case 0:
-            return EncryptionType::AES;
-        case 1:
-            return EncryptionType::LFSR;
-        case 2:
-            return EncryptionType::RSA;
-        default:
-            return EncryptionType::AES;  // Default to AES
-    }
+inline int toDropdownIndex(CipherAlg alg) {
+    const auto& all = allCiphers();
+    for (size_t i = 0; i < all.size(); ++i)
+        if (all[i] == alg) return static_cast<int>(i);
+    return 0;
 }
 
-inline std::string encryptionTypeToString(EncryptionType type) {
-    switch (type) {
-        case EncryptionType::AES:
-            return "AES-256";
-        case EncryptionType::LFSR:
-            return "LFSR";
-        case EncryptionType::RSA:
-            return "RSA-2048";
-        default:
-            return "Unknown";
-    }
+inline CipherAlg fromDropdownIndex(int index) {
+    const auto& all = allCiphers();
+    return index >= 0 && static_cast<size_t>(index) < all.size() ? all[index] : all[0];
 }
 
-// Get display name for encryption type (for UI)
-inline const char* getDisplayName(EncryptionType type) {
-    switch (type) {
-        case EncryptionType::AES:
-            return "AES-256";
-        case EncryptionType::LFSR:
-            return "LFSR";
-        case EncryptionType::RSA:
-            return "RSA-2048";
-        default:
-            return "Unknown";
-    }
-}
-
-// Get all available encryption types
-inline std::vector<EncryptionType> getAllTypes() {
-    return {EncryptionType::AES, EncryptionType::LFSR, EncryptionType::RSA};
-}
-
-// Get default encryption type
-inline EncryptionType getDefault() {
-    return EncryptionType::AES;
+inline CipherAlg getDefault() {
+    return ConfigManager::getInstance().getConfig().defaultCipher;
 }
 
 }  // namespace encryption_utils

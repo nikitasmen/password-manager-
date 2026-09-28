@@ -1,78 +1,98 @@
 #include "UIManager.h"
 
 #include <filesystem>
+#include <iostream>
 
-#include "api.h"
+#include "../utils/EncryptionUtils.h"
+#include "../vault/EspStore.h"
+#include "../vault/LocalFileStore.h"
 
-UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
+namespace {
+// Run a vault call for the UI: log a failure and return `fallback` instead of throwing into UI code.
+template <class R, class F>
+R guarded(const char* what, R fallback, F&& call) {
     try {
-        // Initialize the credential manager with data path
-        credManager = std::make_unique<CredentialsManager>(dataPath);
-
-        // Ensure data directory exists
-        std::filesystem::path dir(dataPath);
-        if (!std::filesystem::exists(dir)) {
-            std::filesystem::create_directories(dir);
-        }
+        return call();
     } catch (const std::exception& e) {
-        // Log error but let derived class handle UI-specific error reporting
-        std::cerr << "Error in UIManager constructor: " << e.what() << std::endl;
+        std::cerr << "Error " << what << ": " << e.what() << std::endl;
+        return fallback;
     }
 }
+}  // namespace
 
-std::unique_ptr<CredentialsManager> UIManager::getFreshCredManager() {
-    auto manager = std::make_unique<CredentialsManager>(dataPath);
-    if (isLoggedIn) {
-        manager->login(masterPassword);
+// Throws if the vault can't be set up (e.g. unwritable dataPath): tui_main/gui_main report it and exit,
+// so no UI code ever runs with a null vault. Stores:
+//   local-first (default): the local file, synced with the ESP32 when espHost is set
+//   device-only (localCopy=false): the ESP32 as the only store, nothing written to dataPath
+UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    std::unique_ptr<IVaultStore> esp;
+    if (!c.espHost.empty())
+        esp = std::make_unique<EspStore>(EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
+    if (!c.localCopy) {
+        if (!esp) throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
+        vault = std::make_unique<VaultService>(std::move(esp), nullptr, "");
+        return;
     }
-    return manager;
+    std::filesystem::create_directories(dataPath);
+    vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>(dataPath + "/vault.json"), std::move(esp),
+                                           dataPath + "/sync.json");
 }
 
 bool UIManager::safeAddCredential(const std::string& platform,
                                   const std::string& username,
                                   const std::string& password,
-                                  std::optional<EncryptionType> encryptionType) {
-    try {
-        auto tempCredManager = getFreshCredManager();
-        return tempCredManager->addCredentials(platform, username, password, encryptionType);
-    } catch (const std::exception& e) {
-        std::cerr << "Error adding credential: " << e.what() << std::endl;
-        return false;
-    }
+                                  std::optional<CipherAlg> encryptionType) {
+    return guarded("adding credential", false, [&] {
+        vault->put({platform, username, password, encryptionType.value_or(encryption_utils::getDefault())});
+        return true;
+    });
 }
-std::optional<DecryptedCredential> UIManager::safeGetCredentials(const std::string& platform) {
-    try {
-        auto tempCredManager = getFreshCredManager();
-        return tempCredManager->getCredentials(platform);
-    } catch (const std::exception& e) {
-        std::cerr << "Error getting credentials: " << e.what() << std::endl;
-        return std::nullopt;
-    }
+
+std::optional<Credential> UIManager::safeGetCredentials(const std::string& platform) {
+    return guarded("getting credentials", std::optional<Credential>{}, [&] { return vault->get(platform); });
 }
+
 bool UIManager::safeDeleteCredential(const std::string& platform) {
-    try {
-        auto tempCredManager = getFreshCredManager();
-        return tempCredManager->deleteCredentials(platform);
-    } catch (const std::exception& e) {
-        std::cerr << "Error deleting credential: " << e.what() << std::endl;
-        return false;
-    }
+    return guarded("deleting credential", false, [&] { return vault->remove(platform); });
 }
-// Add implementation for updateCredential method
+
+std::vector<std::string> UIManager::safeGetPlatforms() {
+    return guarded("listing platforms", std::vector<std::string>{}, [&] { return vault->platforms(); });
+}
+
+bool UIManager::safeChangeMasterPassword(const std::string& newPassword) {
+    return guarded("changing master password", false, [&] {
+        vault->changeMasterPassword(newPassword);
+        return true;
+    });
+}
+
+std::string UIManager::syncStatusText() const {
+    if (!ConfigManager::getInstance().getConfig().localCopy)
+        return vault->lastSyncStatus() == VaultService::SyncStatus::Offline
+                   ? "Device-only: ESP32 not reachable, and nothing is stored on this machine"
+                   : "Device-only: reading directly from the ESP32 (nothing stored on this machine)";
+    switch (vault->lastSyncStatus()) {
+        case VaultService::SyncStatus::Disabled:
+            return "Local vault only (no ESP32 configured)";
+        case VaultService::SyncStatus::Ok:
+            return "Synced with ESP32";
+        case VaultService::SyncStatus::Offline:
+            return "ESP32 not reachable: working locally, will sync when back";
+        case VaultService::SyncStatus::Error:
+            return "ESP32 sync error: " + vault->lastSyncError();
+    }
+    return "";
+}
+
 bool UIManager::updateCredential(const std::string& platform,
                                  const std::string& username,
                                  const std::string& password,
-                                 std::optional<EncryptionType> encryptionType) {
-    // Default implementation
-    try {
-        if (!isLoggedIn)
-            return false;
-        if (!credManager)
-            return false;
-
-        return credManager->updateCredentials(platform, username, password, encryptionType);
-    } catch (const std::exception& e) {
-        std::cerr << "Error updating credentials: " << e.what() << std::endl;
-        return false;
-    }
+                                 std::optional<CipherAlg> encryptionType) {
+    if (!isLoggedIn) return false;
+    // Keep the entry's current cipher unless the caller picks one
+    auto current = safeGetCredentials(platform);
+    if (!current) return false;
+    return safeAddCredential(platform, username, password, encryptionType.value_or(current->alg));
 }
