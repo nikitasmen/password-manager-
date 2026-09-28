@@ -1,8 +1,10 @@
-# Password Manager Configuration File
-# This file contains application settings and preferences
+# pwvault configuration: ~/.config/pwvault/config (or $XDG_CONFIG_HOME/pwvault/config)
+# Shared by the GUI, the TUI and clients/python. Relative paths resolve against this folder.
+# The app writes this file with defaults on first run; usually you only set espHost.
 
 # Core Settings
-dataPath=./data
+# Local vault copy; empty = ~/.local/share/pwvault
+dataPath=
 # Cipher preselected for new entries: aes-256-gcm or chacha20-poly1305
 defaultCipher=aes-256-gcm
 maxLoginAttempts=3
@@ -22,10 +24,10 @@ defaultUIMode=auto
 # ESP32 Vault (empty espHost = local only; see README "Setting up the ESP32")
 espHost=
 espPort=443
-espCert=esp32/vault/cert.pem
-# This device's certificate + key: esp32/pki.sh add <name>
-espClientCert=
-espClientKey=
+# Device files, put here by `esp32/pki.sh install <name>`
+espCert=server.pem
+espClientCert=device.pem
+espClientKey=device.key
 
 # Update/Repository Settings
 githubOwner=nikitasmen
