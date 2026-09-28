@@ -6,16 +6,13 @@
 #include "../utils/EncryptionUtils.h"
 #include "../vault/VaultFactory.h"
 
+// Throws if the vault can't be set up (e.g. unwritable dataPath): tui_main/gui_main report it and exit,
+// so no UI code ever runs with a null vault.
 UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
-    try {
-        std::filesystem::create_directories(dataPath);
-        AppConfig config = ConfigManager::getInstance().getConfig();
-        config.dataPath = dataPath;
-        vault = makeVaultService(config);
-    } catch (const std::exception& e) {
-        // Log error but let derived class handle UI-specific error reporting
-        std::cerr << "Error in UIManager constructor: " << e.what() << std::endl;
-    }
+    std::filesystem::create_directories(dataPath);
+    AppConfig config = ConfigManager::getInstance().getConfig();
+    config.dataPath = dataPath;
+    vault = makeVaultService(config);
 }
 
 bool UIManager::safeAddCredential(const std::string& platform,

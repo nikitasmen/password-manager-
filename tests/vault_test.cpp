@@ -133,6 +133,9 @@ class FlakyStore : public IVaultStore {
     }
     void putEntries(const std::vector<EntryRecord>& e) override {
         up();
+        // same limits as the board (esp32/vault/vault.ino): 32 records, 16 KB body
+        if (e.size() > 32 || nlohmann::json{{"entries", e}}.dump().size() > 16 * 1024)
+            throw std::runtime_error("413 Payload Too Large");
         inner_.putEntries(e);
     }
     void noteAccess(const std::string& p, const std::string& u) override {
@@ -306,12 +309,77 @@ void testEsp(const fs::path& dir, const std::string& spec) {
     std::cout << "esp: ok (" << raw.entries.size() << " records round-tripped through the board)\n";
 }
 
+// Code-review regressions: store resets, batch size, concurrent writers, input validation.
+void testRobustness(const fs::path& dir) {
+    constexpr int kFastKdf = 1000;
+    using S = VaultService::SyncStatus;
+    LocalFileStore esp((dir / "r-esp.json").string());
+    auto laptop = makeDevice(dir, "r-laptop", esp);
+    laptop.vault->create("master", CipherAlg::Aes256Gcm, kFastKdf);
+    for (int i = 0; i < 5; i++) laptop.vault->put({"site" + std::to_string(i), "u", "p", CipherAlg::Aes256Gcm});
+
+    // board wiped/reflashed: the next sync must re-upload everything, not just recent changes
+    fs::remove(dir / "r-esp.json");
+    CHECK(laptop.vault->sync() == S::Ok);
+    CHECK(esp.changesAfter(0).entries.size() == 5);
+    auto fresh = makeDevice(dir, "r-fresh", esp);
+    CHECK(fresh.vault->unlock("master") && fresh.vault->platforms().size() == 5);
+
+    // local vault.json deleted (sync cursors kept): the next sync must pull everything back
+    fs::remove(dir / "r-laptop.json");
+    CHECK(laptop.vault->sync() == S::Ok);
+    laptop.vault->lock();
+    CHECK(laptop.vault->unlock("master") && laptop.vault->platforms().size() == 5);
+
+    // many large entries saved offline go out in batches the board accepts (count AND bytes)
+    laptop.link->online = false;
+    for (int i = 0; i < 40; i++) laptop.vault->put({"big" + std::to_string(i), "u", std::string(300, 'x'), CipherAlg::Aes256Gcm});
+    laptop.link->online = true;
+    CHECK(laptop.vault->sync() == S::Ok);
+    CHECK(esp.changesAfter(0).entries.size() == 45);
+
+    // input validation
+    bool rejectedEmpty = false, rejectedHuge = false;
+    try {
+        laptop.vault->put({"x", "user", "", CipherAlg::Aes256Gcm});
+    } catch (const std::invalid_argument&) {
+        rejectedEmpty = true;
+    }
+    try {
+        laptop.vault->put({"x", "user", std::string(20000, 'x'), CipherAlg::Aes256Gcm});
+    } catch (const std::invalid_argument&) {
+        rejectedHuge = true;
+    }
+    CHECK(rejectedEmpty && rejectedHuge);
+
+    // two app instances writing the same vault.json at once lose nothing
+    auto writer = [&](int who) {
+        LocalFileStore s((dir / "r-shared.json").string());
+        for (int i = 0; i < 50; i++) {
+            EntryRecord e{vaultcrypto::toHex(vaultcrypto::randomBytes(16)), 1, false, "aes-256-gcm", "d", 0};
+            s.putEntries({e});
+        }
+        (void)who;
+    };
+    std::thread t1(writer, 1), t2(writer, 2);
+    t1.join();
+    t2.join();
+    LocalFileStore shared((dir / "r-shared.json").string());
+    CHECK(shared.changesAfter(0).entries.size() == 100 && shared.changesAfter(0).seq == 100);
+
+    // a corrupt sync.json means "sync everything", not "fail forever"
+    std::ofstream(dir / "r-laptop.sync", std::ios::trunc) << "{garbage";
+    CHECK(laptop.vault->sync() == S::Ok);
+    std::cout << "robustness: ok\n";
+}
+
 int main() {
     fs::path dir = fs::temp_directory_path() / ("vault_test_" + std::to_string(std::random_device{}()));
     fs::create_directories(dir);
     testVectors();
     testMergeRule(dir);
     testSync(dir);
+    testRobustness(dir);
     if (const char* esp = std::getenv("PWVAULT_TEST_ESP")) testEsp(dir, esp);
     fs::remove_all(dir);
     std::cout << "all vault tests passed\n";

@@ -7,6 +7,7 @@ namespace {
 // Reads re-sync at most this often; an unreachable remote is retried no sooner than this either,
 // so being away from home doesn't add a connect timeout to every click.
 constexpr std::chrono::seconds kSyncMaxAge{30};
+constexpr size_t kMaxRecordBytes = 12 * 1024;  // fits one POST /entries with room to spare
 
 int64_t nowMs() {
     using namespace std::chrono;
@@ -115,9 +116,14 @@ int64_t VaultService::nextTimestamp(const std::string& id) const {
 
 void VaultService::put(const Credential& cred) {
     requireUnlocked();
-    if (cred.platform.empty()) throw std::invalid_argument("platform is required");
+    if (cred.platform.empty() || cred.username.empty() || cred.password.empty())
+        throw std::invalid_argument("platform, username and password are all required");
     std::string id = vaultformat::entryId(vaultKey_, cred.platform);
-    local_->putEntries({vaultformat::sealEntry(vaultKey_, cred, nextTimestamp(id))});
+    EntryRecord rec = vaultformat::sealEntry(vaultKey_, cred, nextTimestamp(id));
+    // A record the ESP32 can't accept (16 KB per request) would block sync forever; refuse it up front.
+    if (nlohmann::json(rec).dump().size() > kMaxRecordBytes)
+        throw std::invalid_argument("entry too large (keep platform, username and password under ~8 KB)");
+    local_->putEntries({rec});
     reindex();
     sync();
 }
