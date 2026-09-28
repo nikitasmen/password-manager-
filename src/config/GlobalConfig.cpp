@@ -1,5 +1,7 @@
 #include "GlobalConfig.h"
 
+#include <filesystem>
+
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -7,7 +9,6 @@
 #include <sstream>
 #include <vector>
 
-#include "MigrationHelper.h"
 
 // ConfigManager implementation
 ConfigManager& ConfigManager::getInstance() {
@@ -45,8 +46,18 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
             config_.version = value;
         } else if (key == "dataPath") {
             config_.dataPath = value;
-        } else if (key == "defaultEncryption") {
-            config_.defaultEncryption = ConfigManager::parseEncryptionType(value);
+        } else if (key == "defaultCipher") {
+            if (auto alg = cipherFromName(value)) config_.defaultCipher = *alg;
+        } else if (key == "espHost") {
+            config_.espHost = value;
+        } else if (key == "espPort") {
+            config_.espPort = std::stoi(value);
+        } else if (key == "espClientCert") {
+            config_.espClientCert = value;
+        } else if (key == "espClientKey") {
+            config_.espClientKey = value;
+        } else if (key == "espCert") {
+            config_.espCert = value;
         } else if (key == "maxLoginAttempts") {
             try {
                 int attempts = std::stoi(value);
@@ -84,10 +95,6 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
             } catch (const std::exception& e) {
                 std::cerr << "Error parsing minPasswordLength: " << e.what() << "\n";
             }
-        } else if (key == "lfsrTaps") {
-            config_.lfsrTaps = ConfigManager::parseIntArray(value);
-        } else if (key == "lfsrInitState") {
-            config_.lfsrInitState_ = ConfigManager::parseIntArray(value);
         } else if (key == "showEncryptionInCredentials") {
             config_.showEncryptionInCredentials = (value == "true" || value == "1");
         } else if (key == "defaultUIMode") {
@@ -114,10 +121,6 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
     }
 
     // Remove global variables for backward compatibility
-    // g_data_path = config_.dataPath;
-    // taps = config_.lfsrTaps;
-    // init_state = config_.lfsrInitState;
-    // g_encryption_type = config_.defaultEncryption;
 
     file.close();
     return true;
@@ -139,7 +142,7 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
 
     file << "# Core Settings\n";
     file << "dataPath=" << config_.dataPath << "\n";
-    file << "defaultEncryption=" << ConfigManager::encryptionTypeToString(config_.defaultEncryption) << "\n";
+    file << "defaultCipher=" << cipherName(config_.defaultCipher) << "\n";
     file << "maxLoginAttempts=" << config_.maxLoginAttempts << "\n\n";
 
     file << "# Clipboard Settings\n";
@@ -150,13 +153,16 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
     file << "requirePasswordConfirmation=" << (config_.requirePasswordConfirmation ? "true" : "false") << "\n";
     file << "minPasswordLength=" << config_.minPasswordLength << "\n\n";
 
-    file << "# LFSR Algorithm Settings\n";
-    file << "lfsrTaps=" << ConfigManager::intArrayToString(config_.lfsrTaps) << "\n";
-    file << "lfsrInitState=" << ConfigManager::intArrayToString(config_.lfsrInitState_) << "\n\n";
-
     file << "# UI Settings\n";
     file << "showEncryptionInCredentials=" << (config_.showEncryptionInCredentials ? "true" : "false") << "\n";
     file << "defaultUIMode=" << config_.defaultUIMode << "\n\n";
+
+    file << "# ESP32 Vault (empty espHost = local only)\n";
+    file << "espHost=" << config_.espHost << "\n";
+    file << "espPort=" << config_.espPort << "\n";
+    file << "espCert=" << config_.espCert << "\n";
+    file << "espClientCert=" << config_.espClientCert << "\n";
+    file << "espClientKey=" << config_.espClientKey << "\n\n";
 
     file << "# Update/Repository Settings\n";
     file << "githubOwner=" << config_.githubOwner << "\n";
@@ -165,6 +171,10 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
     file << "updateCheckIntervalDays=" << config_.updateCheckIntervalDays << "\n";
 
     file.close();
+    // Owner-only: it points at this device's private key for the ESP32
+    std::error_code ec;
+    std::filesystem::permissions(configPath, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::replace, ec);
     return true;
 }
 
@@ -172,10 +182,6 @@ void ConfigManager::updateConfig(const AppConfig& newConfig) {
     config_ = newConfig;
 
     // Remove global variables for backward compatibility
-    // g_data_path = config_.dataPath;
-    // taps = config_.lfsrTaps;
-    // init_state = config_.lfsrInitState;
-    // g_encryption_type = config_.defaultEncryption;
 }
 
 void ConfigManager::setVersion(const std::string& version) {
@@ -185,54 +191,9 @@ void ConfigManager::setVersion(const std::string& version) {
 
 void ConfigManager::setDataPath(const std::string& path) {
     config_.dataPath = path;
-    // g_data_path = path; // Removed global update
 }
 
 // Deprecated: Use the new method that accepts LFSR settings
-void ConfigManager::setDefaultEncryption(EncryptionType newType, const std::string& masterPassword) {
-    // For backward compatibility, call the new method with existing LFSR settings
-    setDefaultEncryption(newType, masterPassword, getLfsrTaps(), getLfsrInitState());
-}
-
-// New method for handling encryption change with LFSR settings
-void ConfigManager::setDefaultEncryption(EncryptionType newType,
-                                         const std::string& masterPassword,
-                                         const std::vector<int>& newLfsrTaps,
-                                         const std::vector<int>& newLfsrInitState) {
-    EncryptionType oldType = config_.defaultEncryption;
-    if (newType == oldType) {
-        return;  // No migration needed if type isn't changing
-    }
-
-    // Store old LFSR settings for migration
-    std::vector<int> oldTaps = getLfsrTaps();
-    std::vector<int> oldInitState = getLfsrInitState();
-
-    // Perform migration
-    MigrationHelper& migrationHelper = MigrationHelper::getInstance();
-    bool masterMigrated = migrationHelper.migrateMasterPasswordForEncryptionChange(
-        oldType, newType, oldTaps, oldInitState, newLfsrTaps, newLfsrInitState, masterPassword, getDataPath());
-
-    if (!masterMigrated) {
-        std::string error = "Master password migration failed during encryption type change";
-        std::cerr << "Warning: " << error << std::endl;
-        // For now, we'll just log a warning and not update the config
-        return;
-    }
-
-    // If master password migration is successful, update the config
-    config_.defaultEncryption = newType;
-
-    // If the new type is LFSR, also update LFSR settings
-    if (newType == EncryptionType::LFSR) {
-        config_.lfsrTaps = newLfsrTaps;
-        config_.lfsrInitState_ = newLfsrInitState;
-    }
-
-    // Save the updated config
-    saveConfig();
-}
-
 void ConfigManager::setMaxLoginAttempts(int attempts) {
     // Validate input range
     if (attempts < 1) {
@@ -282,104 +243,6 @@ void ConfigManager::setDefaultUIMode(const std::string& mode) {
         config_.defaultUIMode.begin(), config_.defaultUIMode.end(), config_.defaultUIMode.begin(), ::tolower);
 }
 
-void ConfigManager::setLfsrTaps(const std::vector<int>& newTaps) {
-    // Validate that taps array is not empty
-    if (newTaps.empty()) {
-        std::cerr << "Warning: Empty LFSR taps provided, using default {0, 2}\n";
-        config_.lfsrTaps = {0, 2};
-        // taps = {0, 2}; // Removed global update
-        return;
-    }
-
-    config_.lfsrTaps = newTaps;
-    // taps = newTaps; // Removed global update
-}
-
-void ConfigManager::setLfsrInitState(const std::vector<int>& newInitState) {
-    // Validate that init state is not empty
-    if (newInitState.empty()) {
-        std::cerr << "Warning: Empty LFSR initial state provided, using default {1, 0, 1}\n";
-        config_.lfsrInitState_ = {1, 0, 1};
-        // init_state = {1, 0, 1}; // Removed global update
-        return;
-    }
-
-    // Validate that init state only contains 0s and 1s
-    bool validInitState =
-        std::all_of(newInitState.begin(), newInitState.end(), [](int val) { return val == 0 || val == 1; });
-
-    if (!validInitState) {
-        std::cerr << "Warning: LFSR initial state must contain only 0s and 1s, using default {1, 0, 1}\n";
-        config_.lfsrInitState_ = {1, 0, 1};
-        // init_state = {1, 0, 1}; // Removed global update
-        return;
-    }
-
-    config_.lfsrInitState_ = newInitState;
-    // init_state = newInitState; // Removed global update
-}
-
-bool ConfigManager::updateLfsrSettings(const std::vector<int>& newTaps,
-                                       const std::vector<int>& newInitState,
-                                       const std::string& masterPassword) {
-    // Validate inputs
-    if (newTaps.empty()) {
-        std::cerr << "Error: LFSR taps cannot be empty\n";
-        return false;
-    }
-
-    if (newInitState.empty()) {
-        std::cerr << "Error: LFSR initial state cannot be empty\n";
-        return false;
-    }
-
-    if (masterPassword.empty()) {
-        std::cerr << "Error: Master password is required for LFSR settings update\n";
-        return false;
-    }
-
-    // Store old settings in case of failure
-    auto oldTaps = config_.lfsrTaps;
-    auto oldInitState = config_.lfsrInitState_;
-
-    try {
-        // Migrate existing credentials with the new LFSR settings
-        std::cout << "Updating LFSR settings and migrating existing data..." << std::endl;
-
-        MigrationHelper& migrationHelper = MigrationHelper::getInstance();
-        bool migrationSuccess = migrationHelper.migrateCredentialsForLfsrChange(
-            oldTaps, oldInitState, newTaps, newInitState, masterPassword, config_.dataPath);
-
-        if (!migrationSuccess) {
-            std::cerr << "Migration failed - reverting LFSR settings" << std::endl;
-            // Restore old settings
-            config_.lfsrTaps = oldTaps;
-            config_.lfsrInitState_ = oldInitState;
-            // taps = oldTaps; // Removed global update
-            // init_state = oldInitState; // Removed global update
-            return false;
-        }
-
-        // Update settings after successful migration
-        config_.lfsrTaps = newTaps;
-        config_.lfsrInitState_ = newInitState;
-        // taps = newTaps; // Removed global update
-        // init_state = newInitState; // Removed global update
-
-        std::cout << "LFSR settings updated and data migration completed successfully" << std::endl;
-        return true;
-    } catch (const std::exception& e) {
-        // Restore old settings if anything fails
-        std::cerr << "Error updating LFSR settings: " << e.what() << "\n";
-        config_.lfsrTaps = oldTaps;
-        config_.lfsrInitState_ = oldInitState;
-        // taps = oldTaps; // Removed global update
-        // init_state = oldInitState; // Removed global update
-        return false;
-    }
-}
-
-// Update/Repository settings
 void ConfigManager::setGithubOwner(const std::string& owner) {
     config_.githubOwner = owner;
 }
@@ -403,114 +266,3 @@ void ConfigManager::setUpdateCheckIntervalDays(int days) {
 
 // Implementation of EncryptionUtils helper functions
 
-EncryptionType ConfigManager::parseEncryptionType(const std::string& value) {
-    if (value == "LFSR" || value == "0") {
-        return EncryptionType::LFSR;
-    } else if (value == "AES" || value == "1") {
-        return EncryptionType::AES;
-    } else if (value == "RSA" || value == "2") {
-        return EncryptionType::RSA;
-    }
-    return EncryptionType::AES;  // Default fallback
-}
-
-std::string ConfigManager::encryptionTypeToString(EncryptionType type) {
-    switch (type) {
-        case EncryptionType::LFSR:
-            return "LFSR";
-        case EncryptionType::AES:
-            return "AES";
-        case EncryptionType::RSA:
-            return "RSA";
-        default:
-            return "Unknown";
-    }
-}
-
-std::vector<int> ConfigManager::parseIntArray(const std::string& value) {
-    std::vector<int> result;
-    std::stringstream ss(value);
-    std::string item;
-
-    while (std::getline(ss, item, ',')) {
-        try {
-            // Validate that the string contains only digits
-            if (item.empty() || !std::all_of(item.begin(), item.end(), [](char c) {
-                    return std::isdigit(c) || c == '-';  // Allow negative numbers
-                })) {
-                std::cerr << "Warning: Invalid integer value '" << item << "' skipped\n";
-                continue;
-            }
-            result.push_back(std::stoi(item));
-        } catch (const std::exception& e) {
-            std::cerr << "Warning: Failed to parse integer '" << item << "': " << e.what() << "\n";
-            // Skip invalid values
-        }
-    }
-
-    return result;
-}
-
-std::string ConfigManager::intArrayToString(const std::vector<int>& array) {
-    std::stringstream ss;
-    for (size_t i = 0; i < array.size(); ++i) {
-        if (i > 0)
-            ss << ",";
-        ss << array[i];
-    }
-    return ss.str();
-}
-
-// Implementation of EncryptionUtils helper functions
-namespace encryption_utils {
-
-const char* getDisplayName(EncryptionType type) {
-    switch (type) {
-        case EncryptionType::LFSR:
-            return "LFSR (Basic)";
-        case EncryptionType::AES:
-            return "AES-256 (Strong)";
-        case EncryptionType::RSA:
-            return "RSA-2048 (Strongest)";
-        default:
-            return "Unknown";
-    }
-}
-
-std::vector<EncryptionType> getAllTypes() {
-    std::vector<EncryptionType> types;
-    for (int i = 0; i < static_cast<int>(EncryptionType::COUNT); ++i) {
-        types.push_back(static_cast<EncryptionType>(i));
-    }
-    return types;
-}
-
-EncryptionType fromDropdownIndex(int index) {
-    if (index >= 0 && index < static_cast<int>(EncryptionType::COUNT)) {
-        return static_cast<EncryptionType>(index);
-    }
-    return getDefault();  // Fallback to default if invalid index
-}
-
-int toDropdownIndex(EncryptionType type) {
-    return static_cast<int>(type);
-}
-
-EncryptionType getDefault() {
-    return EncryptionType::AES;  // Default to strongest encryption for new users
-}
-
-const std::map<int, EncryptionType>& getChoiceMapping() {
-    static std::map<int, EncryptionType> choiceMap;
-
-    // Build the map dynamically if it's empty
-    if (choiceMap.empty()) {
-        int choice = 1;  // Start menu choices from 1
-        for (int i = 0; i < static_cast<int>(EncryptionType::COUNT); ++i) {
-            choiceMap[choice++] = static_cast<EncryptionType>(i);
-        }
-    }
-
-    return choiceMap;
-}
-}  // namespace encryption_utils

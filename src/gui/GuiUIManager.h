@@ -20,7 +20,6 @@ class UpdateDialog;
 #include <string>
 #include <vector>
 
-#include "../core/credential_data.h"
 
 /**
  * @class GuiUIManager
@@ -58,14 +57,14 @@ class GuiUIManager : public UIManager {
 
     // Current credential being updated
     std::string currentPlatform;
-    DecryptedCredential currentCredential;
+    Credential currentCredential;
 
     // Private helper methods
     void createLoginScreen();
     void createSetupScreen();
     void createMainScreen();
     void createAddCredentialDialog();
-    void createViewCredentialDialog(const std::string& platform, const std::optional<DecryptedCredential>& credentials);
+    void createViewCredentialDialog(const std::string& platform, const std::optional<Credential>& credentials);
     void createUpdatePasswordDialog();  // Added for update password dialog
     void createSettingsDialog();
 
@@ -131,7 +130,7 @@ class GuiUIManager : public UIManager {
      */
     bool setupPassword(const std::string& newPassword,
                        const std::string& confirmPassword,
-                       EncryptionType encryptionType) override;
+                       CipherAlg encryptionType) override;
 
     /**
      * @brief Add a new credential through GUI
@@ -144,7 +143,7 @@ class GuiUIManager : public UIManager {
     bool addCredential(const std::string& platform,
                        const std::string& username,
                        const std::string& password,
-                       std::optional<EncryptionType> encryptionType = std::nullopt) override;
+                       std::optional<CipherAlg> encryptionType = std::nullopt) override;
 
     /**
      * @brief View credentials for a platform in GUI
@@ -170,7 +169,7 @@ class GuiUIManager : public UIManager {
     bool updateCredential(const std::string& platform,
                           const std::string& username,
                           const std::string& password,
-                          std::optional<EncryptionType> encryptionType = std::nullopt) override;
+                          std::optional<CipherAlg> encryptionType = std::nullopt) override;
 
     /**
      * @brief Display a message in GUI

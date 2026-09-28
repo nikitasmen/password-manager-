@@ -51,7 +51,7 @@ class TerminalUIManager : public UIManager {
      */
     bool setupPassword(const std::string& newPassword,
                        const std::string& confirmPassword,
-                       EncryptionType encryptionType) override;
+                       CipherAlg encryptionType) override;
 
     /**
      * @brief Add a new credential through terminal
@@ -64,7 +64,7 @@ class TerminalUIManager : public UIManager {
     bool addCredential(const std::string& platform,
                        const std::string& username,
                        const std::string& password,
-                       std::optional<EncryptionType> encryptionType = std::nullopt) override;
+                       std::optional<CipherAlg> encryptionType = std::nullopt) override;
 
     /**
      * @brief View credentials for a platform in terminal
@@ -90,7 +90,7 @@ class TerminalUIManager : public UIManager {
     bool updateCredential(const std::string& platform,
                           const std::string& username,
                           const std::string& password,
-                          std::optional<EncryptionType> encryptionType = std::nullopt) override;
+                          std::optional<CipherAlg> encryptionType = std::nullopt) override;
 
     /**
      * @brief Display a message in terminal

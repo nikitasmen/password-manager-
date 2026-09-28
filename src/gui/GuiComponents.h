@@ -20,8 +20,9 @@
 #include <vector>
 
 #include "../config/GlobalConfig.h"
-#include "../config/MigrationHelper.h"
 #include "../utils/EncryptionUtils.h"
+#include <iostream>
+
 #include "GuiComponent.h"
 
 // Base class for text display components
@@ -169,19 +170,8 @@ class PasswordSetupComponent : public FormComponentBase {
         confirmPasswordInput =
             createWidget<Fl_Secret_Input>(x + LABEL_WIDTH, y + 50, INPUT_WIDTH, INPUT_HEIGHT, "Confirm Password:");
         // Always fetch the current default encryption from config at creation time
-        const ConfigManager& config = ConfigManager::getInstance();
-        EncryptionType encType = config.getDefaultEncryption();
-        const char* encTypeCStr = encryption_utils::getDisplayName(encType);
-        std::string encTypeStr = encTypeCStr ? std::string(encTypeCStr) : "Unknown";
-        std::string msg;
-        if (encTypeStr == "Unknown") {
-            msg = "Encryption: Unknown (Check .config!)";
-        } else {
-            msg = "Encryption: " + encTypeStr + " (Default)";
-        }
-        // Debug output
-        std::cerr << "[PasswordSetupComponent] encType=" << static_cast<int>(encType) << ", encTypeStr='" << encTypeStr
-                  << "'\n";
+        std::string msg =
+            std::string("Encryption: ") + encryption_utils::getDisplayName(encryption_utils::getDefault()) + " (Default)";
         Fl_Box* encLabel = createWidget<Fl_Box>(x + LABEL_WIDTH, y + 100, INPUT_WIDTH, INPUT_HEIGHT, "");
         encLabel->copy_label(msg.c_str());
 
@@ -189,7 +179,7 @@ class PasswordSetupComponent : public FormComponentBase {
         createButton = createWidget<Fl_Button>(centerX(BUTTON_WIDTH), y + 130, BUTTON_WIDTH, BUTTON_HEIGHT, "Create");
         CallbackHelper::setCallback(createButton, this, [this](PasswordSetupComponent* comp) {
             // Fetch the encryption type again in case config changed
-            EncryptionType encType = ConfigManager::getInstance().getDefaultEncryption();
+            CipherAlg encType = encryption_utils::getDefault();
             comp->onSetup(comp->newPasswordInput->value(), comp->confirmPasswordInput->value(), encType);
         });
     }
@@ -589,7 +579,7 @@ class CredentialInputsComponent : public FormComponentBase {
         std::string platform;
         std::string username;
         std::string password;
-        EncryptionType encryptionType;
+        CipherAlg encryptionType;
     };
 
     CredentialData getCredentialData() const {
@@ -609,7 +599,7 @@ class CredentialInputsComponent : public FormComponentBase {
     std::string getPassword() const {
         return passwordInput ? passwordInput->value() : "";
     }
-    EncryptionType getEncryptionType() const {
+    CipherAlg getEncryptionType() const {
         return encryptionChoice ? encryption_utils::fromDropdownIndex(encryptionChoice->value())
                                 : encryption_utils::getDefault();
     }
@@ -717,7 +707,6 @@ class CloseButtonComponent : public FormComponentBase {
 // Settings dialog component for configuring application settings
 class SettingsDialogComponent : public FormComponentBase {
    private:
-    std::string masterPassword;
     const AppConfig& config;
     Fl_Scroll* scrollArea;
     Fl_Input* dataPathInput;
@@ -729,8 +718,11 @@ class SettingsDialogComponent : public FormComponentBase {
     Fl_Input* minPasswordLengthInput;
     Fl_Check_Button* showEncryptionInCredentialsCheck;
     Fl_Choice* defaultUIModeChoice;
-    Fl_Input* lfsrTapsInput;
-    Fl_Input* lfsrInitStateInput;
+    Fl_Input* espHostInput;
+    Fl_Input* espPortInput;
+    Fl_Input* espCertInput;
+    Fl_Input* espClientCertInput;
+    Fl_Input* espClientKeyInput;
 
     std::function<void()> onSave;
     std::function<void()> onCancel;
@@ -741,12 +733,10 @@ class SettingsDialogComponent : public FormComponentBase {
                             int y,
                             int w,
                             int h,
-                            const std::string& masterPassword_in,
                             const AppConfig& config_in,
                             std::function<void()> onSave_in = nullptr,
                             std::function<void()> onCancel_in = nullptr)
         : FormComponentBase(parent, x, y, w, h),
-          masterPassword(masterPassword_in),
           config(config_in),
           scrollArea(nullptr),
           dataPathInput(nullptr),
@@ -758,8 +748,11 @@ class SettingsDialogComponent : public FormComponentBase {
           minPasswordLengthInput(nullptr),
           showEncryptionInCredentialsCheck(nullptr),
           defaultUIModeChoice(nullptr),
-          lfsrTapsInput(nullptr),
-          lfsrInitStateInput(nullptr),
+          espHostInput(nullptr),
+          espPortInput(nullptr),
+          espCertInput(nullptr),
+          espClientCertInput(nullptr),
+          espClientKeyInput(nullptr),
           onSave(onSave_in),
           onCancel(onCancel_in) {
     }
@@ -789,7 +782,7 @@ class SettingsDialogComponent : public FormComponentBase {
         for (const auto& type : encryption_utils::getAllTypes()) {
             defaultEncryptionChoice->add(encryption_utils::getDisplayName(type));
         }
-        defaultEncryptionChoice->value(encryption_utils::toDropdownIndex(config.defaultEncryption));
+        defaultEncryptionChoice->value(encryption_utils::toDropdownIndex(config.defaultCipher));
         yPos += spacing;
 
         new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Max Login Attempts:");
@@ -836,14 +829,30 @@ class SettingsDialogComponent : public FormComponentBase {
         showEncryptionInCredentialsCheck->value(config.showEncryptionInCredentials);
         yPos += spacing;
 
-        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Taps (comma-sep):");
-        lfsrTapsInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
-        lfsrTapsInput->value(vectorToString(config.lfsrTaps).c_str());
+        // ESP32 sync (empty host = local only)
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "ESP32 Host/IP (empty = off):");
+        espHostInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        espHostInput->value(config.espHost.c_str());
         yPos += spacing;
 
-        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "LFSR Init State (comma-sep):");
-        lfsrInitStateInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
-        lfsrInitStateInput->value(vectorToString(config.lfsrInitState_).c_str());
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "ESP32 Port:");
+        espPortInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        espPortInput->value(std::to_string(config.espPort).c_str());
+        yPos += spacing;
+
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "ESP32 Server Cert (.pem):");
+        espCertInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        espCertInput->value(config.espCert.c_str());
+        yPos += spacing;
+
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "This Device's Cert (.pem):");
+        espClientCertInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        espClientCertInput->value(config.espClientCert.c_str());
+        yPos += spacing;
+
+        new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "This Device's Key (.key):");
+        espClientKeyInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
+        espClientKeyInput->value(config.espClientKey.c_str());
         yPos += spacing;
 
         scrollArea->end();
@@ -863,41 +872,11 @@ class SettingsDialogComponent : public FormComponentBase {
     }
 
    private:
-    static std::string vectorToString(const std::vector<int>& vec) {
-        std::stringstream ss;
-        for (size_t i = 0; i < vec.size(); ++i) {
-            if (i > 0)
-                ss << ",";
-            ss << vec[i];
-        }
-        return ss.str();
-    }
-
-    static std::vector<int> stringToVector(const std::string& s) {
-        std::vector<int> vec;
-        if (s.empty())
-            return vec;
-        std::stringstream ss(s);
-        std::string item;
-        while (std::getline(ss, item, ',')) {
-            item.erase(std::remove_if(item.begin(), item.end(), isspace), item.end());
-            if (!item.empty()) {
-                try {
-                    vec.push_back(std::stoi(item));
-                } catch (const std::exception& e) {
-                    // ignore invalid numbers
-                }
-            }
-        }
-        return vec;
-    }
-
     void saveSettings() {
-        // Collect all settings from the UI
-        AppConfig newConfig;
+        AppConfig newConfig = config;  // keep fields this dialog doesn't show
         try {
             newConfig.dataPath = dataPathInput->value();
-            newConfig.defaultEncryption = encryption_utils::fromDropdownIndex(defaultEncryptionChoice->value());
+            newConfig.defaultCipher = encryption_utils::fromDropdownIndex(defaultEncryptionChoice->value());
             newConfig.maxLoginAttempts = std::stoi(maxLoginAttemptsInput->value());
             newConfig.clipboardTimeoutSeconds = std::stoi(clipboardTimeoutInput->value());
             newConfig.autoClipboardClear = autoClipboardClearCheck->value();
@@ -905,34 +884,28 @@ class SettingsDialogComponent : public FormComponentBase {
             newConfig.minPasswordLength = std::stoi(minPasswordLengthInput->value());
             newConfig.showEncryptionInCredentials = showEncryptionInCredentialsCheck->value();
             newConfig.defaultUIMode = defaultUIModeChoice->menu()[defaultUIModeChoice->value()].label();
-
-            newConfig.lfsrTaps = stringToVector(lfsrTapsInput->value());
-            newConfig.lfsrInitState_ = stringToVector(lfsrInitStateInput->value());
-        } catch (const std::invalid_argument& ia) {
+            newConfig.espHost = espHostInput->value();
+            newConfig.espPort = std::stoi(espPortInput->value());
+            newConfig.espCert = espCertInput->value();
+            newConfig.espClientCert = espClientCertInput->value();
+            newConfig.espClientKey = espClientKeyInput->value();
+        } catch (const std::invalid_argument&) {
             fl_alert("Invalid number format in one of the fields.");
             return;
-        } catch (const std::out_of_range& oor) {
+        } catch (const std::out_of_range&) {
             fl_alert("Number out of range in one of the fields.");
             return;
         }
 
-        // Get current config to compare against
-        const AppConfig& oldConfig = ConfigManager::getInstance().getConfig();
-
-        // Apply settings and perform migrations if necessary
-        bool success = MigrationHelper::getInstance().applySettingsFromConfig(oldConfig, newConfig, masterPassword);
-
-        if (success) {
-            fl_alert("Settings saved and applied successfully!");
-            if (onSave) {
-                onSave();  // This will close the dialog
-            }
-        } else {
-            fl_alert(
-                "Failed to apply new settings. The password might be incorrect or a migration failed. Check the "
-                "console for details.");
-            // Do not close the dialog on failure
+        // The default cipher only applies to entries saved from now on; existing entries keep theirs,
+        // so there is nothing to migrate.
+        ConfigManager::getInstance().updateConfig(newConfig);
+        if (!ConfigManager::getInstance().saveConfig(".config")) {
+            fl_alert("Could not write .config");
+            return;
         }
+        fl_alert("Settings saved. Data path and ESP32 changes apply after restarting the app.");
+        if (onSave) onSave();
     }
 };
 

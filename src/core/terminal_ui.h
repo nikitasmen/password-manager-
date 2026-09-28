@@ -71,21 +71,6 @@ class TerminalUI {
      * @return bool True if user confirmed, false otherwise
      */
     static bool confirm(const std::string& message);
-
-    /**
-     * @brief Present encryption algorithm options and get user selection
-     *
-     * @return EncryptionType The selected encryption algorithm
-     */
-    static EncryptionType selectEncryptionAlgorithm();
-
-    /**
-     * @brief Handle the login flow
-     *
-     * @param maxAttempts Maximum number of login attempts
-     * @return bool True if login successful, false otherwise
-     */
-    static bool login(int maxAttempts = kMaxLoginAttempts);
 };
 
 #endif  // UI_H
