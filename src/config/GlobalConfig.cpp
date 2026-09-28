@@ -96,9 +96,8 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         std::string value = line.substr(equalPos + 1);
 
         // Apply configuration values
-        if (key == "version") {
-            config_.version = value;
-        } else if (key == "dataPath") {
+        // "version" is ignored: it's a build fact, and a stale line from an older install would win.
+        if (key == "dataPath") {
             config_.dataPath = value;
         } else if (key == "defaultCipher") {
             if (auto alg = cipherFromName(value)) config_.defaultCipher = *alg;
@@ -198,9 +197,6 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
     // Write configuration file with comments
     file << "# Password Manager Configuration File\n";
     file << "# This file contains application settings and preferences\n\n";
-
-    file << "# Application Version\n";
-    file << "version=" << config_.version << "\n\n";
 
     file << "# Core Settings\n";
     file << "dataPath=" << config_.dataPath << "\n";

@@ -15,7 +15,7 @@ const int kMaxLoginAttempts = 3;  // Maximum allowed login attempts before exiti
 // Configuration structure for file-based settings
 struct AppConfig {
     // Application version
-    std::string version = "v1.7.0";
+    std::string version = "v2.0.0";
 
     // Core settings
     std::string dataPath;  // empty = ConfigManager::dataDir()
