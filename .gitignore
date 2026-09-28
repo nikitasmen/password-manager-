@@ -88,4 +88,3 @@ esp32/vault/devices.h
 /vault_test
 /include/
 __pycache__/
-/gui_snapshot
