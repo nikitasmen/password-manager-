@@ -1,0 +1,47 @@
+{
+  "password": "correct horse battery staple",
+  "vault_key_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "nonce_hex": "6465666768696a6b6c6d6e6f",
+  "updated": 1759075200000,
+  "aes-256-gcm": {
+    "kek_hex": "a69b179e3add3c1e0aaf227a0eb3aa2aa8645ab86fecf6ca00c17512697c719e",
+    "meta": {
+      "v": 1,
+      "vault_id": "00112233445566778899aabbccddeeff",
+      "rev": 1,
+      "kdf": "pbkdf2-sha256",
+      "iter": 1000,
+      "salt": "AAECAwQFBgcICQoLDA0ODw==",
+      "alg": "aes-256-gcm",
+      "key": "ZGVmZ2hpamtsbW5vxbDBzZReIQAxvn9wzUW+/0d2Bclb/HMMoCUlyDyJndhPz6sDdE0nlxmRwAx+gnrz"
+    },
+    "entry": {
+      "id": "04ff601ad20e254f044588901cfd0fe8",
+      "updated": 1759075200000,
+      "deleted": false,
+      "alg": "aes-256-gcm",
+      "data": "ZGVmZ2hpamtsbW5vzk/+v77FkqKuOf3iqFD3GYH3h1wS6Bs+pjIAHhosBRlMeHwYfFiOPWj9zsIyDWP9CS++K3Iv3zFftHHvmUdNePB88NPB4QuHqUU="
+    }
+  },
+  "chacha20-poly1305": {
+    "kek_hex": "a69b179e3add3c1e0aaf227a0eb3aa2aa8645ab86fecf6ca00c17512697c719e",
+    "meta": {
+      "v": 1,
+      "vault_id": "00112233445566778899aabbccddeeff",
+      "rev": 1,
+      "kdf": "pbkdf2-sha256",
+      "iter": 1000,
+      "salt": "AAECAwQFBgcICQoLDA0ODw==",
+      "alg": "chacha20-poly1305",
+      "key": "ZGVmZ2hpamtsbW5vss/l3MyXwhozNjo3pYo+fMMYyi1mVESPawMYiEB0qwT8DD/Hzuj6xBJEuj0YMhdJ"
+    },
+    "entry": {
+      "id": "04ff601ad20e254f044588901cfd0fe8",
+      "updated": 1759075200000,
+      "deleted": false,
+      "alg": "chacha20-poly1305",
+      "data": "ZGVmZ2hpamtsbW5v/4mIU6TSPuW0x8RgHq0cVLkN/Lg00RE0lhk94RabHilxitF62jH1oX7PXjOOjnTVULgqfp8y56P+6LX99g7/sxHrX6yFQCkcu0Y="
+    }
+  },
+  "entry_id_github": "04ff601ad20e254f044588901cfd0fe8"
+}
