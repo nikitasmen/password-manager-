@@ -1,193 +1,105 @@
 #ifndef GUI_UI_MANAGER_H
 #define GUI_UI_MANAGER_H
 
-#include "../core/UIManager.h"
-// Forward declare component classes to avoid circular dependencies
-class ContainerComponent;
-class LoginFormComponent;
-class PasswordSetupComponent;
-class PlatformsDisplayComponent;
-class CredentialInputsComponent;
-class SettingsDialogComponent;
-class ClickablePlatformsDisplay;
-class UpdateDialog;
-#include <FL/Fl.H>
-#include <FL/Fl_Window.H>
-#include <FL/fl_message.H>
+#include <FL/Fl_Double_Window.H>
 
+#include <chrono>
 #include <functional>
+#include <list>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "../core/UIManager.h"
+
+class Fl_Box;
+class Fl_Button;
+class Fl_Input;
+class Fl_Secret_Input;
+class OledPanel;
+class EntryList;
+class UpdateDialog;
 
 /**
- * @class GuiUIManager
- * @brief Graphical UI implementation of UIManager
- *
- * This class implements the UIManager interface to provide
- * a graphical user interface for the password manager.
+ * FLTK front end. Two windows: unlock/create, and the vault (entry list + detail pane, with the ESP32's
+ * screen as a status strip). Add/edit and settings are modal dialogs. All vault access goes through UIManager.
  */
 class GuiUIManager : public UIManager {
-   private:
-    // Main window
-    std::unique_ptr<Fl_Window> mainWindow;
-
-    // Root component
-    std::unique_ptr<ContainerComponent> rootComponent;
-
-    // Dialog windows and their root components
-    std::unique_ptr<Fl_Window> addCredentialWindow;
-    std::unique_ptr<ContainerComponent> addCredentialRoot;
-    std::unique_ptr<Fl_Window> viewCredentialWindow;
-    std::unique_ptr<ContainerComponent> viewCredentialRoot;
-    std::unique_ptr<Fl_Window> updatePasswordWindow;  // Added for update password dialog
-    std::unique_ptr<Fl_Window> settingsWindow;
-    std::unique_ptr<ContainerComponent> settingsRoot;
-
-    // Update dialog
-    std::unique_ptr<UpdateDialog> updateDialog;
-
-    // Component references
-    LoginFormComponent* loginForm;
-    PasswordSetupComponent* passwordSetup;
-    PlatformsDisplayComponent* platformsDisplay;  // Kept for backward compatibility
-    ClickablePlatformsDisplay* clickablePlatformsDisplay;
-    CredentialInputsComponent* credentialInputs;
-
-    // Current credential being updated
-    std::string currentPlatform;
-    Credential currentCredential;
-
-    // Private helper methods
-    void createLoginScreen();
-    void createSetupScreen();
-    void createMainScreen();
-    void createAddCredentialDialog();
-    void createViewCredentialDialog(const std::string& platform, const std::optional<Credential>& credentials);
-    void createUpdatePasswordDialog();  // Added for update password dialog
-    void createSettingsDialog();
-
-    /**
-     * @brief Clean up the add credential dialog (uses generic helper)
-     */
-    void cleanupAddCredentialDialog();
-    /**
-     * @brief Clean up the view credential dialog (uses generic helper)
-     */
-    void cleanupViewCredentialDialog();
-    /**
-     * @brief Clean up the update password dialog
-     */
-    void cleanupUpdatePasswordDialog();  // Added for update password dialog
-    /**
-     * @brief Clean up the settings dialog (uses generic helper)
-     */
-    void cleanupSettingsDialog();
-    void cleanupMainWindow();
-    void refreshPlatformsList();
-    static void setWindowCloseHandler(Fl_Window* window, bool exitOnClose = false);
-
-    // Helper to reduce boilerplate in screen creation
-    void createScreen(const std::string& title, int w, int h, std::function<void()> populateScreen);
-
    public:
-    /**
-     * @brief Constructor
-     * @param dataPath Path to the data storage directory
-     */
     explicit GuiUIManager(const std::string& dataPath);
-
-    /**
-     * @brief Destructor
-     */
     ~GuiUIManager() override;
 
-    /**
-     * @brief Initialize the GUI
-     */
     void initialize() override;
-
-    /**
-     * @brief Show the GUI and start the event loop
-     * @return Exit code
-     */
     int show() override;
-
-    /**
-     * @brief Handle user login in GUI
-     * @param password User's master password
-     * @return True if login was successful
-     */
     bool login(const std::string& password) override;
-
-    /**
-     * @brief Set up a new master password through GUI
-     * @param newPassword New master password
-     * @param confirmPassword Password confirmation
-     * @param encryptionType The encryption algorithm to use
-     * @return True if password setup was successful
-     */
     bool setupPassword(const std::string& newPassword,
                        const std::string& confirmPassword,
                        CipherAlg encryptionType) override;
-
-    /**
-     * @brief Add a new credential through GUI
-     * @param platform Platform name
-     * @param username Username
-     * @param password Password
-     * @param encryptionType The encryption algorithm to use (optional)
-     * @return True if credential was added successfully
-     */
     bool addCredential(const std::string& platform,
                        const std::string& username,
                        const std::string& password,
                        std::optional<CipherAlg> encryptionType = std::nullopt) override;
-
-    /**
-     * @brief View credentials for a platform in GUI
-     * @param platform Platform name
-     */
-    void viewCredential(const std::string& platform) override;
-
-    /**
-     * @brief Delete credentials for a platform through GUI
-     * @param platform Platform name
-     * @return True if credentials were deleted successfully
-     */
+    void viewCredential(const std::string& platform) override;  // selects it in the list
     bool deleteCredential(const std::string& platform) override;
-
-    /**
-     * @brief Update existing credentials for a platform
-     * @param platform Platform name
-     * @param username Username (unchanged)
-     * @param password New password
-     * @param encryptionType Optional new encryption type (if not specified, preserves existing type)
-     * @return True if credentials were updated successfully
-     */
     bool updateCredential(const std::string& platform,
                           const std::string& username,
                           const std::string& password,
                           std::optional<CipherAlg> encryptionType = std::nullopt) override;
-
-    /**
-     * @brief Display a message in GUI
-     * @param title Message title
-     * @param message Message content
-     * @param isError Whether this is an error message
-     */
     void showMessage(const std::string& title, const std::string& message, bool isError = false) override;
 
-    /**
-     * @brief Open the settings dialog
-     */
-    void openSettingsDialog();
+   private:
+    void buildUnlockWindow(bool create);
+    void buildVaultWindow();
+    void refreshList(const std::string& select = "");
+    void showDetail(std::optional<Credential> cred);
+    void editEntry(const std::optional<Credential>& existing);  // modal add/edit dialog
+    void openSettings();                                         // modal settings dialog
+    void lockVault();
+    void copy(const std::string& text, const std::string& what);
+    void flash(const std::string& event);  // a transient line on the OLED strip, like the board's events
+    void drawStrip();
+    void drawUnlockOled();
+    static void tick(void* self);  // 1 s clock for both OLEDs
 
-    /**
-     * @brief Open the update dialog
-     */
-    void openUpdateDialog();
+    // FLTK callbacks are C function pointers; this keeps lambdas alive for the window that uses them
+    std::list<std::function<void()>> callbacks_;
+    void on(Fl_Widget* w, std::function<void()> f);
+
+    std::unique_ptr<Fl_Double_Window> unlockWin_, vaultWin_;
+    std::unique_ptr<UpdateDialog> updateDialog_;
+
+    // unlock window
+    OledPanel* unlockOled_ = nullptr;
+    Fl_Secret_Input* pass1_ = nullptr;
+    Fl_Secret_Input* pass2_ = nullptr;  // confirm, create mode only
+    Fl_Box* unlockError_ = nullptr;
+
+    // vault window
+    OledPanel* strip_ = nullptr;
+    Fl_Input* search_ = nullptr;
+    EntryList* list_ = nullptr;
+    Fl_Box* title_ = nullptr;
+    Fl_Box* hint_ = nullptr;
+    Fl_Box* userLabel_ = nullptr;
+    Fl_Box* userValue_ = nullptr;
+    Fl_Box* passLabel_ = nullptr;
+    Fl_Box* passValue_ = nullptr;
+    Fl_Box* passShown_ = nullptr;  // the revealed password, on its own full-width line
+    Fl_Box* algLabel_ = nullptr;
+    Fl_Box* algValue_ = nullptr;
+    Fl_Button* copyUser_ = nullptr;
+    Fl_Button* copyPass_ = nullptr;
+    Fl_Button* reveal_ = nullptr;
+    Fl_Button* edit_ = nullptr;
+    Fl_Button* delete_ = nullptr;
+
+    std::vector<std::string> platforms_;  // cached for filtering; refreshed after writes
+    std::optional<Credential> current_;
+    std::string selected_;  // survives a search that hides it, so clearing the search brings it back
+    bool revealed_ = false;
+    std::string event_;
+    std::chrono::steady_clock::time_point eventUntil_{};
 };
 
 #endif  // GUI_UI_MANAGER_H

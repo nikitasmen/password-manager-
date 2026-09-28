@@ -8,6 +8,7 @@
 
 #include "config/GlobalConfig.h"
 #include "core/UIManagerFactory.h"
+#include "gui/Theme.h"
 
 int guiMain() {
     try {
@@ -24,7 +25,7 @@ int guiMain() {
         }
 
         // Initialize FLTK with more lenient error handling
-        Fl::scheme("gtk+");
+        theme::apply();
         Fl::visual(FL_DOUBLE | FL_RGB);
 
         // Create UI manager for graphical interface using configured data path

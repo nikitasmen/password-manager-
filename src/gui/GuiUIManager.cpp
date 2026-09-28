@@ -1,626 +1,643 @@
 #include "GuiUIManager.h"
 
-#include <FL/Fl_Box.H>  // Add this for labels
-#include <FL/Fl_Button.H>
-#include <FL/Fl_Secret_Input.H>  // Add this for password input
+#include <FL/Fl.H>
+#include <FL/Fl_Box.H>
+#include <FL/Fl_Check_Button.H>
+#include <FL/Fl_Choice.H>
+#include <FL/Fl_Group.H>
+#include <FL/Fl_Input.H>
+#include <FL/Fl_Int_Input.H>
+#include <FL/Fl_Secret_Input.H>
 #include <FL/fl_ask.H>
 
-#include <filesystem>
-#include <iostream>
-#include <sstream>
+#include <algorithm>
+#include <cctype>
+#include <ctime>
 
 #include "../config/GlobalConfig.h"
 #include "../utils/EncryptionUtils.h"
-#include "../core/clipboard.h"
-#include "../updater/AppUpdater.h"
-#include "EditCredentialDialog.h"
-#include "GuiComponents.h"
+#include "Theme.h"
 #include "UpdateDialog.h"
+#include "Widgets.h"
 
-GuiUIManager::GuiUIManager(const std::string& dataPath)
-    : UIManager(dataPath),
-      updateDialog(std::make_unique<UpdateDialog>()),
-      loginForm(nullptr),
-      passwordSetup(nullptr),
-      platformsDisplay(nullptr),
-      clickablePlatformsDisplay(nullptr),
-      credentialInputs(nullptr) {
+using namespace theme;
+
+namespace {
+
+constexpr int kVaultW = 900, kVaultH = 580, kStripH = 40, kListW = 300, kPad = 32;
+constexpr auto kEventTime = std::chrono::seconds(4);
+
+// FLTK reads '@' in labels as a symbol code; user text (emails!) must show literally
+std::string literal(const std::string& s) {
+    std::string out;
+    for (char c : s) out += c == '@' ? "@@" : std::string(1, c);
+    return out;
+}
+
+std::string lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+std::string now(const char* fmt) {
+    std::time_t t = std::time(nullptr);
+    char buf[40];
+    std::strftime(buf, sizeof buf, fmt, std::localtime(&t));
+    return buf;
+}
+
+Fl_Box* text(int x, int y, int w, int h, const std::string& label, Fl_Font font, int size, Fl_Color color) {
+    auto* b = new Fl_Box(x, y, w, h);
+    b->copy_label(label.c_str());
+    b->labelfont(font);
+    b->labelsize(size);
+    b->labelcolor(color);
+    b->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+    return b;
+}
+
+template <class Input>
+Input* field(int x, int y, int w, int h, const char* label = nullptr) {
+    auto* f = new Input(x, y, w, h);
+    f->box(FLAT_FIELD);
+    f->color(FL_WHITE);
+    f->textfont(kSans);
+    f->textsize(kValue);
+    f->cursor_color(ink());
+    if (label) {
+        f->copy_label(label);
+        f->labelsize(kSmall);
+        f->labelcolor(muted());
+        f->align(FL_ALIGN_TOP_LEFT);
+    }
+    return f;
+}
+
+Fl_Choice* choice(int x, int y, int w, int h, const char* label) {
+    auto* c = new Fl_Choice(x, y, w, h, label);
+    c->labelsize(kSmall);
+    c->labelcolor(muted());
+    c->align(FL_ALIGN_TOP_LEFT);
+    c->textsize(kBody);
+    c->color(FL_WHITE);
+    return c;
+}
+
+// Where this machine's vault lives, in one sentence for the unlock screen
+std::string whereText() {
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    if (c.espHost.empty()) return "Your vault is stored on this computer.";
+    if (!c.localCopy) return "Your vault lives on the ESP32 at " + c.espHost + ". Nothing is stored on this computer.";
+    return "Your vault is on this computer and syncs with the ESP32 at " + c.espHost + ".";
+}
+
+// Replace a window we may be inside the callback of: FLTK deletes the old one once that callback returns
+void replaceWindow(std::unique_ptr<Fl_Double_Window>& slot, Fl_Double_Window* next) {
+    if (slot) {
+        slot->hide();
+        Fl::delete_widget(slot.release());
+    }
+    slot.reset(next);
+}
+
+void runModal(Fl_Window* w) {
+    w->set_modal();
+    w->show();
+    while (w->shown()) Fl::wait();
+}
+
+void clearClipboard(void*) {
+    Fl::copy("", 0, 1);
+}
+
+}  // namespace
+
+GuiUIManager::GuiUIManager(const std::string& dataPath) : UIManager(dataPath) {
 }
 
 GuiUIManager::~GuiUIManager() {
-    // Clean up all dialog windows first
-    cleanupAddCredentialDialog();
-    cleanupViewCredentialDialog();
-
-    // Then clean up the main window and its components
-    cleanupMainWindow();
+    Fl::remove_timeout(tick, this);
 }
 
-void GuiUIManager::cleanupMainWindow() {
-    // Clean up the root component
-    if (rootComponent) {
-        rootComponent->cleanup();
-        rootComponent.reset();
-    }
-
-    // Reset any component references
-    loginForm = nullptr;
-    passwordSetup = nullptr;
-    platformsDisplay = nullptr;
-    credentialInputs = nullptr;
-
-    // Clean up the clickable platforms display
-    // Note: clickablePlatformsDisplay is a child of mainWindow and will be deleted by FLTK
-    clickablePlatformsDisplay = nullptr;
-
-    // Finally, destroy the main window
-    if (mainWindow) {
-        mainWindow->hide();
-        mainWindow.reset();
-    }
+void GuiUIManager::on(Fl_Widget* w, std::function<void()> f) {
+    callbacks_.push_back(std::move(f));
+    w->callback([](Fl_Widget*, void* fn) { (*static_cast<std::function<void()>*>(fn))(); }, &callbacks_.back());
 }
+
+// ---- unlock / create ----
 
 void GuiUIManager::initialize() {
-    // First run on this device and no vault on the ESP32 either -> setup; otherwise login
-    if (!vault || !vault->exists()) {
-        createSetupScreen();
-    } else {
-        createLoginScreen();
+    try {
+        buildUnlockWindow(!vault->exists());
+    } catch (const std::exception& e) {  // e.g. device-only and the board is off
+        fl_message_title("Can't open the vault");
+        fl_alert("%s", e.what());
+        return;
     }
+    Fl::add_timeout(1.0, tick, this);
 }
 
 int GuiUIManager::show() {
-    if (mainWindow) {
-        mainWindow->show();
-    }
-
-    // Return value will be set by the FLTK event loop in the main function
+    if (unlockWin_) unlockWin_->show();
     return 0;
+}
+
+void GuiUIManager::buildUnlockWindow(bool create) {
+    const int W = 440, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, create ? 560 : 490);
+    w->copy_label(create ? "Create your vault" : "Unlock your vault");
+    w->color(enclosure());
+
+    unlockOled_ = new OledPanel(x, 28, 384, 192, 3);  // the board's 128x64 screen at 3x
+    int y = 244;
+    text(x, y, fw, 30, create ? "Create your vault" : "Unlock your vault", kSansBold, kTitle, ink());
+    y += 34;
+    text(x, y, fw, 40, whereText(), kSans, kBody, muted());
+    y += 64;
+    pass1_ = field<Fl_Secret_Input>(x, y, fw, 38, "Master password");
+    y += 60;
+    pass2_ = nullptr;
+    if (create) {
+        pass2_ = field<Fl_Secret_Input>(x, y, fw, 38, "Repeat it");
+        y += 60;
+    }
+    unlockError_ = text(x, y - 14, fw, 24, "", kSans, kSmall, danger());
+    y += 14;
+    Fl_Button* go = button(x, y, fw, 42, create ? "Create vault" : "Unlock", Kind::Primary);
+    w->end();
+
+    on(go, [this, create] {
+        unlockError_->labelcolor(muted());
+        unlockError_->copy_label(create ? "Creating your vault..." : "Unlocking...");
+        unlockError_->redraw();
+        Fl::flush();  // deriving the key takes a moment; show that something is happening
+        unlockError_->labelcolor(danger());
+        if (create)
+            setupPassword(pass1_->value(), pass2_->value(), encryption_utils::getDefault());
+        else
+            login(pass1_->value());
+    });
+    pass1_->when(FL_WHEN_ENTER_KEY_ALWAYS);
+    on(pass1_, [this, go] {
+        if (pass2_)
+            pass2_->take_focus();
+        else
+            go->do_callback();
+    });
+    if (pass2_) {
+        pass2_->when(FL_WHEN_ENTER_KEY_ALWAYS);
+        on(pass2_, [go] { go->do_callback(); });
+    }
+    replaceWindow(unlockWin_, w);
+    drawUnlockOled();
 }
 
 bool GuiUIManager::login(const std::string& password) {
     try {
-        if (!vault) {
-            showMessage("Error", "Internal error: vault not initialized!", true);
-            return false;
-        }
-
-        if (vault->unlock(password)) {
-            isLoggedIn = true;
-            createMainScreen();
-            refreshPlatformsList();
-            return true;
-        } else {
-            std::cerr << "Login failed: Invalid password" << std::endl;
-            showMessage("Error", "Invalid master password!", true);
+        if (!vault->unlock(password)) {
+            if (unlockError_) unlockError_->copy_label("That's not the master password.");
+            if (pass1_) pass1_->value("");
             return false;
         }
     } catch (const std::exception& e) {
-        std::cerr << "Exception in login: " << e.what() << std::endl;
-        showMessage("Error", "An error occurred during login", true);
+        if (unlockError_) unlockError_->copy_label(e.what());
         return false;
     }
+    isLoggedIn = true;
+    buildVaultWindow();
+    return true;
 }
 
-bool GuiUIManager::setupPassword(const std::string& newPassword,
-                                 const std::string& confirmPassword,
-                                 CipherAlg encryptionType) {
+bool GuiUIManager::setupPassword(const std::string& newPassword, const std::string& confirmPassword, CipherAlg alg) {
+    const int minLen = ConfigManager::getInstance().getConfig().minPasswordLength;
+    std::string problem;
+    if (newPassword.empty())
+        problem = "Choose a master password.";
+    else if (static_cast<int>(newPassword.size()) < minLen)
+        problem = "Use at least " + std::to_string(minLen) + " characters.";
+    else if (newPassword != confirmPassword)
+        problem = "The two passwords don't match.";
+    if (!problem.empty()) {
+        if (unlockError_) unlockError_->copy_label(problem.c_str());
+        return false;
+    }
     try {
-        if (newPassword.empty()) {
-            std::cerr << "Error: Empty password provided" << std::endl;
-            showMessage("Error", "Please enter a password!", true);
-            return false;
-        }
-
-        if (newPassword != confirmPassword) {
-            std::cerr << "Error: Passwords do not match" << std::endl;
-            showMessage("Error", "Passwords do not match!", true);
-            return false;
-        }
-
-        vault->create(newPassword, encryptionType);
-        isLoggedIn = true;
-        showMessage("Success", "Vault created.\n" + syncStatusText());
-        createMainScreen();
-        refreshPlatformsList();
-        return true;
+        vault->create(newPassword, alg);
     } catch (const std::exception& e) {
-        std::cerr << "Exception in setupPassword: " << e.what() << std::endl;
-        showMessage("Error", std::string("Failed to create the vault: ") + e.what(), true);
+        if (unlockError_) unlockError_->copy_label(e.what());
         return false;
     }
+    isLoggedIn = true;
+    buildVaultWindow();
+    flash("vault created");
+    return true;
 }
+
+// ---- vault window ----
+
+void GuiUIManager::buildVaultWindow() {
+    auto* w = new Fl_Double_Window(kVaultW, kVaultH);
+    w->copy_label("Password Manager");
+    w->color(enclosure());
+
+    // The strip redraws every second (clock), so nothing may overlap it: the buttons get their own black area.
+    constexpr int kActionsW = 200;
+    strip_ = new OledPanel(0, 0, kVaultW - kActionsW, kStripH, 2);
+    auto* actions = new Fl_Box(kVaultW - kActionsW, 0, kActionsW, kStripH);
+    actions->box(FL_FLAT_BOX);
+    actions->color(oledOff());
+    Fl_Button* settings = button(kVaultW - 192, 6, 84, 28, "Settings", Kind::OnOled);
+    Fl_Button* lock = button(kVaultW - 100, 6, 84, 28, "Lock", Kind::OnOled);
+    lock->tooltip("Lock the vault: the master password is needed again");
+    on(settings, [this] { openSettings(); });
+    on(lock, [this] { lockVault(); });
+
+    // left: search + entries
+    auto* left = new Fl_Group(0, kStripH, kListW, kVaultH - kStripH);
+    left->box(FL_FLAT_BOX);
+    left->color(surface());
+    search_ = field<Fl_Input>(16, kStripH + 34, kListW - 32, 36, "Search");
+    search_->when(FL_WHEN_CHANGED | FL_WHEN_ENTER_KEY_ALWAYS);
+    on(search_, [this] {
+        refreshList();
+        if (Fl::event_key() == FL_Enter && list_->size() > 0) {  // Enter opens the first match
+            list_->select(1);
+            list_->do_callback();
+        }
+    });
+    list_ = new EntryList(0, kStripH + 86, kListW, kVaultH - kStripH - 86 - 66);
+    list_->box(FL_FLAT_BOX);
+    list_->color(surface());
+    list_->scrollbar_size(8);
+    on(list_, [this] {
+        int i = list_->value();
+        if (i <= 0) return;
+        revealed_ = false;
+        selected_ = list_->text(i);
+        showDetail(safeGetCredentials(selected_));
+    });
+    Fl_Button* add = button(16, kVaultH - 54, kListW - 32, 40, "New entry", Kind::Primary);
+    add->shortcut(FL_CTRL + 'n');
+    add->tooltip("Ctrl+N");
+    on(add, [this] { editEntry(std::nullopt); });
+    left->end();
+
+    auto* divider = new Fl_Box(kListW, kStripH, 1, kVaultH - kStripH);
+    divider->box(FL_FLAT_BOX);
+    divider->color(line());
+
+    // right: the selected entry
+    const int dx = kListW + 1 + kPad, dw = kVaultW - dx - kPad;
+    title_ = text(dx, kStripH + 30, dw - 100, 34, "", kSansBold, kTitle, ink());
+    edit_ = button(dx + dw - 84, kStripH + 32, 84, 32, "Edit");
+    on(edit_, [this] {
+        if (current_) editEntry(current_);
+    });
+    hint_ = text(dx, kStripH + 70, dw, 48, "", kSans, kBody, muted());
+
+    const int valueX = dx + 120, row = 58, y0 = kStripH + 92;
+    userLabel_ = text(dx, y0, 120, 34, "Username", kSans, kBody, muted());
+    userValue_ = text(valueX, y0, dw - 120 - 94, 34, "", kSans, kValue, ink());
+    copyUser_ = button(dx + dw - 84, y0 + 1, 84, 32, "Copy");
+    on(copyUser_, [this] {
+        if (current_) copy(current_->username, "username");
+    });
+    passLabel_ = text(dx, y0 + row, 120, 34, "Password", kSans, kBody, muted());
+    passValue_ = text(valueX, y0 + row, dw - 120 - 188, 34, "", kMono, kValue, ink());
+    passShown_ = text(valueX, y0 + row + 36, dw - 120, 30, "", kMono, kValue, ink());
+    passShown_->box(FLAT_FIELD);
+    passShown_->color(FL_WHITE);
+    passShown_->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_CLIP);
+    reveal_ = button(dx + dw - 178, y0 + row + 1, 84, 32, "Show");
+    on(reveal_, [this] {
+        revealed_ = !revealed_;
+        showDetail(current_);
+    });
+    copyPass_ = button(dx + dw - 84, y0 + row + 1, 84, 32, "Copy");
+    on(copyPass_, [this] {
+        if (current_) copy(current_->password, "password");
+    });
+    algLabel_ = text(dx, y0 + 2 * row, 120, 34, "Encryption", kSans, kBody, muted());
+    algValue_ = text(valueX, y0 + 2 * row, dw - 120, 34, "", kSans, kValue, ink());
+    delete_ = button(dx + dw - 100, kVaultH - 54, 100, 40, "Delete", Kind::Danger);
+    on(delete_, [this] {
+        if (current_) deleteCredential(current_->platform);
+    });
+    w->end();
+
+    replaceWindow(vaultWin_, w);
+    if (unlockWin_) {  // we're inside its Unlock button's callback
+        unlockWin_->hide();
+        Fl::delete_widget(unlockWin_.release());
+        unlockOled_ = nullptr;
+        unlockError_ = nullptr;
+        pass1_ = pass2_ = nullptr;
+    }
+    vaultWin_->show();
+    search_->take_focus();
+    platforms_ = safeGetPlatforms();
+    refreshList();
+}
+
+void GuiUIManager::refreshList(const std::string& select) {
+    const std::string query = lower(search_->value());
+    if (!select.empty()) selected_ = select;
+    const std::string& keep = selected_;
+    list_->clear();
+    int keepIndex = 0;
+    for (const std::string& p : platforms_) {
+        if (!query.empty() && lower(p).find(query) == std::string::npos) continue;
+        list_->add(p.c_str());
+        if (lower(p) == lower(keep)) keepIndex = list_->size();
+    }
+    if (keepIndex) {
+        list_->select(keepIndex);
+        showDetail(safeGetCredentials(list_->text(keepIndex)));
+    } else {
+        showDetail(std::nullopt);
+    }
+    drawStrip();
+}
+
+void GuiUIManager::showDetail(std::optional<Credential> cred) {
+    current_ = std::move(cred);
+    const bool has = current_.has_value();
+    const bool showAlg = has && ConfigManager::getInstance().getConfig().showEncryptionInCredentials;
+    for (Fl_Widget* wd : std::initializer_list<Fl_Widget*>{userLabel_, userValue_, copyUser_, passLabel_, passValue_,
+                                                          reveal_, copyPass_, edit_, delete_})
+        has ? wd->show() : wd->hide();
+    for (Fl_Widget* wd : std::initializer_list<Fl_Widget*>{algLabel_, algValue_}) showAlg ? wd->show() : wd->hide();
+    (has && revealed_) ? passShown_->show() : passShown_->hide();
+    const int algY = passLabel_->y() + (has && revealed_ ? 58 + 44 : 58);  // make room under a revealed password
+    algLabel_->position(algLabel_->x(), algY);
+    algValue_->position(algValue_->x(), algY);
+
+    if (has) {
+        title_->copy_label(literal(current_->platform).c_str());
+        hint_->copy_label("");
+        userValue_->copy_label(literal(current_->username).c_str());
+        std::string masked;
+        for (size_t i = 0; i < std::min<size_t>(current_->password.size(), 18); i++) masked += "•";
+        passValue_->copy_label(masked.c_str());
+        passShown_->copy_label((" " + literal(current_->password)).c_str());
+        reveal_->label(revealed_ ? "Hide" : "Show");
+        algValue_->copy_label(encryption_utils::getDisplayName(current_->alg));
+    } else if (platforms_.empty()) {
+        title_->copy_label("Your vault is empty");
+        hint_->copy_label(
+            "New entry saves your first password. It's encrypted on this computer before it goes anywhere.");
+    } else {
+        title_->copy_label(list_->size() ? "Nothing selected" : "No matches");
+        hint_->copy_label(list_->size() ? "Pick an entry on the left." : "Nothing in your vault matches that search.");
+    }
+    vaultWin_->redraw();
+}
+
+void GuiUIManager::lockVault() {
+    vault->lock();
+    isLoggedIn = false;
+    current_.reset();
+    selected_.clear();
+    platforms_.clear();
+    buildUnlockWindow(false);
+    unlockWin_->show();
+    if (vaultWin_) {  // we're inside its Lock button's callback
+        vaultWin_->hide();
+        Fl::delete_widget(vaultWin_.release());
+        strip_ = nullptr;
+    }
+}
+
+void GuiUIManager::copy(const std::string& value, const std::string& what) {
+    Fl::copy(value.c_str(), static_cast<int>(value.size()), 1);
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    Fl::remove_timeout(clearClipboard);
+    if (c.autoClipboardClear) {
+        Fl::add_timeout(c.clipboardTimeoutSeconds, clearClipboard);
+        flash("copied " + what + ", clears in " + std::to_string(c.clipboardTimeoutSeconds) + "s");
+    } else {
+        flash("copied " + what);
+    }
+}
+
+// ---- the OLEDs ----
+
+void GuiUIManager::flash(const std::string& event) {
+    event_ = lower(event);
+    eventUntil_ = std::chrono::steady_clock::now() + kEventTime;
+    drawStrip();
+}
+
+void GuiUIManager::drawStrip() {
+    if (!strip_) return;
+    std::string status;
+    if (std::chrono::steady_clock::now() < eventUntil_) {
+        status = event_;
+    } else {
+        const AppConfig& c = ConfigManager::getInstance().getConfig();
+        auto s = vault->lastSyncStatus();
+        if (!c.localCopy)
+            status = s == VaultService::SyncStatus::Offline ? "esp32 unreachable" : "device-only, on the esp32";
+        else if (c.espHost.empty())
+            status = "on this computer";
+        else if (s == VaultService::SyncStatus::Ok)
+            status = "synced with esp32";
+        else if (s == VaultService::SyncStatus::Offline)
+            status = "esp32 offline, local copy";
+        else
+            status = "sync error: " + lower(vault->lastSyncError()).substr(0, 40);
+    }
+    const std::string count = std::to_string(platforms_.size()) + (platforms_.size() == 1 ? " entry" : " entries");
+    const int countX = strip_->columns() - 8 - 6 * static_cast<int>(count.size());
+    const size_t room = static_cast<size_t>(std::max(0, (countX - 56) / 6 - 2));  // glyphs are 6 px wide
+    if (status.size() > room) status = status.substr(0, room - 2) + "..";
+    strip_->setText({{now("%H:%M"), 8, 6}, {status, 56, 6}, {count, countX, 6}});
+}
+
+void GuiUIManager::drawUnlockOled() {
+    if (!unlockOled_) return;
+    // the same layout as the board's clock screen (esp32/vault/vault.ino)
+    unlockOled_->setText(
+        {{now("%H:%M:%S"), 16, 8, 2}, {now("%a %d %b %Y"), 19, 32}, {pass2_ ? "new vault" : "locked", 0, 56}});
+}
+
+void GuiUIManager::tick(void* self) {
+    auto* ui = static_cast<GuiUIManager*>(self);
+    ui->drawUnlockOled();
+    ui->drawStrip();
+    Fl::repeat_timeout(1.0, tick, self);
+}
+
+// ---- dialogs ----
+
+void GuiUIManager::editEntry(const std::optional<Credential>& existing) {
+    const size_t mark = callbacks_.size();
+    const int W = 460, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, 420);
+    w->copy_label(existing ? ("Edit " + existing->platform).c_str() : "New entry");
+    w->color(enclosure());
+    text(x, 22, fw, 30, existing ? "Edit " + literal(existing->platform) : "New entry", kSansBold, 20, ink());
+    auto* platform = field<Fl_Input>(x, 90, fw, 36, "Website or app");
+    auto* user = field<Fl_Input>(x, 152, fw, 36, "Username");
+    auto* pass = field<Fl_Secret_Input>(x, 214, fw, 36, "Password");
+    Fl_Choice* alg = choice(x, 276, fw, 36, "Encrypt with");
+    for (CipherAlg a : allCiphers()) alg->add(encryption_utils::getDisplayName(a));
+    alg->value(encryption_utils::toDropdownIndex(existing ? existing->alg : encryption_utils::getDefault()));
+    if (existing) {
+        platform->value(existing->platform.c_str());
+        platform->deactivate();  // the name is the entry's identity; renaming = a new entry
+        user->value(existing->username.c_str());
+        pass->value(existing->password.c_str());
+    }
+    Fl_Box* error = text(x, 322, fw, 22, "", kSans, kSmall, danger());
+    Fl_Button* cancel = button(W - x - 208, 360, 100, 38, "Cancel");
+    Fl_Button* save = button(W - x - 100, 360, 100, 38, existing ? "Save" : "Add entry", Kind::Primary);
+    save->shortcut(FL_Enter);
+    w->end();
+
+    on(cancel, [w] { w->hide(); });
+    on(save, [&, this] {
+        std::string p = platform->value(), u = user->value(), pw = pass->value();
+        if (p.empty() || u.empty() || pw.empty()) {
+            error->copy_label("Fill in all three fields.");
+            return;
+        }
+        CipherAlg a = encryption_utils::fromDropdownIndex(alg->value());
+        if (existing ? updateCredential(p, u, pw, a) : addCredential(p, u, pw, a))
+            w->hide();
+        else
+            error->copy_label("Couldn't save this entry. The terminal has the details.");
+    });
+    (existing ? static_cast<Fl_Widget*>(user) : platform)->take_focus();
+    runModal(w);
+    delete w;
+    callbacks_.resize(mark);
+}
+
+void GuiUIManager::openSettings() {
+    const size_t mark = callbacks_.size();
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    const int W = 520, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, 580);
+    w->copy_label("Settings");
+    w->color(enclosure());
+    text(x, 22, fw, 30, "Settings", kSansBold, 20, ink());
+
+    text(x, 70, fw, 22, "ESP32", kSansBold, kBody, ink());
+    auto* host = field<Fl_Input>(x, 118, fw - 116, 36, "Address (empty keeps the vault on this computer only)");
+    host->value(c.espHost.c_str());
+    auto* port = field<Fl_Int_Input>(x + fw - 100, 118, 100, 36, "Port");
+    port->value(std::to_string(c.espPort).c_str());
+    auto* localCopy = new Fl_Check_Button(x, 166, fw, 28, " Keep a copy of the vault on this computer");
+    localCopy->value(c.localCopy);
+    text(x + 26, 192, fw - 26, 40,
+         "When off, every read goes to the ESP32 and nothing is stored here, but you need the ESP32 to reach your "
+         "passwords.",
+         kSans, kSmall, muted());
+
+    text(x, 250, fw, 22, "Entries", kSansBold, kBody, ink());
+    Fl_Choice* cipher = choice(x, 298, fw, 36, "Encrypt new entries with");
+    for (CipherAlg a : allCiphers()) cipher->add(encryption_utils::getDisplayName(a));
+    cipher->value(encryption_utils::toDropdownIndex(c.defaultCipher));
+    auto* showAlg = new Fl_Check_Button(x, 344, fw, 28, " Show each entry's encryption");
+    showAlg->value(c.showEncryptionInCredentials);
+    auto* autoClear = new Fl_Check_Button(x, 378, fw - 120, 28, " Clear copied passwords after (seconds)");
+    autoClear->value(c.autoClipboardClear);
+    auto* clearAfter = field<Fl_Int_Input>(x + fw - 100, 374, 100, 34);
+    clearAfter->value(std::to_string(c.clipboardTimeoutSeconds).c_str());
+
+    text(x, 430, fw, 22, "App", kSansBold, kBody, ink());
+    Fl_Choice* mode = choice(x, 478, 240, 36, "Open in");
+    mode->add("Window|Terminal|Window if available");
+    mode->value(c.defaultUIMode == "gui" ? 0 : (c.defaultUIMode == "tui" || c.defaultUIMode == "cli") ? 1 : 2);
+    Fl_Button* updates = button(x + fw - 170, 478, 170, 36, "Check for updates");
+    text(x, 530, 150, 38, "Version " + c.version, kSans, kSmall, muted());  // footer, left of Cancel/Save
+    on(updates, [this] {
+        if (!updateDialog_) updateDialog_ = std::make_unique<UpdateDialog>();
+        updateDialog_->show();
+    });
+
+    Fl_Button* cancel = button(W - x - 208, 530, 100, 38, "Cancel");
+    Fl_Button* save = button(W - x - 100, 530, 100, 38, "Save", Kind::Primary);
+    w->end();
+
+    on(cancel, [w] { w->hide(); });
+    on(save, [&] {
+        AppConfig n = c;
+        n.espHost = host->value();
+        n.espPort = std::atoi(port->value()) > 0 ? std::atoi(port->value()) : 443;
+        n.localCopy = localCopy->value();
+        n.defaultCipher = encryption_utils::fromDropdownIndex(cipher->value());
+        n.showEncryptionInCredentials = showAlg->value();
+        n.autoClipboardClear = autoClear->value();
+        n.clipboardTimeoutSeconds = std::max(1, std::atoi(clearAfter->value()));
+        n.defaultUIMode = mode->value() == 0 ? "gui" : mode->value() == 1 ? "tui" : "auto";
+        const bool restart = n.espHost != c.espHost || n.espPort != c.espPort || n.localCopy != c.localCopy;
+        ConfigManager::getInstance().updateConfig(n);
+        if (!ConfigManager::getInstance().saveConfig()) {
+            fl_alert("Couldn't write %s", ConfigManager::configFile().c_str());
+            return;
+        }
+        w->hide();
+        flash(restart ? "saved, restart for esp32 changes" : "settings saved");
+        showDetail(current_);  // e.g. the encryption row
+    });
+    runModal(w);
+    delete w;
+    callbacks_.resize(mark);
+}
+
+// ---- UIManager interface ----
 
 bool GuiUIManager::addCredential(const std::string& platform,
                                  const std::string& username,
                                  const std::string& password,
                                  std::optional<CipherAlg> encryptionType) {
-    if (!isLoggedIn)
-        return false;
-    if (safeAddCredential(platform, username, password, encryptionType)) {
-        showMessage("Success", "Credentials added successfully!");
-        refreshPlatformsList();
-        return true;
-    } else {
-        showMessage("Error", "Failed to add credentials!", true);
-        return false;
-    }
-}
-
-void GuiUIManager::viewCredential(const std::string& platform) {
-    if (!isLoggedIn) {
-        showMessage("Error", "You must be logged in to view credentials", true);
-        return;
-    }
-
-    try {
-        auto credsOpt = safeGetCredentials(platform);
-        createViewCredentialDialog(platform, credsOpt);
-    } catch (const std::exception& e) {
-        std::cerr << "Error in viewCredential: " << e.what() << std::endl;
-        showMessage("Error", "Failed to retrieve credentials: " + std::string(e.what()), true);
-    }
-}
-
-bool GuiUIManager::deleteCredential(const std::string& platform) {
-    if (!isLoggedIn)
-        return false;
-    std::string message = "Are you sure you want to delete credentials for " + platform + "?";
-    if (fl_choice("%s", "Cancel", "Delete", nullptr, message.c_str()) == 1) {
-        if (safeDeleteCredential(platform)) {
-            showMessage("Success", "Credentials deleted successfully!");
-            refreshPlatformsList();
-            return true;
-        } else {
-            showMessage("Error", "Failed to delete credentials!", true);
-            return false;
-        }
-    }
-    return false;
-}
-
-void GuiUIManager::showMessage(const std::string& title, const std::string& message, bool isError) {
-    fl_message_title(title.c_str());
-    fl_message("%s", message.c_str());
-    if (isError) {
-        std::cerr << title << ": " << message << std::endl;
-    }
-}
-
-void GuiUIManager::createScreen(const std::string& title, int w, int h, std::function<void()> populateScreen) {
-    try {
-        // Clean up any existing main window and components before creating a new screen
-        cleanupMainWindow();
-
-        // 1. Create the main window for the new screen
-        mainWindow = std::make_unique<Fl_Window>(w, h, title.c_str());
-        setWindowCloseHandler(mainWindow.get(), true);  // Exit app on close
-        mainWindow->begin();
-
-        // 2. Create the root container for the screen's components
-        rootComponent = std::make_unique<ContainerComponent>(mainWindow.get(), 0, 0, w, h);
-
-        // 3. Let the caller populate the screen with specific components
-        populateScreen();
-
-        // 4. Create all components that were added to the root
-        rootComponent->create();
-
-        // 5. End window definition and show it
-        mainWindow->end();
-        mainWindow->show();
-
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in createScreen: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create screen: " + std::string(e.what()), true);
-    }
-}
-
-void GuiUIManager::createLoginScreen() {
-    createScreen("Login", 400, 200, [this]() {
-        loginForm = rootComponent->addChild<LoginFormComponent>(
-            mainWindow.get(), 20, 20, 360, 160, [this](const std::string& pass) { this->login(pass); });
-    });
-}
-
-void GuiUIManager::createSetupScreen() {
-    createScreen("First Time Setup", 500, 300, [this]() {
-        passwordSetup = rootComponent->addChild<PasswordSetupComponent>(
-            mainWindow.get(),
-            20,
-            20,
-            460,
-            260,
-            [this](const std::string& newPass, const std::string& confirmPass, CipherAlg encType) {
-                this->setupPassword(newPass, confirmPass, encType);
-            });
-    });
-}
-
-void GuiUIManager::createMainScreen() {
-    try {
-        createScreen("Password Manager", 600, 450, [this]() {
-            rootComponent->addChild<MenuBarComponent>(
-                mainWindow.get(),
-                0,
-                0,
-                600,
-                30,
-                [this]() { createAddCredentialDialog(); },
-                [this]() { openSettingsDialog(); },
-                [this]() { openUpdateDialog(); },
-                []() {
-                    if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-                        exit(0);
-                    }
-                },
-                []() {
-                    fl_message_title("About");
-                    std::string aboutMessage = "Password Manager " + VersionInfo::getCurrentVersion() +
-                                               "\n"
-                                               "A secure, lightweight password management tool\n"
-                                               "2025 - nikitasmen";
-                    fl_message("%s", aboutMessage.c_str());
-                });
-
-            // Create the clickable platforms display directly in the main window
-            clickablePlatformsDisplay = new ClickablePlatformsDisplay(20, 50, 560, 300);
-            mainWindow->add(clickablePlatformsDisplay);
-
-            // Set up click callback
-            clickablePlatformsDisplay->setClickCallback(
-                [this](ClickablePlatformsDisplay*, const std::string& platform) { this->viewCredential(platform); });
-
-            rootComponent->addChild<ActionButtonsComponent>(
-                mainWindow.get(),
-                20,
-                360,
-                240,
-                25,
-                [this]() {
-                    const char* platform = fl_input("Enter platform name to view:");
-                    if (platform && strlen(platform) > 0) {
-                        viewCredential(platform);
-                    }
-                },
-                [this]() {
-                    const char* platform = fl_input("Enter platform name to delete:");
-                    if (platform && strlen(platform) > 0) {
-                        if (fl_choice("Are you sure you want to delete this credential?", "Cancel", "Yes", nullptr) ==
-                            1) {
-                            deleteCredential(platform);
-                        }
-                    }
-                });
-        });
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating main screen: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create main screen: " + std::string(e.what()), true);
-    }
-}
-
-void GuiUIManager::createAddCredentialDialog() {
-    // Clean up existing dialog if it exists
-    cleanupAddCredentialDialog();
-
-    try {
-        // Create the dialog window with more height to accommodate the encryption dropdown
-        addCredentialWindow = std::make_unique<Fl_Window>(450, 400, "Add New Credentials");
-        addCredentialWindow->begin();
-
-        // Create root component for the dialog
-        addCredentialRoot = std::make_unique<ContainerComponent>(addCredentialWindow.get(), 0, 0, 450, 400);
-
-        // Add credential inputs component with more height and space for encryption dropdown
-        credentialInputs =
-            addCredentialRoot->addChild<CredentialInputsComponent>(addCredentialWindow.get(), 25, 20, 400, 300);
-
-        // Add dialog buttons component positioned at the bottom of the dialog
-        addCredentialRoot->addChild<CredentialDialogButtonsComponent>(
-            addCredentialWindow.get(),
-            125,
-            340,
-            200,
-            30,
-            [this]() {
-                // Get inputs
-                std::string platform = credentialInputs->getPlatform();
-                std::string username = credentialInputs->getUsername();
-                std::string password = credentialInputs->getPassword();
-                CipherAlg encryptionType = credentialInputs->getEncryptionType();
-
-                // Validate inputs
-                if (platform.empty() || username.empty() || password.empty()) {
-                    showMessage("Error", "All fields are required!", true);
-                    return;
-                }
-
-                // Add credential with the selected encryption type
-                addCredential(platform, username, password, encryptionType);
-                cleanupAddCredentialDialog();
-            },
-            [this]() { cleanupAddCredentialDialog(); });
-
-        // Create all components
-        addCredentialRoot->create();
-
-        // Show the dialog
-        addCredentialWindow->end();
-        addCredentialWindow->show();
-
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in createAddCredentialDialog: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create add credential dialog", true);
-    }
-}
-
-void GuiUIManager::createViewCredentialDialog(const std::string& platform,
-                                              const std::optional<Credential>& credentials) {
-    // Clean up existing dialog if it exists
-    cleanupViewCredentialDialog();
-
-    try {
-        // Create the dialog window
-        viewCredentialWindow = std::make_unique<Fl_Window>(400, 240, ("Credentials for " + platform).c_str());
-        viewCredentialWindow->begin();
-
-        // Create root component for the dialog
-        viewCredentialRoot = std::make_unique<ContainerComponent>(viewCredentialWindow.get(), 0, 0, 400, 240);
-
-        // Add credential display component
-        auto credDisplay =
-            viewCredentialRoot->addChild<CredentialDisplayComponent>(viewCredentialWindow.get(), 20, 20, 360, 120);
-        // If credentials are not available, throw an error
-        if (!credentials) {
-            throw std::runtime_error(vault->lastSyncStatus() == VaultService::SyncStatus::Offline &&
-                                             !ConfigManager::getInstance().getConfig().localCopy
-                                         ? syncStatusText()
-                                         : "No credentials found for platform: " + platform);
-        }
-        // Format credential information
-        std::stringstream ss;
-        ss << "Platform: " << platform << "\n";
-
-        ss << "Username: " << credentials->username << "\n";
-        ss << "Password: " << credentials->password << "\n";
-        if (ConfigManager::getInstance().getShowEncryptionInCredentials())
-            ss << "Encryption: " << encryption_utils::getDisplayName(credentials->alg) << "\n";
-
-        // Button layout configuration
-        int buttonStartY = 160;
-        int buttonWidth = 100;
-        int buttonHeight = 30;
-        int buttonSpacing = 10;
-        int currentButtonX = 20;
-
-        // Add Copy Password button if clipboard is available
-        if (ClipboardManager::getInstance().isAvailable()) {
-            // Store password for clipboard operation
-            std::string password = credentials->password;
-
-            // Add Copy Password button component
-            auto copyButton = viewCredentialRoot->addChild<ButtonComponent>(
-                viewCredentialWindow.get(),
-                currentButtonX,
-                buttonStartY,
-                buttonWidth,
-                buttonHeight,
-                "Copy Password",
-                [password]() {
-                    try {
-                        if (ClipboardManager::getInstance().isAvailable()) {
-                            ClipboardManager::getInstance().copyToClipboard(password);
-                            fl_message("Password copied to clipboard!");
-                        } else {
-                            fl_alert("Clipboard functionality not available on this system.");
-                        }
-                    } catch (const ClipboardError& e) {
-                        fl_alert("Failed to copy password to clipboard: %s", e.what());
-                    }
-                });
-            currentButtonX += buttonWidth + buttonSpacing;
-        } else {
-            ss << "\nClipboard functionality not available on this system";
-        }
-
-        // Add Edit button that will open the EditCredentialDialog
-        auto editButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(),
-            currentButtonX,
-            buttonStartY,
-            buttonWidth,
-            buttonHeight,
-            "Edit Credentials",
-            [this, current = *credentials]() {
-                try {
-                    const std::string platform = current.platform;
-                    // The dialog only collects input; saving goes through the vault like every other write
-                    auto dialog = std::make_unique<EditCredentialDialog>(
-                        current,
-                        [this, platform](const std::string& user, const std::string& pass, CipherAlg alg) {
-                            return UIManager::updateCredential(platform, user, pass, alg);
-                        },
-                        [this, platform](bool success) {
-                            if (success) {
-                                // Refresh the view with updated credentials
-                                cleanupViewCredentialDialog();
-                                auto updatedCreds = safeGetCredentials(platform);
-                                if (updatedCreds) {
-                                    createViewCredentialDialog(platform, *updatedCreds);
-                                }
-                                refreshPlatformsList();
-                            }
-                        });
-
-                    // Show the dialog
-                    dialog->show();
-
-                    // The dialog will manage its own lifetime
-                    dialog.release();
-
-                } catch (const std::exception& e) {
-                    std::cerr << "Error in edit credentials handler: " << e.what() << std::endl;
-                    showMessage("Error", std::string("Failed to edit credentials: ") + e.what(), true);
-                }
-            });
-
-        // Add close button component
-        currentButtonX += buttonWidth + buttonSpacing;  // Move to next position
-        auto closeButton = viewCredentialRoot->addChild<ButtonComponent>(
-            viewCredentialWindow.get(), currentButtonX, buttonStartY, buttonWidth, buttonHeight, "Close", [this]() {
-                cleanupViewCredentialDialog();
-            });
-
-        // Create all components FIRST
-        viewCredentialRoot->create();
-
-        // THEN set the text in the display
-        credDisplay->setText(ss.str());
-
-        // Show the dialog
-        viewCredentialWindow->end();
-        viewCredentialWindow->show();
-
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in createViewCredentialDialog: " << e.what() << std::endl;
-        showMessage("Error", "Failed to create view credential dialog: " + std::string(e.what()), true);
-    }
-}
-
-// Generic dialog cleanup helper
-namespace {
-template <typename WindowPtr, typename RootPtr>
-void cleanupDialog(WindowPtr& window, RootPtr& root, void*& componentRef) {
-    if (root) {
-        root->cleanup();
-        root.reset();
-    }
-    if (window) {
-        window->hide();
-        window.reset();
-    }
-    if (componentRef) {
-        componentRef = nullptr;
-    }
-}
-template <typename WindowPtr, typename RootPtr>
-void cleanupDialog(WindowPtr& window, RootPtr& root) {
-    if (root) {
-        root->cleanup();
-        root.reset();
-    }
-    if (window) {
-        window->hide();
-        window.reset();
-    }
-}
-}  // namespace
-
-void GuiUIManager::cleanupAddCredentialDialog() {
-    cleanupDialog(addCredentialWindow, addCredentialRoot, reinterpret_cast<void*&>(credentialInputs));
-}
-
-void GuiUIManager::cleanupViewCredentialDialog() {
-    cleanupDialog(viewCredentialWindow, viewCredentialRoot);
+    if (!isLoggedIn || !safeAddCredential(platform, username, password, encryptionType)) return false;
+    platforms_ = safeGetPlatforms();
+    search_->value("");
+    refreshList(platform);
+    flash("saved " + platform);
+    return true;
 }
 
 bool GuiUIManager::updateCredential(const std::string& platform,
                                     const std::string& username,
                                     const std::string& password,
                                     std::optional<CipherAlg> encryptionType) {
-    if (platform.empty() || username.empty() || password.empty()) {
-        showMessage("Error", "Platform, username, and password cannot be empty", true);
-        return false;
-    }
-    if (!UIManager::updateCredential(platform, username, password, encryptionType)) {
-        showMessage("Error", "Failed to update credentials for " + platform, true);
-        return false;
-    }
-    if (viewCredentialWindow && viewCredentialWindow->shown()) {
-        cleanupViewCredentialDialog();
-        if (auto updated = safeGetCredentials(platform)) createViewCredentialDialog(platform, *updated);
-    }
-    refreshPlatformsList();
+    if (!UIManager::updateCredential(platform, username, password, encryptionType)) return false;
+    refreshList(platform);
+    flash("saved " + platform);
     return true;
 }
 
-void GuiUIManager::cleanupSettingsDialog() {
-    cleanupDialog(settingsWindow, settingsRoot);
+void GuiUIManager::viewCredential(const std::string& platform) {
+    if (isLoggedIn) refreshList(platform);
 }
 
-void GuiUIManager::refreshPlatformsList() {
-    if (!isLoggedIn || !mainWindow || !clickablePlatformsDisplay) {
-        return;
+bool GuiUIManager::deleteCredential(const std::string& platform) {
+    if (!isLoggedIn) return false;
+    fl_message_title("Delete entry");
+    if (fl_choice("Delete %s? It's removed from all your devices.", "Cancel", "Delete", nullptr,
+                  literal(platform).c_str()) != 1)
+        return false;
+    if (!safeDeleteCredential(platform)) {
+        showMessage("Delete entry", "Couldn't delete " + platform + ".", true);
+        return false;
     }
-
-    try {
-        clickablePlatformsDisplay->setPlatforms(safeGetPlatforms());
-        // The title bar doubles as the sync indicator
-        mainWindow->copy_label(("Password Manager  —  " + syncStatusText()).c_str());
-
-        // The click callback is already set up in createMainScreen
-
-        // Force a redraw to update the display
-        if (clickablePlatformsDisplay->window()) {
-            clickablePlatformsDisplay->window()->redraw();
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Exception in refreshPlatformsList: " << e.what() << std::endl;
-        showMessage("Error", std::string("Failed to refresh platforms: ") + e.what(), true);
-    }
+    current_.reset();
+    selected_.clear();
+    platforms_ = safeGetPlatforms();
+    refreshList();
+    flash("deleted " + platform);
+    return true;
 }
 
-void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
-    if (!window)
-        return;
-
-    window->callback(
-        [](Fl_Widget* w, void* data) {
-            bool exitApp = static_cast<bool>(reinterpret_cast<uintptr_t>(data));
-            if (fl_choice("Do you really want to exit?", "Cancel", "Exit", nullptr) == 1) {
-                if (exitApp) {
-                    exit(0);
-                } else {
-                    w->hide();
-                }
-            }
-        },
-        reinterpret_cast<void*>(static_cast<uintptr_t>(exitOnClose)));
-}
-
-void GuiUIManager::openSettingsDialog() {
-    ConfigManager::getInstance().loadConfig();
-    createSettingsDialog();
-    settingsWindow->show();
-}
-
-void GuiUIManager::openUpdateDialog() {
-    if (updateDialog) {
-        updateDialog->show();
-    }
-}
-
-void GuiUIManager::createSettingsDialog() {
-    if (settingsWindow) {
-        settingsWindow->show();
-        return;
-    }
-
-    settingsWindow = std::make_unique<Fl_Window>(550, 600, "Settings");
-    settingsRoot = std::make_unique<ContainerComponent>(settingsWindow.get(), 0, 0, 550, 600);
-
-    const auto& config = ConfigManager::getInstance().getConfig();
-    auto settingsDialog = settingsRoot->addChild<SettingsDialogComponent>(
-        settingsWindow.get(),
-        0,
-        0,
-        550,
-        600,
-        config,
-        [this]() { cleanupSettingsDialog(); },
-        [this]() { cleanupSettingsDialog(); });
-
-    settingsRoot->create();
-    settingsWindow->end();
-    settingsWindow->set_modal();
+void GuiUIManager::showMessage(const std::string& title, const std::string& message, bool isError) {
+    if (!isError && vaultWin_) return flash(message);
+    fl_message_title(title.c_str());
+    if (isError)
+        fl_alert("%s", message.c_str());
+    else
+        fl_message("%s", message.c_str());
 }

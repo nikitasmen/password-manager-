@@ -70,6 +70,8 @@ set(CLI_SOURCES
 
 set(GUI_SOURCES
     src/gui/GuiUIManager.cpp
+    src/gui/Theme.cpp
+    src/gui/Widgets.cpp
     src/gui/UpdateDialog.cpp
     src/updater/AppUpdater.cpp
 )
@@ -151,6 +153,12 @@ link_common(base64_test)
 add_executable(vault_test tests/vault_test.cpp ${VAULT_SOURCES} src/core/base64.cpp src/crypto/cipher_context_raii.cpp)
 target_compile_definitions(vault_test PRIVATE VECTORS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/protocol_vectors.json")
 link_common(vault_test)
+
+# --- Dev tool: render GUI screens to images (not built by default) ---
+add_executable(gui_snapshot EXCLUDE_FROM_ALL tools/gui_snapshot.cpp ${CORE_SOURCES} ${VAULT_SOURCES} ${GUI_SOURCES})
+target_compile_definitions(gui_snapshot PRIVATE ENABLE_GUI)
+target_link_libraries(gui_snapshot PRIVATE ${FLTK_LIBRARIES})
+link_common(gui_snapshot ${CMAKE_CURRENT_SOURCE_DIR}/src/gui)
 
 # --- Linting targets ---
 find_program(CLANG_FORMAT clang-format)

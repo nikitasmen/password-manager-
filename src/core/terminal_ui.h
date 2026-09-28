@@ -1,76 +1,32 @@
 #ifndef TERMINAL_UI_H
 #define TERMINAL_UI_H
 
+// Terminal toolkit for the TUI: styles, the board's OLED drawn in half blocks, line input.
+// Colors only when stdout is a terminal and NO_COLOR is unset (CLICOLOR_FORCE=1 forces them).
+
 #include <string>
 #include <vector>
 
-#include "../config/GlobalConfig.h"
+namespace term {
 
-/**
- * @class TerminalUI
- * @brief Terminal User Interface handling class
- *
- * Provides methods for handling console user interface interactions,
- * including menus, message display, and secure password input
- */
-class TerminalUI {
-   public:
-    /**
-     * @brief Display the main menu and get user choice
-     *
-     * @return int The menu option selected by the user
-     */
-    static int display_menu();
+bool colors();
+std::string accent(const std::string& s);  // solder-mask green, lightened for dark and light terminals
+std::string muted(const std::string& s);
+std::string danger(const std::string& s);
+std::string bold(const std::string& s);
+size_t visibleWidth(const std::string& s);  // ignores color codes; counts UTF-8 code points
+int width();                                // terminal columns (80 if unknown)
 
-    /**
-     * @brief Display a message to the user
-     *
-     * @param message The message to display
-     * @param isError If true, message will be displayed as an error
-     */
-    static void display_message(const std::string& message, bool isError = false);
+void clear();
 
-    /**
-     * @brief Get password input with masked characters
-     *
-     * @param prompt The prompt to display before input
-     * @return std::string The password entered by the user
-     */
-    static std::string get_password_input(const std::string& prompt);
+// The ESP32's screen: `text` in its 5x7 font, lit pixels on black, 2 pixel rows per terminal line.
+// Returns one string per terminal line (4 lines for one line of text).
+std::vector<std::string> oled(const std::string& text);
 
-    /**
-     * @brief Get text input from the user
-     *
-     * @param prompt The prompt to display before input
-     * @return std::string The text entered by the user
-     */
-    static std::string get_text_input(const std::string& prompt);
+std::string readLine(const std::string& prompt);
+std::string readSecret(const std::string& prompt);  // no echo
+bool confirm(const std::string& question);          // y/N, default no
 
-    /**
-     * @brief Clear the console screen
-     */
-    static void clear_screen();
+}  // namespace term
 
-    /**
-     * @brief Pause execution until user presses Enter
-     */
-    static void pause_screen();
-
-    /**
-     * @brief Display a list of items with a header
-     *
-     * @param items List of items to display
-     * @param header Header text for the list
-     */
-    static void display_list(const std::vector<std::string>& items, const std::string& header);
-
-    /**
-     * @brief Display a confirmation prompt and get user response
-     *
-     * @param message The confirmation message to display
-     * @return bool True if user confirmed, false otherwise
-     */
-    static bool confirm(const std::string& message);
-};
-
-#endif  // UI_H
+#endif  // TERMINAL_UI_H
