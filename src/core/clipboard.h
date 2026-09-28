@@ -82,7 +82,7 @@ class LinuxClipboardStrategy : public IClipboardStrategy {
     void clearClipboard() override;
 
    private:
-    enum class ClipboardTool { NONE, XCLIP, XSEL };
+    enum class ClipboardTool { NONE, XCLIP, XSEL, WL_COPY };
 
     ClipboardTool availableTool_;
     void detectAvailableClipboardTool();

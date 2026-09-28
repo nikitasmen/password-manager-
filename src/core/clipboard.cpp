@@ -150,7 +150,10 @@ LinuxClipboardStrategy::LinuxClipboardStrategy() {
 
 void LinuxClipboardStrategy::detectAvailableClipboardTool() {
     // PERFORMANCE FIX: Check for clipboard tools once during initialization
-    if (system("which xclip >/dev/null 2>&1") == 0) {
+    // Prefer wl-copy on Wayland: xclip/xsel only reach XWayland clients there.
+    if (getenv("WAYLAND_DISPLAY") && system("which wl-copy >/dev/null 2>&1") == 0) {
+        availableTool_ = ClipboardTool::WL_COPY;
+    } else if (system("which xclip >/dev/null 2>&1") == 0) {
         availableTool_ = ClipboardTool::XCLIP;
     } else if (system("which xsel >/dev/null 2>&1") == 0) {
         availableTool_ = ClipboardTool::XSEL;
@@ -165,6 +168,8 @@ const char* LinuxClipboardStrategy::getClipboardWriteCommand() const {
             return "xclip -selection clipboard";
         case ClipboardTool::XSEL:
             return "xsel --clipboard --input";
+        case ClipboardTool::WL_COPY:
+            return "wl-copy";
         default:
             return nullptr;
     }
@@ -175,7 +180,7 @@ void LinuxClipboardStrategy::copyToClipboard(const std::string& text) {
     // PERFORMANCE FIX: Use cached clipboard tool detection
     const char* command = getClipboardWriteCommand();
     if (!command) {
-        throw ClipboardError("Neither xclip nor xsel is available for clipboard operations");
+        throw ClipboardError("No clipboard tool found (install wl-clipboard, xclip or xsel)");
     }
 
     FILE* pipe = popen(command, "w");
@@ -200,6 +205,10 @@ bool LinuxClipboardStrategy::isAvailable() {
 void LinuxClipboardStrategy::clearClipboard() {
     // SECURITY FIX: Use secure pipe method
     // PERFORMANCE FIX: Use cached clipboard tool detection
+    if (availableTool_ == ClipboardTool::WL_COPY) {
+        system("wl-copy --clear >/dev/null 2>&1");  // empty stdin would copy "", not clear
+        return;
+    }
     const char* command = getClipboardWriteCommand();
     if (!command) {
         return;  // No clipboard tool available, nothing to clear
