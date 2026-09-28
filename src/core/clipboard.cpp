@@ -205,11 +205,9 @@ bool LinuxClipboardStrategy::isAvailable() {
 void LinuxClipboardStrategy::clearClipboard() {
     // SECURITY FIX: Use secure pipe method
     // PERFORMANCE FIX: Use cached clipboard tool detection
-    if (availableTool_ == ClipboardTool::WL_COPY) {
-        system("wl-copy --clear >/dev/null 2>&1");  // empty stdin would copy "", not clear
-        return;
-    }
-    const char* command = getClipboardWriteCommand();
+    // wl-copy with empty stdin would copy "" instead of clearing
+    const char* command =
+        availableTool_ == ClipboardTool::WL_COPY ? "wl-copy --clear" : getClipboardWriteCommand();
     if (!command) {
         return;  // No clipboard tool available, nothing to clear
     }

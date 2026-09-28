@@ -2,6 +2,9 @@
 
 #include <FL/Fl.H>
 #include <FL/fl_draw.H>
+#ifdef HAVE_FONTCONFIG
+#include <fontconfig/fontconfig.h>
+#endif
 
 namespace theme {
 
@@ -27,6 +30,9 @@ void drawField(int x, int y, int w, int h, Fl_Color c) {
 }  // namespace
 
 void apply() {
+#ifdef HAVE_FONTCONFIG
+    FcInit();  // FLTK 1.3's Xft code skips it, and fontconfig >= 2.17 warns
+#endif
     Fl::scheme("none");
     Fl::background(0xE4, 0xE7, 0xE3);
     Fl::background2(0xF6, 0xF7, 0xF5);

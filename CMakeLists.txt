@@ -132,6 +132,13 @@ target_compile_definitions(password_manager PRIVATE ENABLE_CLI ENABLE_GUI)
 # Link all required libraries
 target_link_libraries(password_manager PRIVATE ${FLTK_LIBRARIES})
 
+# FLTK's Xft backend uses fontconfig without FcInit(); Theme.cpp calls it to silence the warning
+if(UNIX AND NOT APPLE)
+    find_package(Fontconfig REQUIRED)
+    target_link_libraries(password_manager PRIVATE Fontconfig::Fontconfig)
+    target_compile_definitions(password_manager PRIVATE HAVE_FONTCONFIG)
+endif()
+
 # Add Windows-specific libraries for updater
 if(WIN32)
     target_link_libraries(password_manager PRIVATE wininet urlmon)
