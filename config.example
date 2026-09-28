@@ -23,6 +23,8 @@ defaultUIMode=auto
 
 # ESP32 Vault (empty espHost = local only; see README "Setting up the ESP32")
 espHost=
+# false = device-only: every read goes to the ESP32, nothing is stored on this machine
+localCopy=true
 espPort=443
 # Device files, put here by `esp32/pki.sh install <name>`
 espCert=server.pem

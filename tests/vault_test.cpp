@@ -373,6 +373,41 @@ void testRobustness(const fs::path& dir) {
     std::cout << "robustness: ok\n";
 }
 
+// localCopy=false: the board is the device's only store; every read reaches it.
+void testDeviceOnly(const fs::path& dir) {
+    using S = VaultService::SyncStatus;
+    LocalFileStore esp((dir / "d-esp.json").string());
+    auto laptop = makeDevice(dir, "d-laptop", esp);  // an ordinary local-first device
+    laptop.vault->create("master", CipherAlg::Aes256Gcm, 1000);
+    laptop.vault->put({"GitHub", "nik", "v1", CipherAlg::Aes256Gcm});
+
+    auto link = std::make_unique<FlakyStore>(esp);
+    FlakyStore* board = link.get();
+    VaultService kiosk(std::move(link), nullptr, "");  // what UIManager builds for localCopy=false
+    CHECK(kiosk.exists() && kiosk.unlock("master"));
+    CHECK(kiosk.get("github")->password == "v1");
+    CHECK(board->lastAccess == "GitHub/nik");  // the OLED hears about every read
+
+    laptop.vault->put({"GitHub", "nik", "v2", CipherAlg::Aes256Gcm});  // another device changes it...
+    CHECK(kiosk.get("github")->password == "v2");                      // ...and the next read sees it, no sync step
+
+    kiosk.put({"Mail", "nik", "m1", CipherAlg::ChaCha20Poly1305});  // writes land on the board directly
+    laptop.vault->sync();
+    CHECK(laptop.vault->get("mail")->password == "m1");
+
+    board->online = false;  // no local copy to fall back on: the read fails, and the status says why
+    bool threw = false;
+    try {
+        kiosk.get("github");
+    } catch (const StoreUnavailable&) {
+        threw = true;
+    }
+    CHECK(threw && kiosk.lastSyncStatus() == S::Offline);
+    board->online = true;
+    CHECK(kiosk.get("github") && kiosk.lastSyncStatus() == S::Disabled);
+    std::cout << "device-only: ok\n";
+}
+
 int main() {
     fs::path dir = fs::temp_directory_path() / ("vault_test_" + std::to_string(std::random_device{}()));
     fs::create_directories(dir);
@@ -380,6 +415,7 @@ int main() {
     testMergeRule(dir);
     testSync(dir);
     testRobustness(dir);
+    testDeviceOnly(dir);
     if (const char* esp = std::getenv("PWVAULT_TEST_ESP")) testEsp(dir, esp);
     fs::remove_all(dir);
     std::cout << "all vault tests passed\n";

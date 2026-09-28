@@ -114,6 +114,7 @@ Relative paths in `config` resolve against `~/.config/pwvault/`, and `~` is expa
 |---|---|---|
 | `espHost` | *(empty)* | ESP32 IP or name; empty = local only |
 | `espPort` | `443` | |
+| `localCopy` | `true` | `false` = device-only: the ESP32 is this machine's only store (see below) |
 | `espCert` | `server.pem` | the board's pinned server certificate |
 | `espClientCert`, `espClientKey` | `device.pem`, `device.key` | this device's certificate and private key |
 | `dataPath` | *(empty)* = `~/.local/share/pwvault` | where `vault.json` and `sync.json` live |
@@ -121,6 +122,17 @@ Relative paths in `config` resolve against `~/.config/pwvault/`, and `~` is expa
 | `defaultUIMode` | `auto` | `gui`, `tui` or `auto` |
 | `clipboardTimeoutSeconds`, `autoClipboardClear` | `30`, `true` | clipboard auto-clear |
 | `showEncryptionInCredentials` | `true` | show each entry's cipher when viewing it |
+
+### Local copy or device-only (per device)
+
+| | `localCopy=true` (default) | `localCopy=false` (device-only) |
+|---|---|---|
+| Stored on this machine | encrypted copy in `~/.local/share/pwvault/` | nothing |
+| Board off or out of reach | everything still works; syncs when back | no access until it's reachable |
+| Each read | from the local copy (synced at most 30 s old) | fetched from the board, which shows it on the OLED |
+| Good for | your own laptop and phone | a machine you trust less, or treating the ESP32 as a hardware key |
+
+You can mix them: local-first on your laptop, device-only on a shared desktop. Everything else (certificate, master password) is the same.
 
 ## Development
 
@@ -149,9 +161,8 @@ src/vault/              client-side vault, no UI code
   Crypto.*                ICipher + AES-GCM / ChaCha20 (OpenSSL), PBKDF2, HMAC
   VaultFormat.*           meta, entry records, merge rule, key wrapping
   IVaultStore.h           store interface; LocalFileStore.*, EspStore.* (libcurl)
-  Syncer.*                two-way sync between any two stores
+  Syncer.*                syncStores(): two-way sync between any two stores
   VaultService.*          the API the UIs use: unlock, get, put, remove, sync
-  VaultFactory.*          builds the service from the config
 src/core/UIManager.*    base class for front ends; talks only to VaultService
 src/gui/, src/cli/      FLTK GUI and terminal UI
 esp32/vault/            ESP32 firmware (store + OLED)
