@@ -1,358 +1,166 @@
 # Password Manager
 
-A secure, cross-platform password management tool written in C++17 with unified executable supporting both GUI and CLI modes, advanced encryption, and automatic update capabilities.
+A C++17 password manager with a desktop GUI (FLTK) and a terminal UI, that keeps your vault in sync with a small **ESP32 box on your home network**. The ESP32 only ever stores ciphertext: all encryption happens on your devices, so even someone holding the board can't read your passwords.
 
-## Features
-
-- **Unified Application**: Single executable that can run in both GUI and CLI modes
-- **Secure Local Storage**: All credentials are stored locally in encrypted JSON format with automatic backups
-- **Advanced Encryption System**:
-  - Multiple encryption backends (AES-256, LFSR, RSA)
-  - Pluggable encryption architecture with factory pattern
-  - Salt-based encryption for enhanced security
-  - Seamless encryption algorithm migration
-- **Robust Storage System**:
-  - Automatic file backups with timestamps
-  - RAII-based resource management
-  - Transaction-safe operations with rollback capability
-  - DRY principles with common utility modules
-- **Multiple User Interfaces**:
-  - Modern graphical UI (GUI) using FLTK with update dialogs
-  - Text-based UI (TUI) for terminal environments
-  - Shared core API for consistent functionality
-- **Auto-Update System**:
-  - GitHub integration for checking latest releases
-  - Automatic download and installation with progress tracking
-  - Cross-platform update support (Windows, macOS, Linux)
-  - Secure update process with backup and rollback
-- **Security Enhancements**:
-  - Secure clipboard operations with auto-clear
-  - Command injection prevention in system calls
-  - Memory-safe operations with smart pointers
-  - Comprehensive error handling and logging
-- **Configuration Management**:
-  - File-based configuration system (.config)
-  - Configurable GitHub repository settings
-  - Flexible UI mode selection
-  - User-customizable security settings
-
-## Architecture
-
-The project follows a modular architecture with these key components:
-
-- **Core**: Core functionality shared across all interfaces
-  - `api.cpp/h`: Main credentials management API
-  - `json_storage.cpp/h`: JSON-based credential storage
-  - `file_system.cpp/h`: File system operations
-  - `UIManager`: Interface for UI components
-  - `ConfigManager`: Application configuration
-
-- **Crypto**: Encryption subsystem
-  - `encryption_interface.h`: Base interface for all encryption backends
-  - `aes_encryption.cpp/h`: AES encryption implementation
-  - `lfsr_encryption.cpp/h`: LFSR stream cipher implementation
-  - `salted_encryption.h`: Salt-based encryption wrapper
-  - `encryption_factory.cpp/h`: Factory for creating encryption instances
-  - `cipher_context_raii.cpp/h`: RAII wrapper for encryption contexts
-
-- **Terminal UI**: Text-based interface
-  - `tui_main.cpp`: Entry point for terminal application
-  - `terminal_ui.cpp/h`: Terminal UI components
-  - `cli_ui.cpp/h`: Command handling and application controllers
-
-- **Graphical UI**: FLTK-based interface
-  - `gui_main.cpp`: Entry point for graphical application
-  - `gui.cpp/h`: GUI components and event handlers
-  - `dialogs/`: Various dialog implementations
-
-- **Configuration**:
-  - `GlobalConfig.cpp/h`: Shared configuration settings
-  - `MigrationHelper.cpp/h`: Handles data migration between versions
-
-## Project Structure
-
-```plaintext
-password-manager/
-├── build.sh                       # Build script for all components
-├── CMakeLists.txt                 # CMake configuration
-├── password_manager               # Unified executable (generated)
-├── data/                          # Application data directory
-│   └── secure_storage.json        # Encrypted credentials database
-├── include/                       # Third-party headers
-│   └── nlohmann/
-│       └── json.hpp
-├── src/
-│   ├── main.cpp                   # Unified application entry point
-│   ├── gui_main.cpp               # GUI mode implementation
-│   ├── tui_main.cpp               # Terminal UI mode implementation
-│   ├── cli/                       # Command-line interface components
-│   │   ├── TerminalUIManager.cpp
-│   │   └── TerminalUIManager.h
-│   ├── config/                    # Configuration settings
-│   │   ├── GlobalConfig.cpp
-│   │   ├── GlobalConfig.h
-│   │   ├── MigrationHelper.cpp
-│   │   └── MigrationHelper.h
-│   ├── core/                      # Core functionality
-│   │   ├── api.cpp
-│   │   ├── api.h
-│   │   ├── base64.cpp
-│   │   ├── base64.h
-│   │   ├── clipboard.cpp
-│   │   ├── clipboard.h
-│   │   ├── credential_data.h
-│   │   ├── encryption.cpp
-│   │   ├── encryption.h
-│   │   ├── json_storage.cpp
-│   │   ├── json_storage.h
-│   │   ├── terminal_ui.cpp
-│   │   ├── terminal_ui.h
-│   │   ├── UIManager.cpp
-│   │   ├── UIManager.h
-│   │   ├── UIManagerFactory.cpp
-│   │   └── UIManagerFactory.h
-│   ├── crypto/                    # Encryption subsystem
-│   │   ├── aes_encryption.cpp
-│   │   ├── aes_encryption.h
-│   │   ├── cipher_context_raii.cpp
-│   │   ├── cipher_context_raii.h
-│   │   ├── encryption_factory.cpp
-│   │   ├── encryption_factory.h
-│   │   ├── encryption_interface.h
-│   │   ├── lfsr_encryption.cpp
-│   │   ├── lfsr_encryption.h
-│   │   ├── rsa_encryption.cpp
-│   │   └── rsa_encryption.h
-│   ├── gui/                       # Graphical user interface
-│   │   ├── fl_main.cpp
-│   │   ├── password_gui.cpp
-│   │   ├── password_gui.h
-│   │   └── [other GUI files]
-│   ├── updater/                   # Auto-update system
-│   │   ├── AppUpdater.cpp
-│   │   ├── AppUpdater.h
-│   │   ├── GitHubAPI.cpp
-│   │   ├── GitHubAPI.h
-│   │   ├── system_utils.cpp
-│   │   └── system_utils.h
-│   └── utils/                     # Common utilities (DRY compliance)
-│       ├── filesystem_utils.cpp
-│       ├── filesystem_utils.h
-│       ├── error_utils.cpp
-│       ├── error_utils.h
-│       ├── backup_utils.cpp
-│       └── backup_utils.h
-├── tests/                         # Test files
-│   └── base64_test.cpp
-├── .gitignore
-├── LICENSE
-└── README.md
+```
+ GUI (FLTK)    TUI          Python client     future mobile app
+     └────┬─────┘                 │                  │
+     VaultService (C++)      same protocol      same protocol     ← encryption happens here, on the client
+      ├─ ICipher: AES-256-GCM | ChaCha20-Poly1305
+      └─ IVaultStore ─┬─ LocalFileStore   data/vault.json (works offline)
+                      └─ EspStore ────────────HTTPS──────▶ ESP32: stores encrypted records, knows no keys
+                                                            OLED: clock + "laptop wants github / user nik"
 ```
 
+## How it works
 
+- **Zero-knowledge store.** Your master password unlocks a random *vault key*, and the vault key encrypts every entry. Neither ever leaves your device. The ESP32 (or a copy of `data/vault.json`) holds only encrypted blobs. Entry ids are keyed hashes of the platform name, so the store can't even tell which sites you have.
+- **Local-first with automatic sync.** Every read and write goes to the local vault first, so the app works anywhere. When the ESP32 is reachable, the app syncs automatically: on unlock, after every change, and before reads once the last sync is more than 30 seconds old. Away from home it just says *ESP32 not reachable* and catches up when you're back. If two devices edit the same entry while offline, the later edit wins.
+- **Pluggable ciphers.** Each entry records its own algorithm, AES-256-GCM or ChaCha20-Poly1305, which you choose when you save it. Both are authenticated, so tampering is detected. New algorithms are added by implementing `ICipher` and registering them in `makeCipher()`.
+- **Changing the master password** only re-encrypts the vault key, so it's instant and propagates to your other devices on their next sync.
+- **One spec, many clients.** [`docs/PROTOCOL.md`](docs/PROTOCOL.md) defines the crypto format, the ESP32 HTTP API and the sync algorithm. Any client that reproduces [`tests/protocol_vectors.json`](tests/protocol_vectors.json) byte for byte can read and write the same vault. That's how a mobile app can be added later without sharing C++ code.
 
-### Security Enhancements
+### What the ESP32 protects against
 
-## Usage
+| Attacker | Gets |
+|---|---|
+| Someone on your Wi-Fi | Nothing: HTTPS with a pinned certificate |
+| A device without a certificate from your device CA | Nothing: the TLS handshake is refused before any request |
+| A revoked device | `403` on every request |
+| One of your devices | Ciphertext only; still needs your master password |
+| Someone who steals the board | Ciphertext only; offline brute force at 600,000 PBKDF2 rounds per guess. **A strong master password is what protects you here.** |
 
-The application provides a unified executable with both GUI and CLI modes.
+A revoked device still completes the TLS handshake, but it gets a single `403` and then the board closes the connection. Refusing it inside the handshake would need a certificate revocation list, which ESP-IDF's TLS layer doesn't expose.
 
-### Command Line Arguments
+The board has no button yet, so reads are approved automatically and only *shown* on the OLED. The platform and username shown there are a display hint sent by the client, not something the board can verify.
+
+## Quick start
+
+Everything is declared in `shell.nix`: the C++ toolchain, FLTK, OpenSSL and curl, `arduino-cli` with a pinned ESP32 core and libraries, and Python with `cryptography`.
 
 ```bash
-# Run in GUI mode (default)
-./password_manager
-./password_manager -g
-./password_manager --gui
-
-# Run in CLI/Terminal mode
-./password_manager -t
-./password_manager --terminal
-
-# Show help
-./password_manager --help
+nix-shell                  # enters the dev shell and builds ./password_manager
+./password_manager -g      # GUI
+./password_manager -t      # terminal UI
+./password_manager         # uses defaultUIMode from .config
 ```
 
-### Graphical User Interface (GUI)
+Run it from the repo root: it reads `./.config` and `./data` relative to the working directory. Without an ESP32 configured, the app works as a local-only vault.
 
-The GUI mode provides a user-friendly desktop experience:
+## Setting up the ESP32
+
+Tested on an ESP32-D0WD with a 128×64 SSD1306 OLED (I2C, SDA 21 / SCL 22, address 0x3C). The pins are constants at the top of `esp32/vault/vault.ino`.
+
+1. **Certificates:** all of this goes through `esp32/pki.sh`, and everything it creates is gitignored.
+   ```bash
+   cd esp32
+   ./pki.sh server         # the board's TLS cert; every client pins vault/cert.pem
+   ./pki.sh init           # your device CA; the board accepts only devices it signed
+   ./pki.sh add laptop     # one certificate per device; the name is what the OLED shows
+   ```
+   `esp32/pki/ca.key` can issue new devices, so keep it private. Once your devices exist, keeping it offline is best.
+2. **Wi-Fi:** `cp esp32/vault/secrets.example.h esp32/vault/secrets.h`, then set your SSID and password (the ESP32 only supports **2.4 GHz**).
+3. **Flash:**
+   ```bash
+   arduino-cli compile -b esp32:esp32:esp32 --upload -p /dev/ttyUSB0 esp32/vault
+   ```
+   The OLED shows the clock and the board's IP. If Wi-Fi doesn't connect within 30 seconds, the board reboots and tries again.
+4. **Fixed IP:** set up a DHCP reservation for the board in your router, so its address doesn't change.
+5. **Point the app at it**, either in the GUI (Settings → ESP32 fields, then restart) or in `.config`:
+   ```ini
+   espHost=192.168.2.5
+   espCert=esp32/vault/cert.pem
+   espClientCert=/path/to/esp32/pki/devices/laptop.pem
+   espClientKey=/path/to/esp32/pki/devices/laptop.key
+   ```
+   For another machine, copy it its own `.pem` and `.key` from `esp32/pki/devices/`, plus `vault/cert.pem`.
+   The GUI title bar and the TUI show the sync status.
+
+The board is a plain USB-powered device: plug it into any charger.
+
+**Managing devices:** `./pki.sh add <name>` works without a reflash, because the board trusts anything your CA signed. To lock out a lost device, run `./pki.sh revoke <name>` and reflash. `./pki.sh list` shows every device and whether it's active.
+
+### Using it away from home
+
+**Don't port-forward the ESP32 to the internet.** Its TLS stack never gets security updates, and it's easy to knock offline. Instead, reach your home network over a VPN: a [Tailscale subnet router](https://tailscale.com/kb/1019/subnets) on any always-on home machine, or WireGuard on your router. The app config stays the same (use the board's LAN IP), and only your own devices can reach it.
+
+## Configuration (`.config`)
+
+`.config` is gitignored and saved owner-only (mode 600), because it points at this device's private key. `.config.example` is the template.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `dataPath` | `./data` | where `vault.json` and `sync.json` live |
+| `defaultCipher` | `aes-256-gcm` | cipher preselected for new entries (`aes-256-gcm` or `chacha20-poly1305`) |
+| `espHost` | *(empty)* | ESP32 IP or name; empty = local only |
+| `espPort` | `443` | |
+| `espCert` | `esp32/vault/cert.pem` | the board's pinned server certificate |
+| `espClientCert`, `espClientKey` | | this device's certificate and private key (`esp32/pki.sh add`) |
+| `defaultUIMode` | `auto` | `gui`, `tui` or `auto` |
+| `clipboardTimeoutSeconds`, `autoClipboardClear` | `30`, `true` | clipboard auto-clear |
+| `showEncryptionInCredentials` | `true` | show each entry's cipher when viewing it |
+
+## Development
 
 ```bash
-./password_manager -g
+nix-shell
+make vault_test && ./vault_test          # crypto vectors, merge rule, multi-device sync, offline, conflicts
+python3 tests/protocol_vectors.py --check   # reference implementation self-check
+./build.sh --tests                       # also builds and runs base64_test and vault_test
+./lint.sh --all                          # clang-format + clang-tidy + cppcheck
 ```
 
-GUI features include:
-- Modern FLTK-based interface with dialogs
-- Login dialog for master password protection
-- List view of all stored platforms
-- Add/view credential forms with secure input
-- Credential deletion with confirmation
-- Auto-update notifications and progress dialogs
+`vault_test` runs sync scenarios between simulated devices, with a local file standing in for the ESP32.
 
-### Terminal User Interface (CLI)
+**`tests/fake_esp.py`** is a local stand-in for the board: the same API, mutual TLS, revocation and merge rule, with state kept in memory. Use it to test clients (C++, Python, a future mobile app) without touching your real vault:
+```bash
+python3 tests/fake_esp.py --port 8443 --cert esp32/vault/cert.pem --key esp32/vault/key.pem --ca esp32/pki/ca.pem
+PWVAULT_TEST_ESP="127.0.0.1:8443,$PWD/esp32/vault/cert.pem,<client .pem>,<client .key>" ./vault_test
+``` To run it against a real board or the fake, set `PWVAULT_TEST_ESP="<host[:port]>,<server cert.pem>,<client .pem>,<client .key>"`. It always runs read-only checks: your certificate is accepted, a connection without one is refused, and an unreachable board counts as offline. The full sync round trip only runs on a board that doesn't hold a vault yet, and it leaves a test vault behind, so wipe the board's storage afterwards.
 
-For a text-based interactive experience:
+The test vectors come from the Python reference implementation (`clients/python/vaultproto.py`), and the C++ tests must reproduce them exactly. If you change the format, change `docs/PROTOCOL.md` first, then regenerate them with `python3 tests/protocol_vectors.py > tests/protocol_vectors.json`.
+
+### Layout
+
+```
+docs/PROTOCOL.md        the contract: crypto format, ESP32 API, sync
+src/vault/              client-side vault, no UI code
+  Crypto.*                ICipher + AES-GCM / ChaCha20 (OpenSSL), PBKDF2, HMAC
+  VaultFormat.*           meta, entry records, merge rule, key wrapping
+  IVaultStore.h           store interface; LocalFileStore.*, EspStore.* (libcurl)
+  Syncer.*                two-way sync between any two stores
+  VaultService.*          the API the UIs use: unlock, get, put, remove, sync
+  VaultFactory.*          builds the service from .config
+src/core/UIManager.*    base class for front ends; talks only to VaultService
+src/gui/, src/cli/      FLTK GUI and terminal UI
+esp32/vault/            ESP32 firmware (store + OLED)
+esp32/pki.sh            server cert, device CA, add/revoke devices
+clients/python/         vaultproto.py (reference implementation) + pwvault CLI
+tests/                  vault_test.cpp, protocol vectors, fake_esp.py (stand-in board)
+```
+
+## Python client
+
+`clients/python/pwvault` talks to the board directly, with no local copy. It decrypts on your machine, like every client.
 
 ```bash
-./password_manager -t
+pwvault init                     # create the vault on an empty board (or use the desktop app)
+pwvault ls
+pwvault get github               # copies the password, clears the clipboard after 30 s (--show prints it)
+pwvault set github nik --alg chacha20-poly1305
+pwvault rm github
+pwvault passwd                   # change the master password; other devices pick it up on their next sync
 ```
 
-CLI features include:
-- Menu-driven interface with numbered options
-- Secure master password handling
-- Interactive credential management
-- Platform listing and search
-- Command injection prevention
-
-Available CLI operations:
-1. Change Master Password
-2. Add New Platform Credentials
-3. Retrieve Platform Credentials
-4. Delete Platform Credentials
-5. Show All Stored Platforms
-
-## Build Instructions
-
-### Using the Build Script
-
-The easiest way to build the unified executable:
-
-```bash
-./build.sh
+Config, `~/.config/pwvault/config.json` (chmod 600):
+```json
+{"host": "192.168.2.5",
+ "cert": "/path/to/esp32/vault/cert.pem",
+ "client_cert": "/path/to/esp32/pki/devices/NAME.pem",
+ "client_key": "/path/to/esp32/pki/devices/NAME.key"}
 ```
-
-This creates the single `password_manager` executable with both GUI and CLI modes.
-
-### Using CMake Directly
-
-```bash
-mkdir -p build
-cd build
-cmake ..
-make
-```
-
-This produces a single `password_manager` executable that can run in either GUI or CLI mode based on command-line arguments.
-
-### Build Output
-
-After building, you'll have:
-- `password_manager` - Unified executable supporting both modes
-- Test executables (if enabled)
-- Data directory structure
-
-## Security Features
-
-This password manager implements multiple layers of security:
-
-1. **Multiple Encryption Backends**:
-   - AES-256 for strong cryptographic protection
-   - LFSR (Linear Feedback Shift Register) for lightweight encryption
-   - Pluggable architecture for future encryption algorithms
-
-2. **Secure Key Management**:
-   - Master password hashing with salt
-   - Secure key derivation
-   - Encryption context management with RAII
-
-3. **Data Protection**:
-   - Salt-based encryption to prevent rainbow table attacks
-   - Secure memory handling
-   - Automatic data migration between encryption types
-
-4. **Operational Security**:
-   - Automatic backups before critical operations
-   - Secure file handling
-   - Transaction-safe storage operations
-5. **Secure File Handling**: Proper file resource management with immediate closing after operations
-6. **Memory Management**: Smart pointers to prevent memory leaks
-7. **Error Handling**: Comprehensive exception handling throughout the codebase
+Issue it its own certificate with `./pki.sh add <name>`, just like any other device.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-### Build Script Options
-
-```bash
-./build.sh --direct
-
-# Clean and rebuild everything
-./build.sh --clean
-
-# Build CLI and terminal UI only
-./build.sh --cli --tui
-```
-
-For all available options, run:
-
-```bash
-./build.sh --help
-```
-
-## Dependencies
-
-- C++17 or later
-- CMake 3.10+ (for building)
-- FLTK 1.3+ (for the GUI version)
-
-## Recent Improvements
-
-The codebase has undergone significant improvements:
-
-- **Optimized File Handling**: Every data operation now properly opens and closes files
-- **Enhanced Error Recovery**: Better error handling during file operations
-- **Code Refactoring**: Applied DRY principles with helper methods
-- **GUI Stability**: Fixed crashes when viewing credentials multiple times
-- **Resource Management**: Proper cleanup of FLTK widgets and buffers
-- **Standardized Dialogs**: Consistent patterns for all user interactions
-- **Auto-Update System**: Added GitHub integration for automatic updates
-
-## Auto-Update System
-
-The GUI version includes a built-in update system that allows you to:
-
-- **Check for Updates**: Access via the Help menu → Check for Updates
-- **Automatic Download**: Download and install updates with progress reporting
-- **Version Comparison**: Compare current version with latest GitHub release
-- **Release Notes**: View what's new in each version
-- **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Secure Updates**: Downloads from official GitHub releases
-
-### How to Use Updates
-
-1. Open the GUI application (`./password_manager -g`)
-2. Go to Help → Check for Updates
-3. Click "Check for Updates" to see if a new version is available
-4. If an update is found, click "Download Update" to install it
-5. Restart the application when prompted
-
-The updater will:
-
-- Download the latest release from the GitHub repository
-- Create a backup of your current version
-- Replace the executable with the new version
-- Maintain all your existing data and settings
-
-## Architecture Improvements
-
-This codebase follows DRY (Don't Repeat Yourself) principles with:
-
-- **Common Utilities**: Shared filesystem, error handling, and backup utilities in `src/utils/`
-- **Unified Architecture**: Single executable supporting both GUI and CLI modes
-- **Modular Design**: Factory patterns for encryption backends and UI managers
-- **Resource Management**: RAII patterns for secure resource handling
-- **Error Consistency**: Standardized error logging and exception handling
-
-## Future Enhancements
-
-Potential future improvements to consider:
-
-- Password strength checker with entropy analysis
-- Auto-generation of strong passwords with customizable policies
-- Import/export functionality for credential migration
-- Configurable encryption options with user selection
-- Search functionality for large credential sets
-- Credential expiration notifications and alerts
-- Password history tracking and audit logs
-- Multi-factor authentication support
+MIT, see [LICENSE](LICENSE).

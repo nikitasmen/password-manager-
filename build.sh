@@ -173,11 +173,11 @@ build_with_cmake() {
     # Build and run tests if requested
     if [ "$TESTS" = true ]; then
         echo -e "${YELLOW}Building and running tests...${NC}"
-        make base64_test
-        if [ -f "./base64_test" ]; then
-            echo -e "${YELLOW}Running base64 tests...${NC}"
-            ./base64_test
-        fi
+        make base64_test vault_test
+        echo -e "${YELLOW}Running base64 tests...${NC}"
+        ./base64_test || exit 1
+        echo -e "${YELLOW}Running vault tests...${NC}"
+        ./vault_test || exit 1
     fi
 }
 
