@@ -161,10 +161,6 @@ install)
     stage "$name" "$tmp" "$(conf_get espHost)"
     install_staged "$tmp" "${3:-}"
     ;;
-add)  # kept for scripts; enroll/install issue automatically
-    issue "${2:-}"
-    echo "issued ${2}; now ./pki.sh enroll ${2} (another machine) or ./pki.sh install ${2} (this one)"
-    ;;
 revoke)
     name="${2:-}"
     [ -e $PKI/devices/$name.pem ] || die "no device named '$name'"

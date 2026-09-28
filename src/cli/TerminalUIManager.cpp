@@ -11,7 +11,7 @@ namespace {
 
 // Numbered cipher menu; returns the default on empty input.
 CipherAlg chooseCipher(const std::string& title) {
-    const auto& types = encryption_utils::getAllTypes();
+    const auto& types = allCiphers();
     const CipherAlg def = encryption_utils::getDefault();
     TerminalUI::display_message(title);
     for (size_t i = 0; i < types.size(); ++i) {
@@ -118,7 +118,10 @@ void TerminalUIManager::viewCredential(const std::string& platform) {
     try {
         auto credsOpt = safeGetCredentials(platform);
         if (!credsOpt) {
-            showMessage("Info", "No credentials found for " + platform);
+            if (vault->lastSyncStatus() == VaultService::SyncStatus::Offline && !ConfigManager::getInstance().getConfig().localCopy)
+                showMessage("Error", syncStatusText(), true);
+            else
+                showMessage("Info", "No credentials found for " + platform);
             return;
         }
         const Credential& credentials = *credsOpt;

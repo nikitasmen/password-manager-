@@ -11,21 +11,9 @@ class VaultMismatch : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-/**
- * Two-way sync between any two stores: docs/PROTOCOL.md §8.
- * Remembers its cursors in a small JSON file next to the local vault.
- */
-class Syncer {
-   public:
-    Syncer(IVaultStore& local, IVaultStore& remote, std::string statePath);
-    // Throws StoreUnavailable if the remote is unreachable, VaultMismatch for a different vault.
-    // Returns true if anything changed locally (caller should re-read).
-    bool sync();
-
-   private:
-    IVaultStore& local_;
-    IVaultStore& remote_;
-    std::string statePath_;
-};
+// Two-way sync between any two stores: docs/PROTOCOL.md §8. Cursors live in the JSON file at `statePath`.
+// Throws StoreUnavailable if the remote is unreachable, VaultMismatch for a different vault.
+// Returns true if anything changed locally (caller should re-read).
+bool syncStores(IVaultStore& local, IVaultStore& remote, const std::string& statePath);
 
 #endif  // SYNCER_H

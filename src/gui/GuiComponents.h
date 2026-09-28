@@ -566,7 +566,7 @@ class CredentialInputsComponent : public FormComponentBase {
             createWidget<Fl_Choice>(x + LABEL_WIDTH, y + 3 * VERTICAL_GAP, INPUT_WIDTH, INPUT_HEIGHT, "Encryption:");
 
         // Add encryption options using helper functions
-        auto availableTypes = encryption_utils::getAllTypes();
+        auto availableTypes = allCiphers();
         for (const auto& type : availableTypes) {
             encryptionChoice->add(encryption_utils::getDisplayName(type));
         }
@@ -719,6 +719,7 @@ class SettingsDialogComponent : public FormComponentBase {
     Fl_Check_Button* showEncryptionInCredentialsCheck;
     Fl_Choice* defaultUIModeChoice;
     Fl_Input* espHostInput;
+    Fl_Check_Button* localCopyCheck;
     Fl_Input* espPortInput;
     Fl_Input* espCertInput;
     Fl_Input* espClientCertInput;
@@ -749,6 +750,7 @@ class SettingsDialogComponent : public FormComponentBase {
           showEncryptionInCredentialsCheck(nullptr),
           defaultUIModeChoice(nullptr),
           espHostInput(nullptr),
+          localCopyCheck(nullptr),
           espPortInput(nullptr),
           espCertInput(nullptr),
           espClientCertInput(nullptr),
@@ -779,7 +781,7 @@ class SettingsDialogComponent : public FormComponentBase {
 
         new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "Default Encryption:");
         defaultEncryptionChoice = new Fl_Choice(inputX, yPos, fieldWidth, fieldHeight);
-        for (const auto& type : encryption_utils::getAllTypes()) {
+        for (const auto& type : allCiphers()) {
             defaultEncryptionChoice->add(encryption_utils::getDisplayName(type));
         }
         defaultEncryptionChoice->value(encryption_utils::toDropdownIndex(config.defaultCipher));
@@ -835,6 +837,11 @@ class SettingsDialogComponent : public FormComponentBase {
         espHostInput->value(config.espHost.c_str());
         yPos += spacing;
 
+        localCopyCheck = new Fl_Check_Button(x + 10, yPos, w - 20, fieldHeight,
+                                             "Keep a local copy (off = device-only: read from the ESP32 every time)");
+        localCopyCheck->value(config.localCopy);
+        yPos += spacing;
+
         new Fl_Box(x + 10, yPos, labelWidth, fieldHeight, "ESP32 Port:");
         espPortInput = new Fl_Input(inputX, yPos, fieldWidth, fieldHeight);
         espPortInput->value(std::to_string(config.espPort).c_str());
@@ -885,6 +892,7 @@ class SettingsDialogComponent : public FormComponentBase {
             newConfig.showEncryptionInCredentials = showEncryptionInCredentialsCheck->value();
             newConfig.defaultUIMode = defaultUIModeChoice->menu()[defaultUIModeChoice->value()].label();
             newConfig.espHost = espHostInput->value();
+            newConfig.localCopy = localCopyCheck->value();
             newConfig.espPort = std::stoi(espPortInput->value());
             newConfig.espCert = espCertInput->value();
             newConfig.espClientCert = espClientCertInput->value();

@@ -18,8 +18,7 @@ int64_t nowMs() {
 VaultService::VaultService(std::unique_ptr<IVaultStore> local,
                            std::unique_ptr<IVaultStore> remote,
                            std::string syncStatePath)
-    : local_(std::move(local)), remote_(std::move(remote)) {
-    if (remote_) syncer_ = std::make_unique<Syncer>(*local_, *remote_, std::move(syncStatePath));
+    : local_(std::move(local)), remote_(std::move(remote)), syncStatePath_(std::move(syncStatePath)) {
 }
 
 VaultService::~VaultService() {
@@ -88,7 +87,7 @@ void VaultService::reindex() {
 
 std::vector<std::string> VaultService::platforms() {
     requireUnlocked();
-    syncIfStale();
+    refresh();
     std::vector<std::string> out;
     for (const auto& [id, c] : index_) out.push_back(c.platform);
     std::sort(out.begin(), out.end());
@@ -97,12 +96,12 @@ std::vector<std::string> VaultService::platforms() {
 
 std::optional<Credential> VaultService::get(const std::string& platform) {
     requireUnlocked();
-    syncIfStale();
+    refresh();
     auto it = index_.find(vaultformat::entryId(vaultKey_, platform));
     if (it == index_.end()) return std::nullopt;
-    if (remote_ && syncStatus_ == SyncStatus::Ok) {
+    if (!remote_ || syncStatus_ == SyncStatus::Ok) {  // the OLED hint goes to whichever store is the board
         try {
-            remote_->noteAccess(it->second.platform, it->second.username);
+            (remote_ ? *remote_ : *local_).noteAccess(it->second.platform, it->second.username);
         } catch (const std::exception&) {  // purely informational; never block a read on it
         }
     }
@@ -147,10 +146,10 @@ void VaultService::changeMasterPassword(const std::string& newPassword) {
 }
 
 VaultService::SyncStatus VaultService::sync() {
-    if (!syncer_) return syncStatus_ = SyncStatus::Disabled;
+    if (!remote_) return syncStatus_ = SyncStatus::Disabled;
     lastSyncAttempt_ = std::chrono::steady_clock::now();
     try {
-        bool changed = syncer_->sync();
+        bool changed = syncStores(*local_, *remote_, syncStatePath_);
         syncError_.clear();
         syncStatus_ = SyncStatus::Ok;
         if (changed && isUnlocked()) reindex();
@@ -164,6 +163,19 @@ VaultService::SyncStatus VaultService::sync() {
     return syncStatus_;
 }
 
-void VaultService::syncIfStale() {
-    if (syncer_ && std::chrono::steady_clock::now() - lastSyncAttempt_ > kSyncMaxAge) sync();
+void VaultService::refresh() {
+    if (remote_) {
+        if (std::chrono::steady_clock::now() - lastSyncAttempt_ > kSyncMaxAge) sync();
+        return;
+    }
+    // No remote: the store itself is the source (a local-only file, or the ESP32 in device-only mode),
+    // so every read re-reads it. That keeps device-only truthful: each read reaches the board.
+    try {
+        reindex();
+        syncStatus_ = SyncStatus::Disabled;
+    } catch (const StoreUnavailable& e) {
+        syncError_ = e.what();
+        syncStatus_ = SyncStatus::Offline;
+        throw;
+    }
 }

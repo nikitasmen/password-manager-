@@ -55,49 +55,45 @@ void push(IVaultStore& to, const std::vector<EntryRecord>& entries) {
 
 }  // namespace
 
-Syncer::Syncer(IVaultStore& local, IVaultStore& remote, std::string statePath)
-    : local_(local), remote_(remote), statePath_(std::move(statePath)) {
-}
-
-bool Syncer::sync() {
+bool syncStores(IVaultStore& local, IVaultStore& remote, const std::string& statePath) {
     bool localChanged = false;
 
     // 1. meta
-    auto lm = local_.getMeta();
-    auto rm = remote_.getMeta();
+    auto lm = local.getMeta();
+    auto rm = remote.getMeta();
     if (!lm && !rm) return false;
     if (lm && rm && lm->vaultId != rm->vaultId)
         throw VaultMismatch("the ESP32 holds a different vault (vault_id " + rm->vaultId + ")");
     if (lm && (!rm || metaWins(*lm, *rm))) {
-        remote_.putMeta(*lm, rm ? rm->rev : 0);  // on a CAS race, the next sync retries
+        remote.putMeta(*lm, rm ? rm->rev : 0);  // on a CAS race, the next sync retries
     } else if (rm && (!lm || metaWins(*rm, *lm))) {
-        localChanged |= local_.putMeta(*rm, lm ? lm->rev : 0);
+        localChanged |= local.putMeta(*rm, lm ? lm->rev : 0);
     }
 
     // 2. push, 3. pull
     std::string vaultId = (lm ? lm : rm)->vaultId;
-    Cursors c = loadCursors(statePath_);
+    Cursors c = loadCursors(statePath);
     // A side that had no vault before this sync (wiped/new board, deleted vault.json) has none of the
     // other side's history: sync everything, not just what changed since the cursors.
     if (c.vaultId != vaultId || !lm || !rm) c = {vaultId, 0, 0};
 
-    auto theirs = remote_.changesAfter(c.remoteSeq);
-    auto mine = local_.changesAfter(c.localSeq);
+    auto theirs = remote.changesAfter(c.remoteSeq);
+    auto mine = local.changesAfter(c.localSeq);
     if (theirs.seq < c.remoteSeq || mine.seq < c.localSeq) {  // a store's history restarted (restored backup, ...)
         c = {vaultId, 0, 0};
-        theirs = remote_.changesAfter(0);
-        mine = local_.changesAfter(0);
+        theirs = remote.changesAfter(0);
+        mine = local.changesAfter(0);
     }
-    push(remote_, mine.entries);
+    push(remote, mine.entries);
 
     if (!theirs.entries.empty()) {
-        local_.putEntries(theirs.entries);
+        local.putEntries(theirs.entries);
         localChanged = true;
     }
     c.remoteSeq = theirs.seq;
     // Not the post-pull seq: that could skip a write another app instance made meanwhile. Pulled records are
     // echoed back once instead, which the §5 merge rule ignores (not newer).
     c.localSeq = mine.seq;
-    saveCursors(statePath_, c);
+    saveCursors(statePath, c);
     return localChanged;
 }

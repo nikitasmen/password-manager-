@@ -15,9 +15,11 @@
  * The one API every front end (GUI, TUI, ...) talks to. Encryption happens here, on the client;
  * stores only see ciphertext.
  *
- * Local-first: reads and writes always go to the local store, so it works offline. When a remote
- * (the ESP32) is configured, it syncs automatically on unlock, after every write, and before reads
- * once the last sync is older than kSyncMaxAge. Being offline is normal, not an error.
+ * With a remote (local-first): reads and writes go to the local store, so it works offline, and it syncs
+ * with the remote (the ESP32) on unlock, after every write, and before reads once the last sync is older
+ * than kSyncMaxAge. Being offline is normal, not an error.
+ * Without a remote: the one store is read directly on every read. That's a local-only vault, or device-only
+ * mode, where the ESP32 itself is the store and nothing is kept on this machine.
  */
 class VaultService {
    public:
@@ -56,12 +58,12 @@ class VaultService {
    private:
     void requireUnlocked() const;
     void reindex();
-    void syncIfStale();
+    void refresh();  // before a read: sync if stale, or re-read the store when there is no remote
     int64_t nextTimestamp(const std::string& id) const;
 
     std::unique_ptr<IVaultStore> local_;
     std::unique_ptr<IVaultStore> remote_;
-    std::unique_ptr<Syncer> syncer_;
+    std::string syncStatePath_;
     std::string vaultKey_;                      // empty = locked
     std::map<std::string, Credential> index_;   // entry id -> decrypted credential
     std::map<std::string, int64_t> updatedOf_;  // entry id -> record.updated, to keep timestamps increasing

@@ -36,6 +36,7 @@ struct AppConfig {
 
     // ESP32 vault store; empty espHost = local only (no sync)
     std::string espHost;
+    bool localCopy = true;  // false = device-only: the ESP32 is the only store, nothing kept on this machine
     int espPort = 443;
     // Relative paths resolve against configDir(); `esp32/pki.sh install <name>` puts these files there.
     std::string espCert = "server.pem";        // the board's pinned server cert
@@ -80,24 +81,6 @@ class ConfigManager {
     [[nodiscard]] const std::string& getDataPath() const {
         return config_.dataPath;
     }
-    [[nodiscard]] bool isAutoClipboardClearEnabled() const {
-        return config_.autoClipboardClear;
-    }
-    [[nodiscard]] int getMaxLoginAttempts() const {
-        return config_.maxLoginAttempts;
-    }
-    [[nodiscard]] int getClipboardTimeoutSeconds() const {
-        return config_.clipboardTimeoutSeconds;
-    }
-    [[nodiscard]] bool getAutoClipboardClear() const {
-        return config_.autoClipboardClear;
-    }
-    [[nodiscard]] bool getRequirePasswordConfirmation() const {
-        return config_.requirePasswordConfirmation;
-    }
-    [[nodiscard]] int getMinPasswordLength() const {
-        return config_.minPasswordLength;
-    }
     [[nodiscard]] bool getShowEncryptionInCredentials() const {
         return config_.showEncryptionInCredentials;
     }
@@ -112,29 +95,9 @@ class ConfigManager {
     [[nodiscard]] const std::string& getGithubRepo() const {
         return config_.githubRepo;
     }
-    [[nodiscard]] bool getAutoCheckUpdates() const {
-        return config_.autoCheckUpdates;
-    }
-    [[nodiscard]] int getUpdateCheckIntervalDays() const {
-        return config_.updateCheckIntervalDays;
-    }
 
     // Set specific config values
     void setVersion(const std::string& version);
-    void setDataPath(const std::string& path);
-    void setMaxLoginAttempts(int attempts);
-    void setClipboardTimeoutSeconds(int seconds);
-    void setAutoClipboardClear(bool enabled);
-    void setRequirePasswordConfirmation(bool required);
-    void setMinPasswordLength(int length);
-    void setShowEncryptionInCredentials(bool show);
-    void setDefaultUIMode(const std::string& mode);
-
-    // Update/Repository settings
-    void setGithubOwner(const std::string& owner);
-    void setGithubRepo(const std::string& repo);
-    void setAutoCheckUpdates(bool enabled);
-    void setUpdateCheckIntervalDays(int days);
 
    private:
     ConfigManager() = default;

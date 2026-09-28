@@ -4,68 +4,75 @@
 #include <iostream>
 
 #include "../utils/EncryptionUtils.h"
-#include "../vault/VaultFactory.h"
+#include "../vault/EspStore.h"
+#include "../vault/LocalFileStore.h"
+
+namespace {
+// Run a vault call for the UI: log a failure and return `fallback` instead of throwing into UI code.
+template <class R, class F>
+R guarded(const char* what, R fallback, F&& call) {
+    try {
+        return call();
+    } catch (const std::exception& e) {
+        std::cerr << "Error " << what << ": " << e.what() << std::endl;
+        return fallback;
+    }
+}
+}  // namespace
 
 // Throws if the vault can't be set up (e.g. unwritable dataPath): tui_main/gui_main report it and exit,
-// so no UI code ever runs with a null vault.
+// so no UI code ever runs with a null vault. Stores:
+//   local-first (default): the local file, synced with the ESP32 when espHost is set
+//   device-only (localCopy=false): the ESP32 as the only store, nothing written to dataPath
 UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    std::unique_ptr<IVaultStore> esp;
+    if (!c.espHost.empty())
+        esp = std::make_unique<EspStore>(EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
+    if (!c.localCopy) {
+        if (!esp) throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
+        vault = std::make_unique<VaultService>(std::move(esp), nullptr, "");
+        return;
+    }
     std::filesystem::create_directories(dataPath);
-    AppConfig config = ConfigManager::getInstance().getConfig();
-    config.dataPath = dataPath;
-    vault = makeVaultService(config);
+    vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>(dataPath + "/vault.json"), std::move(esp),
+                                           dataPath + "/sync.json");
 }
 
 bool UIManager::safeAddCredential(const std::string& platform,
                                   const std::string& username,
                                   const std::string& password,
                                   std::optional<CipherAlg> encryptionType) {
-    try {
+    return guarded("adding credential", false, [&] {
         vault->put({platform, username, password, encryptionType.value_or(encryption_utils::getDefault())});
         return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error adding credential: " << e.what() << std::endl;
-        return false;
-    }
+    });
 }
 
 std::optional<Credential> UIManager::safeGetCredentials(const std::string& platform) {
-    try {
-        return vault->get(platform);
-    } catch (const std::exception& e) {
-        std::cerr << "Error getting credentials: " << e.what() << std::endl;
-        return std::nullopt;
-    }
+    return guarded("getting credentials", std::optional<Credential>{}, [&] { return vault->get(platform); });
 }
 
 bool UIManager::safeDeleteCredential(const std::string& platform) {
-    try {
-        return vault->remove(platform);
-    } catch (const std::exception& e) {
-        std::cerr << "Error deleting credential: " << e.what() << std::endl;
-        return false;
-    }
+    return guarded("deleting credential", false, [&] { return vault->remove(platform); });
 }
 
 std::vector<std::string> UIManager::safeGetPlatforms() {
-    try {
-        return vault->platforms();
-    } catch (const std::exception& e) {
-        std::cerr << "Error listing platforms: " << e.what() << std::endl;
-        return {};
-    }
+    return guarded("listing platforms", std::vector<std::string>{}, [&] { return vault->platforms(); });
 }
 
 bool UIManager::safeChangeMasterPassword(const std::string& newPassword) {
-    try {
+    return guarded("changing master password", false, [&] {
         vault->changeMasterPassword(newPassword);
         return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error changing master password: " << e.what() << std::endl;
-        return false;
-    }
+    });
 }
 
 std::string UIManager::syncStatusText() const {
+    if (!ConfigManager::getInstance().getConfig().localCopy)
+        return vault->lastSyncStatus() == VaultService::SyncStatus::Offline
+                   ? "Device-only: ESP32 not reachable, and nothing is stored on this machine"
+                   : "Device-only: reading directly from the ESP32 (nothing stored on this machine)";
     switch (vault->lastSyncStatus()) {
         case VaultService::SyncStatus::Disabled:
             return "Local vault only (no ESP32 configured)";

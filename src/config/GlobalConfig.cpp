@@ -104,6 +104,8 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
             if (auto alg = cipherFromName(value)) config_.defaultCipher = *alg;
         } else if (key == "espHost") {
             config_.espHost = value;
+        } else if (key == "localCopy") {
+            config_.localCopy = !(value == "false" || value == "0");
         } else if (key == "espPort") {
             try {
                 config_.espPort = std::stoi(value);
@@ -219,6 +221,8 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
 
     file << "# ESP32 Vault (empty espHost = local only)\n";
     file << "espHost=" << config_.espHost << "\n";
+    file << "# false = device-only: every read goes to the ESP32, nothing is stored on this machine\n";
+    file << "localCopy=" << (config_.localCopy ? "true" : "false") << "\n";
     file << "espPort=" << config_.espPort << "\n";
     file << "espCert=" << config_.espCert << "\n";
     file << "espClientCert=" << config_.espClientCert << "\n";
@@ -248,81 +252,3 @@ void ConfigManager::setVersion(const std::string& version) {
     config_.version = version;
     saveConfig();
 }
-
-void ConfigManager::setDataPath(const std::string& path) {
-    config_.dataPath = path;
-}
-
-// Deprecated: Use the new method that accepts LFSR settings
-void ConfigManager::setMaxLoginAttempts(int attempts) {
-    // Validate input range
-    if (attempts < 1) {
-        std::cerr << "Warning: Invalid max login attempts value " << attempts
-                  << " (must be at least 1), setting to default (3)\n";
-        attempts = 3;
-    }
-    config_.maxLoginAttempts = attempts;
-}
-
-void ConfigManager::setClipboardTimeoutSeconds(int seconds) {
-    // Validate input range
-    if (seconds < 0) {
-        std::cerr << "Warning: Invalid clipboard timeout value " << seconds
-                  << " (must be non-negative), setting to default (30)\n";
-        seconds = 30;
-    }
-    config_.clipboardTimeoutSeconds = seconds;
-}
-
-void ConfigManager::setAutoClipboardClear(bool enabled) {
-    config_.autoClipboardClear = enabled;
-}
-
-void ConfigManager::setRequirePasswordConfirmation(bool required) {
-    config_.requirePasswordConfirmation = required;
-}
-
-void ConfigManager::setMinPasswordLength(int length) {
-    // Validate input range
-    if (length < 1) {
-        std::cerr << "Warning: Invalid minimum password length " << length
-                  << " (must be at least 1), setting to default (8)\n";
-        length = 8;
-    }
-    config_.minPasswordLength = length;
-}
-
-void ConfigManager::setShowEncryptionInCredentials(bool show) {
-    config_.showEncryptionInCredentials = show;
-}
-
-void ConfigManager::setDefaultUIMode(const std::string& mode) {
-    // Convert to lowercase and store
-    config_.defaultUIMode = mode;
-    std::transform(
-        config_.defaultUIMode.begin(), config_.defaultUIMode.end(), config_.defaultUIMode.begin(), ::tolower);
-}
-
-void ConfigManager::setGithubOwner(const std::string& owner) {
-    config_.githubOwner = owner;
-}
-
-void ConfigManager::setGithubRepo(const std::string& repo) {
-    config_.githubRepo = repo;
-}
-
-void ConfigManager::setAutoCheckUpdates(bool enabled) {
-    config_.autoCheckUpdates = enabled;
-}
-
-void ConfigManager::setUpdateCheckIntervalDays(int days) {
-    if (days > 0) {
-        config_.updateCheckIntervalDays = days;
-    } else {
-        std::cerr << "Warning: Invalid update check interval " << days
-                  << " (must be positive), keeping current value\n";
-    }
-}
-
-// Implementation of EncryptionUtils helper functions
-

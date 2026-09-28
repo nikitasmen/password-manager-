@@ -10,10 +10,6 @@
 
 namespace encryption_utils {
 
-inline const std::vector<CipherAlg>& getAllTypes() {
-    return allCiphers();
-}
-
 inline const char* getDisplayName(CipherAlg alg) {
     switch (alg) {
         case CipherAlg::Aes256Gcm:

@@ -22,9 +22,9 @@ class EditCredentialDialog {
    private:
     std::unique_ptr<Fl_Window> window;
     std::unique_ptr<ContainerComponent> rootComponent;
-    Fl_Input* usernameField;         // Store username field for cleanup
-    Fl_Secret_Input* passwordField;  // Store password field for cleanup
-    Fl_Choice* encryptionChoice;     // Store encryption choice for cleanup
+    Fl_Input* usernameField;  // owned by `window`
+    Fl_Secret_Input* passwordField;
+    Fl_Choice* encryptionChoice;
     Credential current;
     SaveFn onSave;
     std::function<void(bool)> onComplete;
@@ -71,7 +71,7 @@ class EditCredentialDialog {
 
             rootComponent->addChild<DescriptionComponent>(window.get(), 25, 130, 100, 25, "Encryption:");
             encryptionChoice = new Fl_Choice(130, 130, 295, 30);
-            for (CipherAlg alg : encryption_utils::getAllTypes())
+            for (CipherAlg alg : allCiphers())
                 encryptionChoice->add(encryption_utils::getDisplayName(alg));
             encryptionChoice->value(encryption_utils::toDropdownIndex(current.alg));  // keep what the entry uses
             window->add(encryptionChoice);
@@ -126,17 +126,11 @@ class EditCredentialDialog {
             rootComponent.reset();
         }
         if (window) {
-            for (Fl_Widget** w : {reinterpret_cast<Fl_Widget**>(&usernameField),
-                                  reinterpret_cast<Fl_Widget**>(&passwordField),
-                                  reinterpret_cast<Fl_Widget**>(&encryptionChoice)}) {
-                if (*w) {
-                    window->remove(*w);
-                    delete *w;
-                    *w = nullptr;
-                }
-            }
             window->hide();
-            window.reset();
+            window.reset();  // Fl_Group's destructor deletes the child inputs too
+            usernameField = nullptr;
+            passwordField = nullptr;
+            encryptionChoice = nullptr;
         }
     }
 };

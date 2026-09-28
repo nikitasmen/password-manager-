@@ -372,7 +372,10 @@ void GuiUIManager::createViewCredentialDialog(const std::string& platform,
             viewCredentialRoot->addChild<CredentialDisplayComponent>(viewCredentialWindow.get(), 20, 20, 360, 120);
         // If credentials are not available, throw an error
         if (!credentials) {
-            throw std::runtime_error("No credentials found for platform: " + platform);
+            throw std::runtime_error(vault->lastSyncStatus() == VaultService::SyncStatus::Offline &&
+                                             !ConfigManager::getInstance().getConfig().localCopy
+                                         ? syncStatusText()
+                                         : "No credentials found for platform: " + platform);
         }
         // Format credential information
         std::stringstream ss;
