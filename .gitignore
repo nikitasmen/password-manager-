@@ -81,3 +81,10 @@ esp32/vault/*.pem
 .config
 esp32/pki/
 esp32/vault/devices.h
+
+# Build outputs (in-source build) and generated/downloaded files
+/password_manager
+/base64_test
+/vault_test
+/include/
+__pycache__/
