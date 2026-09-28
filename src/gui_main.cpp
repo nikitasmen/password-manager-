@@ -13,7 +13,7 @@ int guiMain() {
     try {
         // Load configuration from file
         ConfigManager& configManager = ConfigManager::getInstance();
-        if (!configManager.loadConfig(".config")) {
+        if (!configManager.loadConfig()) {
             std::cout << "Warning: Could not load configuration file. Using defaults.\n";
         }
 

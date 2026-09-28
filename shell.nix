@@ -43,9 +43,9 @@ pkgs.mkShell {
     # Json Manipulator
     nlohmann_json
 
-    # ESP32 vault firmware (esp32/vault) and the Python client (clients/python)
+    # ESP32 vault firmware (esp32/vault) and tests/fake_esp.py
     arduino-cli
-    (python3.withPackages (ps: [ ps.cryptography ]))
+    python3
   ];
 
   ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS = "https://espressif.github.io/arduino-esp32/package_esp32_index.json";

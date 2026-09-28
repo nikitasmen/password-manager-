@@ -586,8 +586,7 @@ void GuiUIManager::setWindowCloseHandler(Fl_Window* window, bool exitOnClose) {
 }
 
 void GuiUIManager::openSettingsDialog() {
-    // Explicitly load from the .config file in the project root
-    ConfigManager::getInstance().loadConfig(".config");
+    ConfigManager::getInstance().loadConfig();
     createSettingsDialog();
     settingsWindow->show();
 }

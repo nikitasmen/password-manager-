@@ -1,5 +1,6 @@
 #include "GlobalConfig.h"
 
+#include <cstdlib>
 #include <filesystem>
 
 #include <algorithm>
@@ -16,11 +17,64 @@ ConfigManager& ConfigManager::getInstance() {
     return instance;
 }
 
+namespace {
+std::string home() {
+    const char* h = std::getenv("HOME");
+    return h && *h ? h : ".";
+}
+
+std::string xdgDir(const char* var, const char* fallback) {
+    const char* v = std::getenv(var);
+    std::filesystem::path base = v && *v ? std::filesystem::path(v) : std::filesystem::path(home()) / fallback;
+    return (base / "pwvault").string();
+}
+
+// "~/x" -> $HOME/x, relative -> base/x, absolute unchanged
+std::string resolvePath(const std::string& p, const std::string& base) {
+    if (p.empty()) return p;
+    if (p == "~" || p.rfind("~/", 0) == 0) return home() + p.substr(1);
+    std::filesystem::path path(p);
+    return path.is_absolute() ? p : (std::filesystem::path(base) / path).string();
+}
+}  // namespace
+
+std::string ConfigManager::configDir() {
+    return xdgDir("XDG_CONFIG_HOME", ".config");
+}
+
+std::string ConfigManager::configFile() {
+    return configDir() + "/config";
+}
+
+std::string ConfigManager::dataDir() {
+    return xdgDir("XDG_DATA_HOME", ".local/share");
+}
+
+void ConfigManager::resolvePaths() {
+    const std::string base = std::filesystem::path(configFile_).parent_path().string();
+    config_.dataPath = config_.dataPath.empty() ? dataDir() : resolvePath(config_.dataPath, base);
+    config_.espCert = resolvePath(config_.espCert, base);
+    config_.espClientCert = resolvePath(config_.espClientCert, base);
+    config_.espClientKey = resolvePath(config_.espClientKey, base);
+}
+
 bool ConfigManager::loadConfig(const std::string& configPath) {
+    configFile_ = configPath;
     std::ifstream file(configPath);
     if (!file.is_open()) {
-        // Create default config file if it doesn't exist
-        return saveConfig(configPath);
+        std::error_code ec;
+        if (std::filesystem::exists(configPath, ec)) {
+            // Exists but unreadable: never overwrite it; almost always created by a `sudo` run
+            std::cerr << "Cannot read " << configPath << ": permission denied.\n"
+                      << "It is probably owned by root (created by running something with sudo). Fix it with:\n"
+                      << "  sudo chown $USER " << configPath << "\n";
+            resolvePaths();
+            return false;
+        }
+        // First run: write the defaults so the user has a file to edit
+        bool ok = saveConfig(configPath);
+        resolvePaths();
+        return ok;
     }
 
     std::string line;
@@ -51,7 +105,10 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         } else if (key == "espHost") {
             config_.espHost = value;
         } else if (key == "espPort") {
-            config_.espPort = std::stoi(value);
+            try {
+                config_.espPort = std::stoi(value);
+            } catch (const std::exception&) {  // empty or garbage: keep the default
+            }
         } else if (key == "espClientCert") {
             config_.espClientCert = value;
         } else if (key == "espClientKey") {
@@ -120,13 +177,16 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         }
     }
 
-    // Remove global variables for backward compatibility
-
     file.close();
+    resolvePaths();
     return true;
 }
 
 bool ConfigManager::saveConfig(const std::string& configPath) {
+    std::error_code dirErr;
+    std::filesystem::create_directories(std::filesystem::path(configPath).parent_path(), dirErr);
+    std::filesystem::permissions(std::filesystem::path(configPath).parent_path(), std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, dirErr);
     std::ofstream file(configPath);
     if (!file.is_open()) {
         std::cerr << "Failed to create config file: " << configPath << std::endl;

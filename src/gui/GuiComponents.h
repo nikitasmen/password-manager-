@@ -900,8 +900,8 @@ class SettingsDialogComponent : public FormComponentBase {
         // The default cipher only applies to entries saved from now on; existing entries keep theirs,
         // so there is nothing to migrate.
         ConfigManager::getInstance().updateConfig(newConfig);
-        if (!ConfigManager::getInstance().saveConfig(".config")) {
-            fl_alert("Could not write .config");
+        if (!ConfigManager::getInstance().saveConfig()) {
+            fl_alert("Could not write %s", ConfigManager::configFile().c_str());
             return;
         }
         fl_alert("Settings saved. Data path and ESP32 changes apply after restarting the app.");

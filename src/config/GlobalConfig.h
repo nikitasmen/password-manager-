@@ -18,7 +18,7 @@ struct AppConfig {
     std::string version = "v1.7.0";
 
     // Core settings
-    std::string dataPath = "./data";
+    std::string dataPath;  // empty = ConfigManager::dataDir()
     CipherAlg defaultCipher = CipherAlg::Aes256Gcm;          // for new entries (docs/PROTOCOL.md §2)
     int maxLoginAttempts = 3;
 
@@ -37,9 +37,10 @@ struct AppConfig {
     // ESP32 vault store; empty espHost = local only (no sync)
     std::string espHost;
     int espPort = 443;
-    std::string espCert = "esp32/vault/cert.pem";  // pinned server cert
-    std::string espClientCert;                     // this device's cert + key: esp32/pki.sh add <name>
-    std::string espClientKey;
+    // Relative paths resolve against configDir(); `esp32/pki.sh install <name>` puts these files there.
+    std::string espCert = "server.pem";        // the board's pinned server cert
+    std::string espClientCert = "device.pem";  // this device's certificate
+    std::string espClientKey = "device.key";   // ...and its private key
 
     // Update/Repository settings
     std::string githubOwner = "nikitasmen";
@@ -53,11 +54,16 @@ class ConfigManager {
    public:
     static ConfigManager& getInstance();
 
-    // Load configuration from file
-    bool loadConfig(const std::string& configPath = ".config");
+    // One location for every client (GUI, TUI, clients/python), independent of the working directory (XDG):
+    static std::string configDir();   // $XDG_CONFIG_HOME/pwvault, default ~/.config/pwvault
+    static std::string configFile();  // configDir()/config
+    static std::string dataDir();     // $XDG_DATA_HOME/pwvault, default ~/.local/share/pwvault
 
-    // Save configuration to file
-    bool saveConfig(const std::string& configPath = ".config");
+    // Load configuration from file (creates it with defaults if missing); resolves paths to absolute
+    bool loadConfig(const std::string& configPath = configFile());
+
+    // Save configuration to file (owner-only)
+    bool saveConfig(const std::string& configPath = configFile());
 
     // Get current configuration
     [[nodiscard]] const AppConfig& getConfig() const {
@@ -132,7 +138,9 @@ class ConfigManager {
 
    private:
     ConfigManager() = default;
+    void resolvePaths();
     AppConfig config_;
+    std::string configFile_;  // the file loadConfig() read; relative paths in it resolve against its folder
 };
 
 

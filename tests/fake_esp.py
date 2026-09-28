@@ -9,20 +9,22 @@ Clients connect with host 127.0.0.1, port 8443 and their device certificate, exa
 """
 import argparse
 import json
-import os
 import re
 import ssl
-import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "clients", "python"))
-import vaultproto as vp  # noqa: E402
-
 MAX_BODY, MAX_BATCH = 16 * 1024, 32
 ID = re.compile(r"^[0-9a-f]{32}$")
 state = {"meta": None, "seq": 0, "entries": {}}
+
+
+def newer(a, b):
+    """PROTOCOL.md §5 merge rule: does record a replace record b?"""
+    return (a["updated"], a["data"].encode()) > (b["updated"], b["data"].encode())
+
+
 lock = threading.Lock()  # one request at a time touches state, like the board's mutex
 revoked = set()
 
@@ -101,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
                 accepted = 0
                 for e in entries:
                     cur = state["entries"].get(e["id"])
-                    if cur and not vp.newer(e, cur):
+                    if cur and not newer(e, cur):
                         continue
                     state["seq"] += 1
                     state["entries"][e["id"]] = dict(e, seq=state["seq"])
