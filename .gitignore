@@ -72,3 +72,12 @@ data/
 *.bak
 *.backup
 *.save
+# ESP32 vault secrets
+esp32/vault/secrets.h
+esp32/vault/cert.h
+esp32/vault/*.pem
+
+# Local config (holds the ESP32 vault token)
+.config
+esp32/pki/
+esp32/vault/devices.h
