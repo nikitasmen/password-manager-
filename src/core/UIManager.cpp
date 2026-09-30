@@ -1,8 +1,12 @@
 #include "UIManager.h"
 
 #include <algorithm>
+#include <unistd.h>
+
+#include <cctype>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 
 #include "../utils/EncryptionUtils.h"
@@ -95,6 +99,79 @@ std::optional<std::vector<EspStore::Device>> UIManager::safeListDevices(std::str
 bool UIManager::safeRevokeDevice(const std::string& name, std::string& error) {
     if (!board_) return error = "No ESP32 is set up (espHost in the config).", false;
     return boardCall(error, false, [&] { return board_->revokeDevice(name), true; });
+}
+
+UIManager::BoardState UIManager::checkBoard(std::string& detail) {
+    if (!board_) return BoardState::Connected;  // nothing configured: nothing to connect
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    if (!std::filesystem::exists(c.espClientKey) || !std::filesystem::exists(c.espClientCert)) {
+        detail = "This computer isn't paired with the ESP32 at " + c.espHost + " yet.";
+        return BoardState::NotPaired;
+    }
+    try {
+        board_->getMeta();  // any answer (a vault or none yet) means our certificate was accepted
+    } catch (const StoreUnavailable&) {
+        detail = "Can't reach the ESP32 at " + ConfigManager::getInstance().getConfig().espHost +
+                 ". Is it on, and is this computer on its network?";
+        return BoardState::Unreachable;
+    } catch (const std::exception& e) {
+        detail = "This computer isn't paired with the ESP32 (" + std::string(e.what()) + ").";
+        return BoardState::NotPaired;
+    }
+    if (!pendingHost_.empty()) {  // a corrected address that works is worth keeping
+        ConfigManager::getInstance().saveConfig();
+        pendingHost_.clear();
+    }
+    return BoardState::Connected;
+}
+
+void UIManager::setBoardHost(const std::string& host) {
+    if (!board_ || host.empty()) return;
+    board_->setHost(host);
+    pendingHost_ = host;
+    AppConfig c = ConfigManager::getInstance().getConfig();  // so checkBoard's messages name the new address
+    c.espHost = host;
+    ConfigManager::getInstance().updateConfig(c);
+}
+
+bool UIManager::savePairing(const PairedFiles& files, std::string& error) {
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    namespace fs = std::filesystem;
+    try {
+        // all three to .tmp first: cert and key must never be from different pairings
+        const std::pair<std::string, const std::string*> out[] = {
+            {c.espCert, &files.serverPem}, {c.espClientCert, &files.certPem}, {c.espClientKey, &files.keyPem}};
+        for (const auto& [path, content] : out) {
+            fs::create_directories(fs::path(path).parent_path());
+            const std::string tmp = path + ".tmp";
+            { std::ofstream(tmp, std::ios::trunc); }  // create it empty, restrict it, then write the secret
+            fs::permissions(tmp, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace);
+            std::ofstream f(tmp, std::ios::trunc | std::ios::binary);
+            if (!(f << *content) || !(f.close(), f)) throw std::runtime_error("couldn't write " + tmp);
+        }
+        for (const auto& [path, content] : out) fs::rename(path + ".tmp", path);
+    } catch (const std::exception& e) {
+        error = std::string("Couldn't save the certificates: ") + e.what();
+        return false;
+    }
+    if (!ConfigManager::getInstance().saveConfig()) {
+        error = "Paired, but couldn't write " + ConfigManager::configFile() + " (is it owned by root?)";
+        return false;
+    }
+    return true;
+}
+
+std::string UIManager::defaultDeviceName() {
+    char buf[256] = "";
+    gethostname(buf, sizeof buf - 1);
+    std::string name;
+    for (char ch : std::string(buf)) {
+        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '-') name += c;
+        if (c == '.') break;  // "laptop.local" -> "laptop"
+    }
+    while (!name.empty() && name[0] == '-') name.erase(0, 1);
+    return validDeviceName(name.substr(0, 20)) ? name.substr(0, 20) : "my-computer";
 }
 
 std::string UIManager::lastSeenText(int64_t t) {

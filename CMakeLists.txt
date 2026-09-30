@@ -71,6 +71,7 @@ set(VAULT_SOURCES
     src/vault/Syncer.cpp
     src/vault/VaultService.cpp
     src/vault/EspStore.cpp
+    src/vault/Pairing.cpp
 )
 
 set(CLI_SOURCES

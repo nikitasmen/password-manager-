@@ -63,7 +63,11 @@ Tested on an ESP32-D0WD with a 128×64 SSD1306 OLED (I2C, SDA 21 / SCL 22, addre
 
 ### Pairing a device
 
-Only the board and the new device are involved, like pairing a Bluetooth device. The new device needs `openssl` and `curl`.
+Only the board and the new device are involved, like pairing a Bluetooth device.
+
+**In the app:** set the board's address (Settings, or `espHost` in the config). On every start, until this computer is connected, the app opens a **Connect to your ESP32** window (the TUI shows the same as a screen): press BOOT on the board, type the code it shows, press Pair, then press BOOT again. If the board is just unreachable, you can correct its address there, or continue without it.
+
+**From a shell** (needs `openssl` and `curl`):
 
 1. Press **BOOT** on the board. For 2 minutes it shows a one-time code such as `7KQ2-M9XA-3FPD-W4HN`.
 2. On the new device, run:
@@ -81,7 +85,7 @@ The device makes its own key, and only a certificate request leaves it. Both sid
 
 The board is a plain USB-powered device: plug it into any charger.
 
-**Managing devices:** `./pki.sh devices` lists paired devices. To lock out a lost one, run `./pki.sh revoke <name>` on any other paired device and press BOOT to confirm. No reflash needed. The confirmation stops a stolen device from revoking your others.
+**Managing devices:** in the app, **Devices** (GUI title bar) or `d` (TUI) lists every paired device and when it last talked to the board, and revokes one: press BOOT on the board to confirm. From a shell, `./pki.sh devices` and `./pki.sh revoke <name>` do the same. No reflash needed. The confirmation stops a stolen device from revoking your others.
 
 ### Using it away from home
 

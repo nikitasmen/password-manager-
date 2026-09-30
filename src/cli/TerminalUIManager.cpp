@@ -76,7 +76,55 @@ TerminalUIManager::TerminalUIManager(const std::string& dataPath) : UIManager(da
 }
 
 void TerminalUIManager::initialize() {
+    connector();
     create_ = !vault->exists();
+}
+
+void TerminalUIManager::connector() {
+    std::string detail;
+    BoardState state = checkBoard(detail);
+    while (state != BoardState::Connected) {
+        header("Connect to your ESP32");
+        std::cout << (state == BoardState::Unreachable ? danger(detail) : detail) << "\n\n";
+        if (state == BoardState::NotPaired)
+            std::cout << "To pair: press " << bold("BOOT") << " on the board (it shows a code), then press "
+                      << accent("p") << " here.\n\n";
+        std::cout << muted(ConfigManager::getInstance().getConfig().localCopy
+                               ? "Without the board, the app uses this computer's copy and syncs later."
+                               : "Device-only mode: without the board there's no vault to open.")
+                  << "\n\n"
+                  << legend({{"p", "pair"}, {"a", "change address"}, {"r", "check again"}, {"Enter", "continue without it"}})
+                  << "\n";
+        std::string in = readLine("> ");
+        if (in.empty()) return;
+        if (in == "a") {
+            setBoardHost(readLine("Board address (the IP on its screen): "));
+        } else if (in == "p") {
+            const std::string def = defaultDeviceName();
+            std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
+            if (name.empty()) name = def;
+            const std::string code = normalizePairCode(readLine("Code on the board: "));
+            if (!validDeviceName(name) || code.empty()) {
+                message_ = danger(code.empty() ? "The code on the board has 16 characters."
+                                               : "Use 1-20 characters of a-z, 0-9 and - for the name.");
+                continue;
+            }
+            std::cout << "Now press BOOT on the board to approve '" << name << "' (within a minute)..." << std::flush;
+            try {
+                std::string why;
+                const std::string host = ConfigManager::getInstance().getConfig().espHost;
+                if (!savePairing(pairWithBoard(host, kPairPort, name, code), why)) throw PairError(why);
+                message_ = accent("Paired as " + name + ".");
+            } catch (const std::exception& e) {
+                message_ = danger(e.what());
+                continue;
+            }
+        } else if (in != "r") {
+            continue;
+        }
+        state = checkBoard(detail);
+    }
+    if (message_.empty() && detail.size()) message_ = accent("Connected to the ESP32.");
 }
 
 void TerminalUIManager::header(const std::string& state) {

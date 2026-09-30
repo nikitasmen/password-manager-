@@ -7,6 +7,7 @@
 
 #include "../config/GlobalConfig.h"
 #include "../vault/EspStore.h"
+#include "../vault/Pairing.h"
 #include "../vault/VaultService.h"
 
 /**
@@ -39,9 +40,18 @@ class UIManager {
     // Devices paired with the board. Not vault data, so it bypasses VaultService; board_ is owned by `vault`
     // (null without espHost). On failure: nullopt/false, and `error` is a sentence for the user.
     EspStore* board_ = nullptr;
+    std::string pendingHost_;  // an address typed into the connector, saved once it connects
     std::optional<std::vector<EspStore::Device>> safeListDevices(std::string& error);
     bool safeRevokeDevice(const std::string& name, std::string& error);  // blocks until BOOT is pressed (≤ 1 min)
     static std::string lastSeenText(int64_t unixTime);                   // "seen 5 min ago"
+
+    // The connector, shown on start (once per run) while an ESP32 is configured but not connected
+    enum class BoardState { Connected, NotPaired, Unreachable };
+    BoardState checkBoard(std::string& detail);  // at most a couple of seconds; detail: why, for the user
+    void setBoardHost(const std::string& host);  // this run, and saved to the config once connected
+    // Writes the pairing result where the config points (mode 600) and saves espHost. false + error on failure.
+    bool savePairing(const PairedFiles& files, std::string& error);
+    static std::string defaultDeviceName();  // from the hostname, e.g. "nixos"
 
    public:
     /**

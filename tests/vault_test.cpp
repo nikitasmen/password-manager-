@@ -12,6 +12,7 @@
 #include "../src/core/base64.h"
 #include "../src/vault/EspStore.h"
 #include "../src/vault/LocalFileStore.h"
+#include "../src/vault/Pairing.h"
 #include "../src/vault/VaultService.h"
 
 namespace fs = std::filesystem;
@@ -422,6 +423,35 @@ void testDeviceOnly(const fs::path& dir) {
     std::cout << "device-only: ok\n";
 }
 
+// Pairing through the app's client, only against tests/fake_esp.py (always open, auto-approves):
+// PWVAULT_TEST_PAIR="host:mainPort:pairPort,code". Not the real board: a wrong code closes its pairing mode.
+void testPair(const fs::path& dir, const std::string& spec) {
+    std::string addr = spec.substr(0, spec.find(',')), code = normalizePairCode(spec.substr(spec.find(',') + 1));
+    const std::string host = addr.substr(0, addr.find(':'));
+    const int port = std::stoi(addr.substr(addr.find(':') + 1)), pairPort = std::stoi(addr.substr(addr.rfind(':') + 1));
+    CHECK(!code.empty() && normalizePairCode("abcd-o123-efgh-4567") == "ABCD0123EFGH4567" && normalizePairCode("short").empty());
+    CHECK(validDeviceName("laptop-2") && !validDeviceName("-x") && !validDeviceName("Laptop") && !validDeviceName(""));
+    bool wrong = false, closed = false;
+    try {
+        pairWithBoard(host, pairPort, "pair-test", std::string(16, 'Z'));
+    } catch (const PairError& e) {
+        wrong = std::string(e.what()).find("wrong code") != std::string::npos;
+    }
+    try {
+        pairWithBoard(host, 1, "pair-test", code);  // nothing listens there
+    } catch (const PairError&) {
+        closed = true;
+    }
+    CHECK(wrong && closed);
+    PairedFiles f = pairWithBoard(host, pairPort, "pair-test", code);
+    auto put = [&](const char* n, const std::string& s) { return std::ofstream(dir / n) << s, (dir / n).string(); };
+    EspStore esp(EspConfig{host, port, put("server.pem", f.serverPem), put("device.pem", f.certPem), put("device.key", f.keyPem)});
+    esp.getMeta();  // throws unless the board accepts the certificate it just issued
+    auto devices = esp.devices();
+    CHECK(std::any_of(devices.begin(), devices.end(), [](const auto& d) { return d.thisDevice && d.name == "pair-test"; }));
+    std::cout << "pair: ok (wrong code refused, no pairing port reported, issued cert accepted)\n";
+}
+
 int main() {
     fs::path dir = fs::temp_directory_path() / ("vault_test_" + std::to_string(std::random_device{}()));
     fs::create_directories(dir);
@@ -431,6 +461,7 @@ int main() {
     testRobustness(dir);
     testDeviceOnly(dir);
     if (const char* esp = std::getenv("PWVAULT_TEST_ESP")) testEsp(dir, esp);
+    if (const char* pair = std::getenv("PWVAULT_TEST_PAIR")) testPair(dir, pair);
     fs::remove_all(dir);
     std::cout << "all vault tests passed\n";
     return 0;

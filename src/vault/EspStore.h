@@ -22,6 +22,9 @@ struct EspConfig {
 class EspStore : public IVaultStore {
    public:
     explicit EspStore(EspConfig cfg);
+    void setHost(const std::string& host) {  // e.g. the user corrected the address in the connector
+        cfg_.host = host;
+    }
 
     std::optional<VaultMeta> getMeta() override;
     bool putMeta(const VaultMeta& meta, int ifRev) override;

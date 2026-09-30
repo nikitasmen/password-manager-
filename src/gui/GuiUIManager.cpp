@@ -127,6 +127,7 @@ void GuiUIManager::on(Fl_Widget* w, std::function<void()> f) {
 // ---- unlock / create ----
 
 void GuiUIManager::initialize() {
+    runConnector();
     try {
         buildUnlockWindow(!vault->exists());
     } catch (const std::exception& e) {  // e.g. device-only and the board is off
@@ -587,6 +588,91 @@ void GuiUIManager::openSettings() {
         flash(restart ? "saved, restart for esp32 changes" : "settings saved");
         showDetail(current_);  // e.g. the encryption row
     });
+    runModal(w);
+    delete w;
+    callbacks_.resize(mark);
+}
+
+void GuiUIManager::runConnector() {
+    std::string detail;
+    BoardState state = checkBoard(detail);
+    if (state == BoardState::Connected) return;
+
+    const size_t mark = callbacks_.size();
+    const int W = 520, H = 540, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, H);
+    w->copy_label("Connect to the ESP32");
+    w->color(enclosure());
+    text(x, 22, fw, 30, "Connect to your ESP32", kSansBold, 20, ink());
+    Fl_Box* status = text(x, 58, fw, 48, "", kSans, kSmall, muted());
+    auto* host = field<Fl_Input>(x, 132, fw - 130, 36, "Board address (the IP on its screen)");
+    host->value(ConfigManager::getInstance().getConfig().espHost.c_str());
+    Fl_Button* retry = button(x + fw - 120, 132, 120, 36, "Check again");
+
+    text(x, 190, fw, 22, "Pair this computer", kSansBold, kBody, ink());
+    text(x, 214, fw, 66,
+         "1. Press BOOT on the board. It shows a code for 2 minutes.\n2. Type the code below and press Pair.\n"
+         "3. Press BOOT again when the board asks.",
+         kSans, kSmall, muted());
+    auto* name = field<Fl_Input>(x, 312, 190, 36, "Name for this computer");
+    name->value(defaultDeviceName().c_str());
+    auto* code = field<Fl_Input>(x + 206, 312, fw - 206, 36, "Code on the board");
+    Fl_Box* error = text(x, 360, fw, 60, "", kSans, kSmall, danger());
+    text(x, H - 118, fw, 40,
+         ConfigManager::getInstance().getConfig().localCopy
+             ? "Without the board, the app uses this computer's copy and syncs later."
+             : "Device-only mode: without the board there's no vault to open.",
+         kSans, kSmall, muted());
+    Fl_Button* skip = button(x, H - 58, 190, 38, "Continue without it");
+    Fl_Button* pair = button(W - x - 100, H - 58, 100, 38, "Pair", Kind::Primary);
+    pair->shortcut(FL_Enter);
+    w->end();
+
+    auto show = [&] {
+        status->labelcolor(state == BoardState::Unreachable ? danger() : muted());
+        status->copy_label(literal(detail).c_str());
+        w->redraw();
+    };
+    auto busy = [&](const std::string& msg) {  // before a blocking call: show why the window stops responding
+        error->labelcolor(muted());
+        error->copy_label(literal(msg).c_str());
+        w->cursor(FL_CURSOR_WAIT);
+        Fl::flush();
+    };
+    auto done = [&] {
+        w->cursor(FL_CURSOR_DEFAULT);
+        error->labelcolor(danger());
+    };
+    auto recheck = [&] {
+        setBoardHost(host->value());
+        busy("Checking the board...");
+        state = checkBoard(detail);
+        done();
+        error->copy_label("");
+        if (state == BoardState::Connected) return w->hide();
+        show();
+    };
+    on(retry, recheck);
+    on(skip, [w] { w->hide(); });
+    on(pair, [&] {
+        const std::string c = normalizePairCode(code->value());
+        if (!validDeviceName(name->value())) return error->copy_label("Use 1-20 characters of a-z, 0-9 and - for the name.");
+        if (c.empty()) return error->copy_label("The code on the board has 16 characters.");
+        setBoardHost(host->value());
+        busy("Now press BOOT on the board to approve '" + std::string(name->value()) + "' (within a minute)...");
+        // ponytail: blocks the window until the board answers (<= 90 s); a worker thread if that ever matters
+        std::string why;
+        try {
+            if (!savePairing(pairWithBoard(host->value(), kPairPort, name->value(), c), why)) throw PairError(why);
+        } catch (const std::exception& e) {
+            done();
+            return error->copy_label(literal(e.what()).c_str());
+        }
+        done();
+        recheck();  // closes the window once the board accepts the new certificate
+    });
+    show();
+    (state == BoardState::NotPaired ? static_cast<Fl_Widget*>(code) : host)->take_focus();
     runModal(w);
     delete w;
     callbacks_.resize(mark);
