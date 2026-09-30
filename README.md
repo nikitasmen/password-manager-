@@ -168,7 +168,7 @@ adb install build/outputs/apk/debug/pwvault-debug.apk
 PWVAULT_TEST_PAIR="127.0.0.1:8443:8444,ABCD0123EFGH4567" nix-shell --run 'gradle testDebugUnitTest --rerun-tasks'
 ```
 
-To pair, press BOOT on the board: next to the code it shows a QR code. Tap **Scan the QR code** in the app, then press BOOT again to approve. Or type the board's IP address (`.local` names don't resolve reliably on Android) and the code instead. The scanner is Google's code scanner, which runs in Play services on the phone and needs no camera permission.
+To pair from a laptop that's already paired, open **Devices → Add a device** in the desktop app (or `d`, then `a`, in the terminal UI): it shows a large QR code to scan with the phone, and you press BOOT on the board once to approve. Or, at the board, press BOOT: next to the code it shows a QR code. Tap **Scan the QR code** in the app, then press BOOT again to approve. Or type the board's IP address (`.local` names don't resolve reliably on Android) and the code instead. The scanner is Google's code scanner, which runs in Play services on the phone and needs no camera permission.
 
 ### Layout
 

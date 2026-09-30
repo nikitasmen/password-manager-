@@ -29,6 +29,20 @@ class OledPanel : public Fl_Widget {
     std::vector<Text> texts_;
 };
 
+// A QR code, black modules on white with a 4-module quiet zone, scaled to the largest whole module size that fits.
+// Always black on white, whatever the theme: that's what phone scanners read most reliably.
+class QrBox : public Fl_Widget {
+   public:
+    QrBox(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {}
+    void setText(const std::string& text);  // "" = nothing
+
+   protected:
+    void draw() override;
+
+   private:
+    std::vector<std::vector<bool>> modules_;
+};
+
 // The entry list: tall rows, the selected one tinted with an accent bar on its left edge.
 class EntryList : public Fl_Hold_Browser {
    public:

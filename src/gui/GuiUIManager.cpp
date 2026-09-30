@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <ctime>
 
 #include "../config/GlobalConfig.h"
@@ -104,6 +105,23 @@ void runModal(Fl_Window* w) {
     w->set_modal();
     w->show();
     while (w->shown()) Fl::wait();
+}
+
+// The "Add a device" window's countdown: pairing on the board closes after 2 minutes
+struct PairCountdown {
+    Fl_Box* label;
+    std::time_t until;
+};
+
+void tickPairCountdown(void* p) {
+    auto* c = static_cast<PairCountdown*>(p);
+    const long left = static_cast<long>(c->until - std::time(nullptr));
+    char buf[120];
+    if (left > 0) std::snprintf(buf, sizeof buf, "Pairing closes in %ld:%02ld.", left / 60, left % 60);
+    else std::snprintf(buf, sizeof buf, "Pairing has closed. Close this window and add the device again.");
+    c->label->copy_label(buf);
+    c->label->redraw();
+    if (left > 0) Fl::repeat_timeout(1.0, tickPairCountdown, p);
 }
 
 void clearClipboard(void*) {
@@ -820,12 +838,13 @@ void GuiUIManager::openDevices() {
     w->color(enclosure());
     text(x, 22, fw, 30, "Devices", kSansBold, 20, ink());
     text(x, 56, fw, 44,
-         "Everything paired with the ESP32. To add a device, run esp32/pki.sh pair <name> on it and press BOOT on "
-         "the board.",
+         "Everything paired with the ESP32. To add a phone, click Add a device and scan the code with the pwvault "
+         "app. On a computer, run esp32/pki.sh pair <name> instead.",
          kSans, kSmall, muted());
     auto* list = new EntryList(x, 108, fw, 230);
     Fl_Box* status = text(x, 346, fw, 44, "", kSans, kSmall, muted());
     Fl_Button* revoke = button(x, H - 58, 120, 38, "Revoke", Kind::Danger);
+    Fl_Button* add = button(W - x - 100 - 12 - 140, H - 58, 140, 38, "Add a device");
     Fl_Button* close = button(W - x - 100, H - 58, 100, 38, "Close", Kind::Primary);
     w->end();
 
@@ -861,9 +880,42 @@ void GuiUIManager::openDevices() {
         reload();
         ok ? say("Revoked " + d.name + ".", false) : say(error, true);
     });
+    on(add, [&] {
+        std::string error;
+        const auto invite = safeOpenPairing(error);
+        if (!invite) return say(error, true);
+        showPairingCode(*invite);
+        reload();  // the new device, if it was approved
+    });
     on(close, [w] { w->hide(); });
     reload();
     runModal(w);
+    delete w;
+    callbacks_.resize(mark);
+}
+
+void GuiUIManager::showPairingCode(const EspStore::PairInvite& invite) {
+    const size_t mark = callbacks_.size();
+    const int W = 440, H = 600, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, H);
+    w->copy_label("Add a device");
+    w->color(enclosure());
+    text(x, 22, fw, 30, "Add a device", kSansBold, 20, ink());
+    text(x, 56, fw, 44, "Open pwvault on the phone and scan this code. Then press BOOT on the board to let it in.",
+         kSans, kSmall, muted());
+    auto* qr = new QrBox(x, 108, fw, fw);
+    qr->setText(invite.qr);
+    const std::string& c = invite.code;  // grouped like the OLED shows it
+    text(x, 108 + fw + 12, fw, 24, "Code  " + c.substr(0, 4) + "-" + c.substr(4, 4) + "-" + c.substr(8, 4) + "-" +
+         c.substr(12), kMono, kValue, ink());
+    Fl_Box* left = text(x, 108 + fw + 40, fw, 24, "", kSans, kSmall, muted());
+    Fl_Button* close = button(W - x - 100, H - 58, 100, 38, "Done", Kind::Primary);
+    w->end();
+    PairCountdown countdown{left, std::time(nullptr) + invite.seconds};
+    tickPairCountdown(&countdown);
+    on(close, [w] { w->hide(); });
+    runModal(w);
+    Fl::remove_timeout(tickPairCountdown, &countdown);
     delete w;
     callbacks_.resize(mark);
 }

@@ -609,6 +609,9 @@ httpd_handle_t pairServer = nullptr;
 uint32_t pairUntil = 0;
 String pairCode;                                    // the HMAC key: 16 chars, 80 bits
 std::atomic<bool> pairBusy{false}, pairDone{false};  // loop() closes pairing once a request has been handled
+std::atomic<bool> openAsked{false};                  // POST /pair/open wants pairing open
+String openBy;                                       // ...and who asked (guarded by mtx)
+String pairBy;                                       // the device that opened this session, "" for BOOT
 
 esp_err_t hPair(httpd_req_t* r) {
     pairBusy = true;
@@ -693,6 +696,29 @@ void stopPairing() {
     httpd_ssl_stop(pairServer);
     pairServer = nullptr;
     pairCode = "";
+    pairBy = "";
+}
+
+// POST /pair/open: a paired device opens pairing, as a BOOT press does, so it can show the code as a large QR.
+// loop() does the opening (one place starts and stops the pairing server); this waits for it. Approving the new
+// device still takes a press on the board, so a paired device alone can't add another.
+esp_err_t hOpenPair(httpd_req_t* r) {
+    {
+        std::lock_guard<std::mutex> g(mtx);
+        const char* who = authDevice(r);
+        if (!who) return forbid(r);
+        openBy = who;
+    }
+    openAsked = true;
+    for (int i = 0; i < 60 && (openAsked || !pairServer); i++) delay(50);
+    if (!pairServer) return fail(r, "503 Service Unavailable", "pairing didn't open");
+    JsonDocument d;
+    d["code"] = pairCode;
+    d["qr"] = "PWVAULT:" + WiFi.localIP().toString() + ":" + pairCode;  // what the OLED's QR says (PROTOCOL.md §9)
+    d["seconds"] = (int32_t)(pairUntil - millis()) / 1000;
+    String out;
+    serializeJson(d, out);
+    return sendJson(r, "200 OK", out);
 }
 
 void startServer() {
@@ -724,7 +750,7 @@ void startServer() {
                   {"/entries", HTTP_GET, hGetEntries},  {"/entries", HTTP_POST, hPostEntries},
                   {"/access", HTTP_POST, hAccess},      {"/devices", HTTP_GET, hDevices},
                   {"/devices/*", HTTP_DELETE, hRevoke}, {"/pin", HTTP_PUT, hSetPin},
-                  {"/pin", HTTP_POST, hTryPin}};
+                  {"/pin", HTTP_POST, hTryPin},         {"/pair/open", HTTP_POST, hOpenPair}};
     for (auto& rt : routes) {
         httpd_uri_t u = {};
         u.uri = rt.uri;
@@ -782,7 +808,7 @@ void draw() {
         oled.setCursor(0, 28);
         oled.print(pairCode.substring(8, 12) + "-" + pairCode.substring(12));
         oled.setCursor(0, 42);
-        oled.print("scan or type");
+        oled.print(pairBy.isEmpty() ? "scan or type" : ("via " + pairBy).substring(0, 12));
         oled.setCursor(0, 56);
         oled.print(WiFi.localIP());
         esp_qrcode_config_t qr = ESP_QRCODE_CONFIG_DEFAULT();
@@ -884,6 +910,12 @@ void loop() {
             if (!pairServer) startPairing();
             else if (!pairBusy) stopPairing();  // pressed again: cancel
         }
+    }
+    if (openAsked) {
+        if (!pairServer) startPairing();
+        std::lock_guard<std::mutex> g(mtx);
+        if (pairServer && pairBy.isEmpty()) pairBy = openBy;
+        openAsked = false;
     }
     if (pairServer && !pairBusy && (pairDone || (int32_t)(millis() - pairUntil) > 0)) stopPairing();
     {

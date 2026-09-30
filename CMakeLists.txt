@@ -56,6 +56,7 @@ set(CORE_SOURCES
     src/core/UIManager.cpp
     src/core/UIManagerFactory.cpp
     src/core/clipboard.cpp
+    src/core/qrcodegen.cpp
     src/config/GlobalConfig.cpp
     src/crypto/cipher_context_raii.cpp
     src/utils/filesystem_utils.cpp

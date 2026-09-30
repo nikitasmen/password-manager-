@@ -2,8 +2,11 @@
 
 #include <FL/fl_draw.H>
 
+#include <algorithm>
+
 #include "Theme.h"
 #include "../core/oled_font.h"
+#include "../core/qrcodegen.hpp"
 
 OledPanel::OledPanel(int x, int y, int w, int h, int dot) : Fl_Widget(x, y, w, h), dot_(dot) {
     box(FL_FLAT_BOX);
@@ -57,4 +60,27 @@ void EntryList::item_draw(void* item, int x, int y, int w, int h) const {
     fl_font(selected ? theme::kSansBold : theme::kSans, theme::kValue);
     fl_color(theme::ink());
     fl_draw(item_text(item), x + 16, y, w - 20, h, FL_ALIGN_LEFT | FL_ALIGN_CLIP);
+}
+
+void QrBox::setText(const std::string& text) {
+    modules_.clear();
+    if (!text.empty()) {
+        const auto qr = qrcodegen::QrCode::encodeText(text.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
+        modules_.assign(qr.getSize(), std::vector<bool>(qr.getSize()));
+        for (int y = 0; y < qr.getSize(); y++)
+            for (int x = 0; x < qr.getSize(); x++) modules_[y][x] = qr.getModule(x, y);
+    }
+    redraw();
+}
+
+void QrBox::draw() {
+    if (modules_.empty()) return;
+    const int n = static_cast<int>(modules_.size()), total = n + 8;  // + quiet zone
+    const int m = std::min(w(), h()) / total, side = m * total;
+    const int x0 = x() + (w() - side) / 2, y0 = y() + (h() - side) / 2;
+    fl_rectf(x0, y0, side, side, FL_WHITE);
+    fl_color(FL_BLACK);
+    for (int r = 0; r < n; r++)
+        for (int c = 0; c < n; c++)
+            if (modules_[r][c]) fl_rectf(x0 + (c + 4) * m, y0 + (r + 4) * m, m, m);
 }

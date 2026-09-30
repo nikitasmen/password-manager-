@@ -115,6 +115,11 @@ bool UIManager::safeRevokeDevice(const std::string& name, std::string& error) {
     return boardCall(error, false, [&] { return board_->revokeDevice(name), true; });
 }
 
+std::optional<EspStore::PairInvite> UIManager::safeOpenPairing(std::string& error) {
+    if (!board_) return error = "No ESP32 is set up (espHost in the config).", std::nullopt;
+    return boardCall(error, std::optional<EspStore::PairInvite>{}, [&] { return std::optional(board_->openPairing()); });
+}
+
 UIManager::BoardState UIManager::checkBoard(std::string& detail) {
     if (!board_) return BoardState::Connected;  // nothing configured: nothing to connect
     const AppConfig& c = ConfigManager::getInstance().getConfig();

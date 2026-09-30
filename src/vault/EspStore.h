@@ -42,6 +42,15 @@ class EspStore : public IVaultStore {
     // Asks the board, then waits until someone presses BOOT there (up to a minute). Throws if it doesn't happen.
     void revokeDevice(const std::string& name);
 
+    // Opens pairing on the board, as a BOOT press does, so this device can show the code as a large QR for a phone
+    // (PROTOCOL.md §9). The new device still needs a BOOT press on the board to be approved.
+    struct PairInvite {
+        std::string code;  // 16 characters
+        std::string qr;    // the text to encode, PWVAULT:<ip>:<code>
+        int seconds = 0;   // until pairing closes
+    };
+    PairInvite openPairing();
+
     // PIN unlock (PinUnlock.h). The board keeps one PIN record per device.
     std::string setPin(const std::string& verifierHex);  // returns the board's secret for this device
     struct PinReply {

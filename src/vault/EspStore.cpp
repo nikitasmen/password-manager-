@@ -129,6 +129,13 @@ void EspStore::revokeDevice(const std::string& name) {
     throw std::runtime_error("BOOT wasn't pressed on the board in time; " + name + " still has access");
 }
 
+EspStore::PairInvite EspStore::openPairing() {
+    auto r = request("POST", "/pair/open");
+    if (r.status != 200) throw std::runtime_error("the board didn't open pairing: HTTP " + std::to_string(r.status));
+    auto j = nlohmann::json::parse(r.body);
+    return {j.at("code").get<std::string>(), j.at("qr").get<std::string>(), j.value("seconds", 0)};
+}
+
 std::string EspStore::setPin(const std::string& verifierHex) {
     auto r = request("PUT", "/pin", nlohmann::json{{"verifier", verifierHex}}.dump());
     if (r.status != 200) throw std::runtime_error("PUT /pin: HTTP " + std::to_string(r.status));
