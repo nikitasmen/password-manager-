@@ -452,6 +452,10 @@ void testPair(const fs::path& dir, const std::string& spec) {
     auto devices = esp.devices();
     CHECK(std::any_of(devices.begin(), devices.end(), [](const auto& d) { return d.thisDevice && d.name == "pair-test"; }));
     std::cout << "pair: ok (wrong code refused, no pairing port reported, issued cert accepted)\n";
+    // A paired device opens pairing for another (the laptop showing a QR for a phone): same code, QR per §9
+    const EspStore::PairInvite invite = esp.openPairing();
+    CHECK(invite.code == code && invite.qr == "PWVAULT:" + host + ":" + code && invite.seconds > 0);
+    std::cout << "pair/open: ok\n";
 
     // PIN unlock through the board: the vault key sealed under HMAC(board secret, PIN proof)
     CHECK(validPin("1234") && validPin("00000000") && !validPin("123") && !validPin("12a4") && !validPin(""));

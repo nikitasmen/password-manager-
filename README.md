@@ -3,7 +3,7 @@
 A C++17 password manager with a desktop GUI (FLTK) and a terminal UI, that keeps your vault in sync with a small **ESP32 box on your home network**. The ESP32 only ever stores ciphertext: all encryption happens on your devices, so even someone holding the board can't read your passwords.
 
 ```
- GUI (FLTK)    TUI                    future mobile app
+ GUI (FLTK)    TUI                    Android app    
      └────┬─────┘                           │
      VaultService (C++)                same protocol       ← encryption happens here, on the client
       ├─ ICipher: AES-256-GCM | ChaCha20-Poly1305
@@ -14,11 +14,11 @@ A C++17 password manager with a desktop GUI (FLTK) and a terminal UI, that keeps
 
 ## How it works
 
-- **Zero-knowledge store.** Your master password unlocks a random *vault key*, and the vault key encrypts every entry. Neither ever leaves your device. The ESP32 (or a copy of `data/vault.json`) holds only encrypted blobs. Entry ids are keyed hashes of the platform name, so the store can't even tell which sites you have.
+- **Zero-knowledge store.** Your master password unlocks a random *vault key*, and the vault key encrypts every entry. Neither ever leaves your device. The ESP32 (or a copy of `data/vault.json`) holds only encrypted blobs. Entry ids are keyed hashes of the platform name, so stored records don't reveal which sites you have (reads do: the OLED hint sends the platform and username of each entry you open).
 - **Local-first with automatic sync.** Every read and write goes to the local vault first, so the app works anywhere. When the ESP32 is reachable, the app syncs automatically: on unlock, after every change, and before reads once the last sync is more than 30 seconds old. Away from home it just says *ESP32 not reachable* and catches up when you're back. If two devices edit the same entry while offline, the later edit wins.
 - **Pluggable ciphers.** Each entry records its own algorithm, AES-256-GCM or ChaCha20-Poly1305, which you choose when you save it. Both are authenticated, so tampering is detected. New algorithms are added by implementing `ICipher` and registering them in `makeCipher()`.
 - **Changing the master password** only re-encrypts the vault key, so it's instant and propagates to your other devices on their next sync.
-- **One spec, many clients.** [`docs/PROTOCOL.md`](docs/PROTOCOL.md) defines the crypto format, the ESP32 HTTP API and the sync algorithm. Any client that reproduces [`tests/protocol_vectors.json`](tests/protocol_vectors.json) byte for byte can read and write the same vault. That's how a mobile app can be added later without sharing C++ code.
+- **One spec, many clients.** [`docs/PROTOCOL.md`](docs/PROTOCOL.md) defines the crypto format, the ESP32 HTTP API and the sync algorithm. Any client that reproduces [`tests/protocol_vectors.json`](tests/protocol_vectors.json) byte for byte can read and write the same vault. That's how the Android app (`android/`) works with the same vault without sharing C++ code.
 
 ### What the ESP32 protects against
 
@@ -29,6 +29,7 @@ A C++17 password manager with a desktop GUI (FLTK) and a terminal UI, that keeps
 | A revoked device | `403` on every request |
 | One of your devices | Ciphertext only; still needs your master password |
 | Someone who steals the board | Ciphertext only; offline brute force at 600,000 PBKDF2 rounds per guess. **A strong master password is what protects you here.** |
+| Someone who steals the board **and** a device with a PIN set | The vault, if the PIN is short: the board's flash isn't encrypted, so its PIN secret plus the device's `pin.json` allow an offline PIN brute force with no try limit. Use a long PIN, or none, if both could be stolen together. |
 
 A revoked device still completes the TLS handshake, but it gets a single `403` and then the board closes the connection. Refusing it inside the handshake would need a certificate revocation list, which ESP-IDF's TLS layer doesn't expose.
 
@@ -155,6 +156,36 @@ PWVAULT_TEST_ESP="127.0.0.1:8443,/tmp/dev/pwvault/server.pem,/tmp/dev/pwvault/de
 
 `tests/protocol_vectors.json` is a fixed reference, produced by an independent Python implementation, that the C++ code reproduces byte for byte. Any other client should reproduce it too. If you ever change the format on purpose, change `docs/PROTOCOL.md` first and add new vectors alongside the old ones.
 
+### Android app
+
+`android/` is a Kotlin + Compose app (Android 9+) that implements `docs/PROTOCOL.md` on its own: pair (§9, the key stays in the Android Keystore), unlock with the master password or a PIN, browse, copy, add, edit and delete entries, and sync with the board. It keeps a local copy, so it works away from home and syncs when it can reach the board again. Leaving the app locks it, screenshots are blocked, and copied values are cleared from the clipboard after 30 s.
+
+```bash
+cd android
+nix-shell --run 'gradle testDebugUnitTest assembleDebug'   # JDK, Gradle and the Android SDK come from android/shell.nix
+adb install build/outputs/apk/debug/pwvault-debug.apk
+# also pair, sync and PIN against the fake board:
+PWVAULT_TEST_PAIR="127.0.0.1:8443:8444,ABCD0123EFGH4567" nix-shell --run 'gradle testDebugUnitTest --rerun-tasks'
+```
+
+To pair from a laptop that's already paired, open **Devices → Add a device** in the desktop app (or `d`, then `a`, in the terminal UI): it shows a large QR code to scan with the phone, and you press BOOT on the board once to approve. Or, at the board, press BOOT: next to the code it shows a QR code. Tap **Scan the QR code** in the app, then press BOOT again to approve. Or type the board's IP address (`.local` names don't resolve reliably on Android) and the code instead. The scanner is Google's code scanner, which runs in Play services on the phone and needs no camera permission.
+
+**Updates.** The app checks the GitHub releases once a day, and on **More → Check for updates**. When the latest release is newer and has a `pwvault.apk`, it offers to download it, and Android asks you to confirm the install. Android only installs an update signed with the same key as the installed app, so every release must be signed with your release key:
+
+```bash
+# once: make the key, keep it (and a backup) outside the repo; losing it means reinstalling every phone
+keytool -genkeypair -keystore ~/.android/pwvault-release.jks -alias pwvault -keyalg EC -groupname secp256r1 -validity 10000 -dname CN=pwvault
+# ~/.gradle/gradle.properties:
+#   pwvaultKeystore=/home/<you>/.android/pwvault-release.jks
+#   pwvaultKeystorePassword=...   pwvaultKeyAlias=pwvault   pwvaultKeyPassword=...
+
+# each release: set versionName in android/build.gradle.kts to the tag without its v, then
+cd android && nix-shell --run 'gradle assembleRelease'
+cp build/outputs/apk/release/pwvault-release.apk pwvault.apk && gh release upload v2.1 pwvault.apk
+```
+
+A phone running a debug build (signed with the build machine's debug key) can't take these updates: install the first release build by hand after uninstalling the debug one, then pair again.
+
 ### Layout
 
 ```
@@ -169,6 +200,7 @@ src/core/UIManager.*    base class for front ends; talks only to VaultService
 src/gui/, src/cli/      FLTK GUI and terminal UI
 esp32/vault/            ESP32 firmware (store + OLED)
 esp32/pki.sh            server cert; pair, list and revoke devices
+android/                Android app (Kotlin): same protocol, own implementation
 tests/                  vault_test.cpp, protocol vectors, fake_esp.py (stand-in board)
 ```
 

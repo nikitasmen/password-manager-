@@ -37,6 +37,7 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/x509_csr.h>
+#include <qrcode.h>  // espressif__qrcode, bundled with the core
 
 #include <atomic>
 #include <mutex>
@@ -608,6 +609,9 @@ httpd_handle_t pairServer = nullptr;
 uint32_t pairUntil = 0;
 String pairCode;                                    // the HMAC key: 16 chars, 80 bits
 std::atomic<bool> pairBusy{false}, pairDone{false};  // loop() closes pairing once a request has been handled
+std::atomic<bool> openAsked{false};                  // POST /pair/open wants pairing open
+String openBy;                                       // ...and who asked (guarded by mtx)
+String pairBy;                                       // the device that opened this session, "" for BOOT
 
 esp_err_t hPair(httpd_req_t* r) {
     pairBusy = true;
@@ -692,6 +696,29 @@ void stopPairing() {
     httpd_ssl_stop(pairServer);
     pairServer = nullptr;
     pairCode = "";
+    pairBy = "";
+}
+
+// POST /pair/open: a paired device opens pairing, as a BOOT press does, so it can show the code as a large QR.
+// loop() does the opening (one place starts and stops the pairing server); this waits for it. Approving the new
+// device still takes a press on the board, so a paired device alone can't add another.
+esp_err_t hOpenPair(httpd_req_t* r) {
+    {
+        std::lock_guard<std::mutex> g(mtx);
+        const char* who = authDevice(r);
+        if (!who) return forbid(r);
+        openBy = who;
+    }
+    openAsked = true;
+    for (int i = 0; i < 60 && (openAsked || !pairServer); i++) delay(50);
+    if (!pairServer) return fail(r, "503 Service Unavailable", "pairing didn't open");
+    JsonDocument d;
+    d["code"] = pairCode;
+    d["qr"] = "PWVAULT:" + WiFi.localIP().toString() + ":" + pairCode;  // what the OLED's QR says (PROTOCOL.md §9)
+    d["seconds"] = (int32_t)(pairUntil - millis()) / 1000;
+    String out;
+    serializeJson(d, out);
+    return sendJson(r, "200 OK", out);
 }
 
 void startServer() {
@@ -705,6 +732,9 @@ void startServer() {
     conf.user_cb = onSession;
     conf.httpd.stack_size = 16384;       // TLS + JSON
     conf.httpd.lru_purge_enable = true;  // clients keep connections open; evict the idlest instead of refusing
+    // Each TLS session holds ~40 KB (16 KB in + 16 KB out buffers in this core's mbedtls). The default 4 idle
+    // sessions don't fit in RAM, so the eviction above never got a chance before mbedtls_ssl_setup failed.
+    conf.httpd.max_open_sockets = 2;
     conf.httpd.uri_match_fn = httpd_uri_match_wildcard;
     conf.httpd.max_uri_handlers = 12;
     httpd_handle_t server;
@@ -720,7 +750,7 @@ void startServer() {
                   {"/entries", HTTP_GET, hGetEntries},  {"/entries", HTTP_POST, hPostEntries},
                   {"/access", HTTP_POST, hAccess},      {"/devices", HTTP_GET, hDevices},
                   {"/devices/*", HTTP_DELETE, hRevoke}, {"/pin", HTTP_PUT, hSetPin},
-                  {"/pin", HTTP_POST, hTryPin}};
+                  {"/pin", HTTP_POST, hTryPin},         {"/pair/open", HTTP_POST, hOpenPair}};
     for (auto& rt : routes) {
         httpd_uri_t u = {};
         u.uri = rt.uri;
@@ -731,6 +761,16 @@ void startServer() {
 }
 
 // ---- display ----
+
+// The pairing QR (PROTOCOL.md §9) at the right edge: lit background, dark modules, 2 px per module, 3 px quiet zone.
+// Called back by esp_qrcode_generate().
+void drawQr(esp_qrcode_handle_t qr) {
+    const int size = esp_qrcode_get_size(qr), box = size * 2 + 6, x0 = OLED_W - box, y0 = (OLED_H - box) / 2;
+    oled.fillRect(x0, y0, box, box, SSD1306_WHITE);
+    for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+            if (esp_qrcode_get_module(qr, x, y)) oled.fillRect(x0 + 3 + 2 * x, y0 + 3 + 2 * y, 2, 2, SSD1306_BLACK);
+}
 
 void draw() {
     oled.clearDisplay();
@@ -758,15 +798,23 @@ void draw() {
         oled.setCursor(0, 50);
         oled.println("BOOT = yes");
     } else if (pairServer) {
+        // Text on the left 72 px (12 characters), the QR on the right; the QR is drawn last, so it wins any overlap
+        // ponytail: an IP longer than 12 characters is cut off in the text; it's complete in the QR
         oled.setCursor(0, 0);
-        oled.printf("pairing  %lus", (unsigned long)(int32_t)(pairUntil - millis()) / 1000);
-        oled.drawFastHLine(0, 10, OLED_W, SSD1306_WHITE);
-        oled.setCursor(0, 20);
-        for (int i = 0; i < 16; i += 4) oled.print(pairCode.substring(i, i + 4) + (i < 12 ? "-" : ""));
-        oled.setCursor(0, 36);
-        oled.print("pki.sh pair <name>");
+        oled.printf("pairing %lus", (unsigned long)(int32_t)(pairUntil - millis()) / 1000);
+        oled.drawFastHLine(0, 10, 70, SSD1306_WHITE);
+        oled.setCursor(0, 18);
+        oled.print(pairCode.substring(0, 4) + "-" + pairCode.substring(4, 8));
+        oled.setCursor(0, 28);
+        oled.print(pairCode.substring(8, 12) + "-" + pairCode.substring(12));
+        oled.setCursor(0, 42);
+        oled.print(pairBy.isEmpty() ? "scan or type" : ("via " + pairBy).substring(0, 12));
         oled.setCursor(0, 56);
         oled.print(WiFi.localIP());
+        esp_qrcode_config_t qr = ESP_QRCODE_CONFIG_DEFAULT();
+        qr.display_func = drawQr;
+        qr.max_qrcode_version = 3;  // <= 40 alphanumeric characters: version 2, 50 px
+        esp_qrcode_generate(&qr, ("PWVAULT:" + WiFi.localIP().toString() + ":" + pairCode).c_str());
     } else if ((int32_t)(event.until - millis()) > 0) {
         oled.setCursor(0, 0);
         oled.println(event.who);
@@ -840,6 +888,12 @@ void setup() {
 }
 
 void loop() {
+    static uint32_t heapAt = 0;  // DIAG: free heap, remove once the TLS allocation failures are understood
+    if (millis() - heapAt > 10000) {
+        heapAt = millis();
+        Serial.printf("heap free %u, largest block %u, min ever %u\n", (unsigned)ESP.getFreeHeap(),
+                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT), (unsigned)ESP.getMinFreeHeap());
+    }
     static uint32_t wifiLost = 0;  // unattended device: if Wi-Fi stays down, retry from scratch, like at boot
     if (WiFi.isConnected()) wifiLost = 0;
     else if (!wifiLost) wifiLost = millis() | 1;
@@ -856,6 +910,12 @@ void loop() {
             if (!pairServer) startPairing();
             else if (!pairBusy) stopPairing();  // pressed again: cancel
         }
+    }
+    if (openAsked) {
+        if (!pairServer) startPairing();
+        std::lock_guard<std::mutex> g(mtx);
+        if (pairServer && pairBy.isEmpty()) pairBy = openBy;
+        openAsked = false;
     }
     if (pairServer && !pairBusy && (pairDone || (int32_t)(millis() - pairUntil) > 0)) stopPairing();
     {

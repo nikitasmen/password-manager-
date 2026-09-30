@@ -46,7 +46,8 @@ class UIManager {
     // (null without espHost). On failure: nullopt/false, and `error` is a sentence for the user.
     EspStore* board_ = nullptr;
     std::optional<std::vector<EspStore::Device>> safeListDevices(std::string& error);
-    bool safeRevokeDevice(const std::string& name, std::string& error);  // blocks until BOOT is pressed (≤ 1 min)
+    bool safeRevokeDevice(const std::string& name, std::string& error);
+    std::optional<EspStore::PairInvite> safeOpenPairing(std::string& error);  // for showing a phone the pairing QR  // blocks until BOOT is pressed (≤ 1 min)
     static std::string lastSeenText(int64_t unixTime);                   // "seen 5 min ago"
 
     // The connector, shown on start (once per run) while an ESP32 is configured but not connected

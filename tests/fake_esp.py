@@ -134,6 +134,9 @@ class Handler(BaseHTTPRequestHandler):
             pins.pop(name, None)
             print(f"[{who}] revoked {name}", flush=True)
             return self.reply(202, {"pending": True})  # like the board, then "BOOT" is pressed at once
+        if route == ("POST", "/pair/open"):  # pairing is always open here; hand out its code, as the board would
+            print(f"[{who}] opened pairing", flush=True)
+            return self.reply(200, {"code": pairing["code"], "qr": f"PWVAULT:127.0.0.1:{pairing['code']}", "seconds": 120})
         if route in (("PUT", "/pin"), ("POST", "/pin")):
             req = self.body()
             if not isinstance(req, dict):
