@@ -179,7 +179,7 @@ keytool -genkeypair -keystore ~/.android/pwvault-release.jks -alias pwvault -key
 #   pwvaultKeystore=/home/<you>/.android/pwvault-release.jks
 #   pwvaultKeystorePassword=...   pwvaultKeyAlias=pwvault   pwvaultKeyPassword=...
 
-# each release: set versionName in android/build.gradle.kts to the tag without its v, then
+# each release: tag first (the build takes its version from the newest v* tag), then
 cd android && nix-shell --run 'gradle assembleRelease'
 cp build/outputs/apk/release/pwvault-release.apk pwvault.apk && gh release upload v2.1 pwvault.apk
 ```
