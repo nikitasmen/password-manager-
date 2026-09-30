@@ -98,6 +98,8 @@ object App {
     private var board: EspStore? = null
     private val worker = Executors.newSingleThreadExecutor()
     val pinFile get() = File(dir, "pin.json")
+    val bioFile get() = File(dir, "bio.json")
+    private val main = Handler(Looper.getMainLooper())
     val host get() = prefs.getString("host", "").orEmpty()
     val deviceName get() = prefs.getString("name", "phone").orEmpty()
     val paired get() = vault != null
@@ -114,6 +116,7 @@ object App {
     var message by mutableStateOf("") // what went wrong, and what to do about it
     var notice by mutableStateOf("") // what just worked
     var items by mutableStateOf(listOf<Credential>())
+    var bioOn by mutableStateOf(false) // fingerprint unlock is set up (bio.json)
     var update by mutableStateOf<Release?>(null) // a newer release with an APK
     var updating by mutableStateOf<Int?>(null) // download progress, %
 
@@ -121,6 +124,7 @@ object App {
         if (::dir.isInitialized) return
         dir = ctx.filesDir
         prefs = ctx.getSharedPreferences("pwvault", Context.MODE_PRIVATE)
+        bioOn = bioFile.exists()
         if (BuildConfig.DEMO) {
             vault = Vault(LocalStore(File(dir, "vault.json")), null, File(dir, "sync.json"))
             screen = Screen.Unlock
@@ -278,6 +282,46 @@ object App {
         setPin(vault!!, board!!, pinFile, master, pin)
         notice = "PIN set. Next time, unlock with it while the board is reachable."
         done()
+    }
+
+    /** Checks the master password, then the system asks for a fingerprint and the vault key is sealed with it. */
+    fun enableFingerprint(ctx: Context, master: String, done: () -> Unit) = run {
+        require(vault!!.verifyMasterPassword(master)) { "That master password doesn't open this vault." }
+        val id = vault!!.vaultId()!!
+        val key = vault!!.keyCopy()
+        main.post {
+            Biometric.enable(ctx, bioFile, id, key, done = {
+                key.fill(0)
+                bioOn = true
+                notice = "Fingerprint unlock is on."
+                done()
+            }, failed = {
+                key.fill(0)
+                if (it.isNotEmpty()) message = "Fingerprint unlock wasn't turned on: $it"
+            })
+        }
+    }
+
+    fun disableFingerprint() {
+        Biometric.disable(bioFile)
+        bioOn = false
+        notice = "Fingerprint unlock is off."
+    }
+
+    fun unlockFingerprint(ctx: Context) {
+        message = ""
+        val id = vault?.vaultId() ?: return
+        Biometric.open(ctx, bioFile, id, done = { key ->
+            run {
+                val ok = vault!!.unlockWithKey(key)
+                key.fill(0)
+                if (!ok) throw Exception("Fingerprint unlock doesn't open this vault any more. Use the master password.")
+                opened()
+            }
+        }, failed = {
+            bioOn = bioFile.exists() // gone if the fingerprints changed
+            if (it.isNotEmpty()) message = it
+        })
     }
 
     fun removePin() {
@@ -448,20 +492,30 @@ private fun ColumnScope.PairScreen() {
 
 // ---- unlock ----
 
+private enum class Method { Fingerprint, Pin, Password }
+
 @Composable
 private fun ColumnScope.UnlockScreen() {
     LaunchedEffect(Unit) { if (App.hasVault == null) App.check() }
+    val ctx = LocalContext.current
     var secret by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf("") }
-    var usePin by remember { mutableStateOf(true) }
     val focus = remember { FocusRequester() }
-    val pinMode = usePin && App.hasBoard && App.pinFile.exists()
+    // What's set up on this phone, best first. A PIN needs the board; a fingerprint doesn't.
+    val methods = listOfNotNull(
+        Method.Fingerprint.takeIf { App.bioOn && Biometric.available(ctx) },
+        Method.Pin.takeIf { App.hasBoard && App.pinFile.exists() },
+        Method.Password,
+    )
+    var chosen by remember { mutableStateOf<Method?>(null) }
+    val method = chosen?.takeIf { it in methods } ?: methods.first()
     val creating = App.hasVault == false && (App.sync == Vault.Sync.Ok || !App.hasBoard)
     val stranded = App.hasVault == false && !creating // no copy here, and the board can't be reached
     val go = {
         when {
             creating -> App.create(secret, repeat)
-            pinMode -> App.unlockPin(secret)
+            method == Method.Fingerprint -> App.unlockFingerprint(ctx)
+            method == Method.Pin -> App.unlockPin(secret)
             else -> App.unlock(secret)
         }
         secret = ""
@@ -486,14 +540,18 @@ private fun ColumnScope.UnlockScreen() {
                 Field(secret, { secret = it }, "Master password", Modifier.focusRequester(focus), secret = true)
                 Field(repeat, { repeat = it }, "Master password again", secret = true, onDone = go)
             }
+            method == Method.Fingerprint -> {
+                Heading("Unlock")
+                Prose("Tap the button below, then touch the fingerprint sensor.")
+            }
             else -> {
-                Heading(if (pinMode) "Unlock with your PIN" else "Unlock")
+                Heading(if (method == Method.Pin) "Unlock with your PIN" else "Unlock")
                 if (App.sync == Vault.Sync.Offline && App.hasBoard)
-                    Prose(if (pinMode) "A PIN needs the board, which is offline. Use the master password instead."
+                    Prose(if (method == Method.Pin) "A PIN needs the board, which is offline. Use the master password instead."
                         else "The board is offline, so this opens the copy on this phone. It syncs when the board is back.")
-                Field(secret, { secret = it }, if (pinMode) "PIN" else "Master password", Modifier.focusRequester(focus),
-                    secret = true, digits = pinMode, onDone = go)
-                LaunchedEffect(pinMode) { runCatching { focus.requestFocus() } }
+                Field(secret, { secret = it }, if (method == Method.Pin) "PIN" else "Master password",
+                    Modifier.focusRequester(focus), secret = true, digits = method == Method.Pin, onDone = go)
+                LaunchedEffect(method) { runCatching { focus.requestFocus() } }
             }
         }
         Feedback()
@@ -502,12 +560,18 @@ private fun ColumnScope.UnlockScreen() {
         when {
             stranded -> PrimaryButton("Try again", { App.check() }, enabled = !App.busy)
             creating -> PrimaryButton("Create vault", go, enabled = !App.busy && secret.isNotEmpty() && repeat.isNotEmpty())
+            method == Method.Fingerprint -> PrimaryButton("Unlock with fingerprint", go, enabled = !App.busy)
             App.hasVault == true -> PrimaryButton("Unlock", go, enabled = !App.busy && secret.isNotEmpty())
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            if (App.hasVault == true && App.hasBoard && App.pinFile.exists())
-                QuietButton(if (pinMode) "Use the master password" else "Use the PIN", { usePin = !usePin; secret = "" })
-            else Spacer(Modifier.width(1.dp))
+            Row {
+                if (App.hasVault == true) for (m in methods) if (m != method)
+                    QuietButton(when (m) {
+                        Method.Fingerprint -> "Fingerprint"
+                        Method.Pin -> "PIN"
+                        Method.Password -> "Master password"
+                    }, { chosen = m; secret = ""; App.message = "" })
+            }
             if (!BuildConfig.DEMO) QuietButton("Pair again", { App.message = ""; App.screen = Screen.Pair }, color = palette.muted)
         }
     }
@@ -522,6 +586,8 @@ private fun ColumnScope.VaultScreen() {
     var open by remember { mutableStateOf<Credential?>(null) }
     var edit by remember { mutableStateOf<Credential?>(null) } // platform "" = a new entry
     var pinSheet by remember { mutableStateOf(false) }
+    var bioSheet by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     val shown = App.items.filter { it.platform.contains(query, true) || it.username.contains(query, true) }
     val count = App.items.size
@@ -571,6 +637,9 @@ private fun ColumnScope.VaultScreen() {
                 DropdownMenuItem({ Text("Sync now") }, { menu = false; App.syncNow() }, enabled = App.hasBoard && !App.busy)
                 if (App.hasBoard) DropdownMenuItem({ Text(if (App.pinFile.exists()) "Change or remove PIN" else "Set a PIN") },
                     { menu = false; pinSheet = true })
+                if (App.bioOn) DropdownMenuItem({ Text("Turn off fingerprint unlock") }, { menu = false; App.disableFingerprint() })
+                else if (Biometric.available(ctx)) DropdownMenuItem({ Text("Turn on fingerprint unlock") },
+                    { menu = false; bioSheet = true })
                 if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Pair again") }, { menu = false; App.screen = Screen.Pair })
                 if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Check for updates") }, { menu = false; App.checkUpdate(manual = true) })
             }
@@ -582,6 +651,7 @@ private fun ColumnScope.VaultScreen() {
     open?.let { c -> EntrySheet(c, close = { open = null }, edit = { open = null; edit = c }) }
     edit?.let { EditSheet(it) { edit = null } }
     if (pinSheet) PinSheet { pinSheet = false }
+    if (bioSheet) FingerprintSheet { bioSheet = false }
 }
 
 @Composable
@@ -692,6 +762,25 @@ private fun PinSheet(close: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             PrimaryButton("Save PIN", { App.setPin(master, pin, repeat, close) },
                 enabled = !App.busy && master.isNotEmpty() && pin.isNotEmpty(), modifier = Modifier.weight(1f))
+        }
+        Feedback()
+    }
+}
+
+@Composable
+private fun FingerprintSheet(close: () -> Unit) {
+    val ctx = LocalContext.current
+    var master by remember { mutableStateOf("") }
+    val go = { App.enableFingerprint(ctx, master, close) }
+    Sheet(close) {
+        Text("Turn on fingerprint unlock", color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+        Prose("Unlock this phone's vault with a fingerprint, even away from the board. If anyone adds a fingerprint to " +
+            "this phone, it turns itself off and asks for the master password again.")
+        Field(master, { master = it }, "Master password", secret = true, onDone = go)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            QuietButton("Cancel", close, color = palette.muted)
+            Spacer(Modifier.width(8.dp))
+            PrimaryButton("Continue", go, enabled = !App.busy && master.isNotEmpty(), modifier = Modifier.weight(1f))
         }
         Feedback()
     }

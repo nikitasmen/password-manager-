@@ -170,6 +170,22 @@ PWVAULT_TEST_PAIR="127.0.0.1:8443:8444,ABCD0123EFGH4567" nix-shell --run 'gradle
 
 To pair from a laptop that's already paired, open **Devices → Add a device** in the desktop app (or `d`, then `a`, in the terminal UI): it shows a large QR code to scan with the phone, and you press BOOT on the board once to approve. Or, at the board, press BOOT: next to the code it shows a QR code. Tap **Scan the QR code** in the app, then press BOOT again to approve. Or type the board's IP address (`.local` names don't resolve reliably on Android) and the code instead. The scanner is Google's code scanner, which runs in Play services on the phone and needs no camera permission.
 
+**Updates.** The app checks the GitHub releases once a day, and on **More → Check for updates**. When the latest release is newer and has a `pwvault.apk`, it offers to download it, and Android asks you to confirm the install. Android only installs an update signed with the same key as the installed app, so every release must be signed with your release key:
+
+```bash
+# once: make the key, keep it (and a backup) outside the repo; losing it means reinstalling every phone
+keytool -genkeypair -keystore ~/.android/pwvault-release.jks -alias pwvault -keyalg EC -groupname secp256r1 -validity 10000 -dname CN=pwvault
+# ~/.gradle/gradle.properties:
+#   pwvaultKeystore=/home/<you>/.android/pwvault-release.jks
+#   pwvaultKeystorePassword=...   pwvaultKeyAlias=pwvault   pwvaultKeyPassword=...
+
+# each release: set versionName in android/build.gradle.kts to the tag without its v, then
+cd android && nix-shell --run 'gradle assembleRelease'
+cp build/outputs/apk/release/pwvault-release.apk pwvault.apk && gh release upload v2.1 pwvault.apk
+```
+
+A phone running a debug build (signed with the build machine's debug key) can't take these updates: install the first release build by hand after uninstalling the debug one, then pair again.
+
 ### Layout
 
 ```

@@ -107,6 +107,21 @@ class Vault(private val local: Store, private val remote: Store?, private val sy
         return unwrapVaultKey(password, local.getMeta()!!)?.contentEquals(k) == true
     }
 
+    @Synchronized fun vaultId(): String? = local.getMeta()?.vaultId
+
+    /** A copy of the vault key, for sealing it under another key (fingerprint unlock). Requires unlocked. */
+    @Synchronized fun keyCopy(): ByteArray = requireKey().copyOf()
+
+    /** Unlocks with a vault key from elsewhere (fingerprint unlock); false if it doesn't open the stored entries. */
+    @Synchronized fun unlockWithKey(k: ByteArray): Boolean {
+        sync()
+        if (local.getMeta() == null) return false
+        val records = local.changesAfter(0).entries.filter { !it.deleted }
+        useKey(k.copyOf())
+        if (records.isNotEmpty() && index.isEmpty()) return false.also { lock() }
+        return true
+    }
+
     @Synchronized fun sealKeyForPin(pinKey: ByteArray): String =
         seal(Alg.AES, pinKey, requireKey(), pinAad(local.getMeta()!!.vaultId))
 

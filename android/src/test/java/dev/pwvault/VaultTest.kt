@@ -79,6 +79,10 @@ class VaultTest {
         b.put(Credential("github", "nik", "v2")) // same entry: the id ignores case
         a.sync()
         assertEquals(listOf("v2"), a.credentials().map { it.password })
+        val key = a.keyCopy() // fingerprint unlock hands the vault key back like this
+        a.lock()
+        assertFalse(a.unlockWithKey(randomBytes(32)) || a.unlocked) // a wrong key opens nothing and stays locked
+        assertTrue(a.unlockWithKey(key) && a.credentials().single().password == "v2")
         a.remove("GITHUB")
         b.sync()
         assertEquals(emptyList<Credential>(), b.credentials())
