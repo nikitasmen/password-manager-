@@ -13,14 +13,29 @@ android {
         applicationId = "dev.pwvault"
         minSdk = 28 // ChaCha20-Poly1305
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // The version is the release tag without its "v", shared with the desktop release; the updater compares the two.
+        // versionCode must grow with every release for Android to install it over the old one.
+        versionName = "2.0"
+        versionCode = versionName!!.split(".").map(String::toInt).let { v -> v[0] * 10000 + v.getOrElse(1) { 0 } * 100 + v.getOrElse(2) { 0 } }
+        buildConfigField("String", "UPDATE_REPO", "\"nikitasmen/password-manager-\"")
     }
     buildFeatures {
         compose = true
         buildConfig = true
     }
+    // Release signing from ~/.gradle/gradle.properties (never the repo): pwvaultKeystore, pwvaultKeystorePassword,
+    // pwvaultKeyAlias, pwvaultKeyPassword. Every release must use the same key, or Android refuses the update.
+    val keystore = providers.gradleProperty("pwvaultKeystore").orNull
+    signingConfigs {
+        if (keystore != null) create("release") {
+            storeFile = file(keystore)
+            storePassword = providers.gradleProperty("pwvaultKeystorePassword").get()
+            keyAlias = providers.gradleProperty("pwvaultKeyAlias").get()
+            keyPassword = providers.gradleProperty("pwvaultKeyPassword").get()
+        }
+    }
     buildTypes {
+        getByName("release") { if (keystore != null) signingConfig = signingConfigs.getByName("release") }
         all { buildConfigField("boolean", "DEMO", "false") }
         // A second app for UI work: its own local-only vault, no board, screenshots allowed
         create("demo") {

@@ -114,6 +114,8 @@ object App {
     var message by mutableStateOf("") // what went wrong, and what to do about it
     var notice by mutableStateOf("") // what just worked
     var items by mutableStateOf(listOf<Credential>())
+    var update by mutableStateOf<Release?>(null) // a newer release with an APK
+    var updating by mutableStateOf<Int?>(null) // download progress, %
 
     fun init(ctx: Context) {
         if (::dir.isInitialized) return
@@ -179,6 +181,45 @@ object App {
         items = vault!!.credentials()
         showStatus()
         screen = Screen.Vault
+        if (System.currentTimeMillis() - prefs.getLong("updateCheckedAt", 0) > 24 * 3600_000L) checkUpdate(manual = false)
+    }
+
+    /** Off the vault's worker: GitHub can be slow, and a vault call shouldn't wait behind it. */
+    fun checkUpdate(manual: Boolean) {
+        if (BuildConfig.DEMO) return
+        Thread {
+            try {
+                val r = Updater.latest()
+                prefs.edit().putLong("updateCheckedAt", System.currentTimeMillis()).apply()
+                val newer = isNewerVersion(r.version, BuildConfig.VERSION_NAME)
+                update = if (newer && r.apkUrl != null) r else null
+                if (manual) notice = when {
+                    newer && r.apkUrl == null -> "${r.version} is out, but has no Android build yet."
+                    newer -> ""
+                    else -> "pwvault ${BuildConfig.VERSION_NAME} is the latest version."
+                }
+            } catch (e: Exception) {
+                if (manual) message = "Couldn't check for updates: ${e.message}"
+            }
+        }.start()
+    }
+
+    fun installUpdate(ctx: Context) {
+        val r = update ?: return
+        if (!Updater.canInstall(ctx)) {
+            notice = "Allow pwvault to install updates, then tap Update again."
+            ctx.startActivity(Updater.allowIntent(ctx))
+            return
+        }
+        updating = 0
+        Thread {
+            try {
+                Updater.install(ctx.applicationContext, r) { updating = it }
+            } catch (e: Exception) {
+                updating = null
+                message = "The update didn't download: ${e.message}"
+            }
+        }.start()
     }
 
     fun check() = run {
@@ -491,6 +532,7 @@ private fun ColumnScope.VaultScreen() {
     if (App.sync == Vault.Sync.Error && App.syncError.isNotEmpty())
         Text(App.syncError, Modifier.padding(top = 8.dp), color = palette.danger, style = MaterialTheme.typography.bodySmall,
             maxLines = 3, overflow = TextOverflow.Ellipsis)
+    App.update?.let { r -> UpdateBanner(r) }
     if (count > 0) Field(query, { query = it }, "Search", Modifier.padding(top = 8.dp))
     Feedback()
 
@@ -530,6 +572,7 @@ private fun ColumnScope.VaultScreen() {
                 if (App.hasBoard) DropdownMenuItem({ Text(if (App.pinFile.exists()) "Change or remove PIN" else "Set a PIN") },
                     { menu = false; pinSheet = true })
                 if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Pair again") }, { menu = false; App.screen = Screen.Pair })
+                if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Check for updates") }, { menu = false; App.checkUpdate(manual = true) })
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -539,6 +582,19 @@ private fun ColumnScope.VaultScreen() {
     open?.let { c -> EntrySheet(c, close = { open = null }, edit = { open = null; edit = c }) }
     edit?.let { EditSheet(it) { edit = null } }
     if (pinSheet) PinSheet { pinSheet = false }
+}
+
+@Composable
+private fun UpdateBanner(r: Release) {
+    val ctx = LocalContext.current
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(6.dp)).background(palette.surface)
+        .border(1.dp, palette.line, RoundedCornerShape(6.dp)).padding(start = 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        val p = App.updating
+        Text(if (p == null) "pwvault ${r.version.trimStart('v')} is available." else "Downloading the update, $p%",
+            Modifier.weight(1f), color = palette.ink, style = MaterialTheme.typography.bodyMedium)
+        QuietButton("Update", { App.installUpdate(ctx) }, enabled = p == null)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

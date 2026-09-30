@@ -62,6 +62,11 @@ class VaultTest {
         assertTrue(validPin("1234") && !validPin("123") && !validPin("12a4"))
     }
 
+    @Test fun versions() {
+        assertTrue(isNewerVersion("v2.1", "2.0") && isNewerVersion("v2.0.1", "2.0") && isNewerVersion("v10.0", "9.9"))
+        assertFalse(isNewerVersion("v2.0", "2.0") || isNewerVersion("v1.9", "2.0") || isNewerVersion("v2", "2.0.0"))
+    }
+
     @Test fun twoPhonesSyncThroughOneStore() {
         val board = LocalStore(File(dir, "board.json"))
         fun phone(n: String) = Vault(LocalStore(File(dir, "$n.json")), board, File(dir, "$n-sync.json"))
