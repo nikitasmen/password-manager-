@@ -460,7 +460,7 @@ void testPair(const fs::path& dir, const std::string& spec) {
     v.put({"mail", "me", "pw", CipherAlg::Aes256Gcm});
     const std::string salt = vaultcrypto::randomBytes(16), proof = pinProofHex("2468", salt, 1000),
                       wrongProof = pinProofHex("1357", salt, 1000);
-    const std::string blob = v.sealKeyForPin(pinWrapKey(esp.setPin(pinVerifierHex(proof)), proof));
+    const std::string blob = v.sealKeyForPin(pinWrapKey(esp.setPin(vaultcrypto::sha256Hex(proof)), proof));
     v.lock();
     auto r = esp.tryPin(proof);
     CHECK(r.result == EspStore::PinReply::Ok && v.unlockWithPinKey(pinWrapKey(r.secretHex, proof), blob));
@@ -474,7 +474,6 @@ void testPair(const fs::path& dir, const std::string& spec) {
     other.create("master", CipherAlg::Aes256Gcm, 1000);
     other.lock();
     CHECK(!other.unlockWithPinKey(pinWrapKey(r.secretHex, proof), blob));  // bound to its own vault
-    esp.clearPin();
     std::cout << "pin: ok (unlocks; 5 wrong tries remove it; bound to its vault)\n";
 }
 

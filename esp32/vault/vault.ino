@@ -17,7 +17,7 @@
 //
 // PIN unlock (/pin): the client keeps the vault key wrapped with HMAC(secret, proof), proof being a slow hash of the
 // PIN; the board holds `secret` and releases it only for the right proof (verifier = SHA-256 of the proof's hex).
-// PIN_TRIES wrong proofs delete the record, so a PIN can't be guessed beyond that, offline or here.
+// PIN_TRIES wrong proofs delete the record, and so does a wrong one the board fails to count: no free guesses.
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
@@ -31,6 +31,7 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/md.h>
 #include <mbedtls/oid.h>
+#include <mbedtls/pem.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/ssl.h>
@@ -101,10 +102,10 @@ String readFile(const String& path) {
     return s;
 }
 
-// Entry ids become file names, so accept exactly 32 lowercase hex chars and nothing else.
-bool validId(const char* id) {
-    if (!id || strlen(id) != 32) return false;
-    for (const char* p = id; *p; p++)
+// Exactly `len` lowercase hex chars. Entry ids (32) become file names, so nothing else may pass.
+bool validHex(const char* h, size_t len) {
+    if (!h || strlen(h) != len) return false;
+    for (const char* p = h; *p; p++)
         if (!isdigit(*p) && !(*p >= 'a' && *p <= 'f')) return false;
     return true;
 }
@@ -129,7 +130,7 @@ void buildIndex() {
     File dir = LittleFS.open("/e");
     for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
         JsonDocument d;
-        if (!deserializeJson(d, f) && validId(f.name())) indexPut(f.name(), d["seq"].as<uint64_t>());
+        if (!deserializeJson(d, f) && validHex(f.name(), 32)) indexPut(f.name(), d["seq"].as<uint64_t>());
         f.close();
     }
     Serial.printf("indexed %u entries, seq %llu\n", (unsigned)seqIndex.size(), seq);
@@ -218,15 +219,6 @@ String issueCert(mbedtls_pk_context* subject, const String& cn, bool ca) {
     return n > 0 ? String((const char*)buf.data() + buf.size() - n, n) : String();
 }
 
-String derToPem(const String& der) {
-    size_t n;
-    std::vector<uint8_t> b64(der.length() * 4 / 3 + 4);
-    mbedtls_base64_encode(b64.data(), b64.size(), &n, (const uint8_t*)der.c_str(), der.length());
-    String pem = "-----BEGIN CERTIFICATE-----\n";
-    for (size_t i = 0; i < n; i += 64) pem += String((const char*)b64.data() + i, min<size_t>(64, n - i)) + "\n";
-    return pem + "-----END CERTIFICATE-----\n";
-}
-
 // Loads the CA from flash, or makes one on first boot. Needs Wi-Fi up (entropy).
 bool loadCa() {
     mbedtls_pk_init(&caKey);
@@ -241,8 +233,12 @@ bool loadCa() {
         mbedtls_pk_write_key_pem(&caKey, pem.data(), pem.size()))
         return false;
     String der = issueCert(&caKey, "", true);
-    if (!der.length()) return false;
-    caPem = derToPem(der);
+    std::vector<uint8_t> out(1024);
+    size_t n = 0;
+    if (!der.length() || mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n", "-----END CERTIFICATE-----\n",
+                                                  (const uint8_t*)der.c_str(), der.length(), out.data(), out.size(), &n))
+        return false;
+    caPem = (const char*)out.data();
     // cert last: a crash in between leaves no /ca.pem, so the next boot starts over
     return writeFile("/ca.key", (const char*)pem.data()) && writeFile("/ca.pem", caPem);
 }
@@ -453,7 +449,7 @@ esp_err_t hPostEntries(httpd_req_t* r) {
     JsonArray entries = in["entries"];
     if (entries.isNull() || entries.size() > MAX_BATCH) return fail(r, "400 Bad Request", "need {entries: [..32]}");
     for (JsonObject e : entries)  // validate the whole batch before writing any of it
-        if (!validId(e["id"]) || !e["updated"].is<int64_t>() || !e["deleted"].is<bool>() ||
+        if (!validHex(e["id"], 32) || !e["updated"].is<int64_t>() || !e["deleted"].is<bool>() ||
             !e["alg"].is<const char*>() || !e["data"].is<const char*>())
             return fail(r, "400 Bad Request", "bad entry record");
 
@@ -513,35 +509,38 @@ esp_err_t hDevices(httpd_req_t* r) {
     return sendJson(r, "200 OK", out);
 }
 
-// DELETE /devices/<name>: needs a BOOT press, so a stolen device can't lock out the others.
-// ponytail: blocks the main server (other clients' requests wait) until pressed or CONFIRM_MS; rare enough
-esp_err_t hRevoke(httpd_req_t* r) {
-    String name = r->uri + strlen("/devices/"), by;
-    {
-        std::lock_guard<std::mutex> g(mtx);
-        const char* who = authDevice(r);
-        if (!who) return forbid(r);
-        if (!findDevice(name)) return fail(r, "404 Not Found", "no such device");
-        by = who;
-    }
-    if (!confirm("revoke device?", name, CONFIRM_MS)) return fail(r, "403 Forbidden", "not confirmed on the board");
-    std::lock_guard<std::mutex> g(mtx);
+// DELETE /devices/<name> only asks: the OLED shows the request and loop() revokes on a BOOT press, so a stolen
+// device can't lock out the others, and a pending request doesn't hold up anyone's sync. A newer request replaces
+// an older one; the screen names both the device and who asked, so press only for the right one.
+struct {
+    String name, by;
+    uint32_t until = 0;
+} pendingRevoke;  // guarded by mtx
+
+bool revokePending() {
+    return pendingRevoke.name.length() && (int32_t)(pendingRevoke.until - millis()) > 0;
+}
+
+void revokeNow() {  // mtx held
+    const String name = pendingRevoke.name, by = pendingRevoke.by;
+    pendingRevoke = {};
     for (size_t i = 0; i < devices.size(); i++)
         if (devices[i].name == name) devices.erase(devices.begin() + i);
     LittleFS.remove("/pin/" + name);
-    if (!saveDevices()) return fail(r, "500 Internal Server Error", "write failed");
-    showEvent(by.c_str(), "revoked", name, "saved");
-    return ok(r);
+    showEvent(by.c_str(), "revoked", name, saveDevices() ? "saved" : "SAVE FAILED");
+}
+
+esp_err_t hRevoke(httpd_req_t* r) {
+    std::lock_guard<std::mutex> g(mtx);
+    const char* who = authDevice(r);
+    if (!who) return forbid(r);
+    String name = r->uri + strlen("/devices/");
+    if (!findDevice(name)) return fail(r, "404 Not Found", "no such device");
+    pendingRevoke = {name, who, millis() + CONFIRM_MS};
+    return sendJson(r, "202 Accepted", "{\"pending\":true}");  // the client polls GET /devices
 }
 
 // ---- PIN unlock ----
-
-bool validHex64(const char* h) {
-    if (!h || strlen(h) != 64) return false;
-    for (const char* p = h; *p; p++)
-        if (!isdigit(*p) && !(*p >= 'a' && *p <= 'f')) return false;
-    return true;
-}
 
 // PUT /pin {verifier}: (re)sets this device's PIN; replies with the new secret
 esp_err_t hSetPin(httpd_req_t* r) {
@@ -549,7 +548,7 @@ esp_err_t hSetPin(httpd_req_t* r) {
     JsonDocument in;
     const char* who = readBody(r, in);
     if (!who) return ESP_OK;
-    if (!validHex64(in["verifier"])) return fail(r, "400 Bad Request", "need {verifier: 64 hex}");
+    if (!validHex(in["verifier"], 64)) return fail(r, "400 Bad Request", "need {verifier: 64 hex}");
     uint8_t raw[32];
     rng(nullptr, raw, sizeof raw);
     JsonDocument rec;
@@ -569,7 +568,7 @@ esp_err_t hTryPin(httpd_req_t* r) {
     JsonDocument in, rec;
     const char* who = readBody(r, in);
     if (!who) return ESP_OK;
-    if (!validHex64(in["proof"])) return fail(r, "400 Bad Request", "need {proof: 64 hex}");
+    if (!validHex(in["proof"], 64)) return fail(r, "400 Bad Request", "need {proof: 64 hex}");
     const String path = String("/pin/") + who;
     String raw = readFile(path);
     if (!raw.length() || deserializeJson(rec, raw)) return fail(r, "404 Not Found", "no PIN set");
@@ -594,17 +593,13 @@ esp_err_t hTryPin(httpd_req_t* r) {
     rec["fails"] = fails;
     String out;
     serializeJson(rec, out);
-    if (!writeFile(path, out)) return fail(r, "500 Internal Server Error", "write failed");
+    if (!writeFile(path, out)) {  // fail closed: an uncounted wrong try would be a free guess (e.g. flash filled up)
+        LittleFS.remove(path);
+        showEvent(who, "wrong PIN", "PIN removed", "use password");
+        return sendJson(r, "410 Gone", "{\"error\":\"the board couldn't count the try; the PIN was removed\",\"left\":0}");
+    }
     showEvent(who, "wrong PIN", String(PIN_TRIES - fails) + " tries left", "");
     return sendJson(r, "403 Forbidden", "{\"error\":\"wrong PIN\",\"left\":" + String(PIN_TRIES - fails) + "}");
-}
-
-esp_err_t hClearPin(httpd_req_t* r) {
-    std::lock_guard<std::mutex> g(mtx);
-    const char* who = authDevice(r);
-    if (!who) return forbid(r);
-    LittleFS.remove(String("/pin/") + who);
-    return ok(r);
 }
 
 // ---- pairing server (PAIR_PORT, no client cert, only while pairing mode is on) ----
@@ -725,7 +720,7 @@ void startServer() {
                   {"/entries", HTTP_GET, hGetEntries},  {"/entries", HTTP_POST, hPostEntries},
                   {"/access", HTTP_POST, hAccess},      {"/devices", HTTP_GET, hDevices},
                   {"/devices/*", HTTP_DELETE, hRevoke}, {"/pin", HTTP_PUT, hSetPin},
-                  {"/pin", HTTP_POST, hTryPin},         {"/pin", HTTP_DELETE, hClearPin}};
+                  {"/pin", HTTP_POST, hTryPin}};
     for (auto& rt : routes) {
         httpd_uri_t u = {};
         u.uri = rt.uri;
@@ -750,6 +745,16 @@ void draw() {
         oled.println(prompt.line1);
         oled.setCursor(0, 30);
         oled.println(prompt.line2);
+        oled.setCursor(0, 50);
+        oled.println("BOOT = yes");
+    } else if (revokePending()) {
+        oled.setCursor(0, 0);
+        oled.println("revoke device?");
+        oled.drawFastHLine(0, 10, OLED_W, SSD1306_WHITE);
+        oled.setCursor(0, 16);
+        oled.println(pendingRevoke.name);
+        oled.setCursor(0, 30);
+        oled.println("asked by " + pendingRevoke.by);
         oled.setCursor(0, 50);
         oled.println("BOOT = yes");
     } else if (pairServer) {
@@ -840,9 +845,17 @@ void loop() {
     else if (!wifiLost) wifiLost = millis() | 1;
     else if (millis() - wifiLost > 60000) ESP.restart();
     if (pressed.exchange(false)) {
-        if (ask == ASK_WAITING) ask = ASK_YES;
-        else if (!pairServer) startPairing();
-        else if (!pairBusy) stopPairing();  // pressed again: cancel
+        bool revoked = false;
+        if (ask == ASK_WAITING) {
+            ask = ASK_YES;
+        } else {
+            std::lock_guard<std::mutex> g(mtx);
+            if ((revoked = revokePending())) revokeNow();
+        }
+        if (ask == ASK_NONE && !revoked) {
+            if (!pairServer) startPairing();
+            else if (!pairBusy) stopPairing();  // pressed again: cancel
+        }
     }
     if (pairServer && !pairBusy && (pairDone || (int32_t)(millis() - pairUntil) > 0)) stopPairing();
     {

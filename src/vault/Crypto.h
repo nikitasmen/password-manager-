@@ -48,6 +48,7 @@ namespace vaultcrypto {
 std::string randomBytes(size_t n);
 std::string pbkdf2Sha256(const std::string& password, const std::string& salt, int iterations);
 std::string hmacSha256(const std::string& key, const std::string& message);
+std::string sha256Hex(const std::string& data);
 std::string toHex(const std::string& bytes);
 void wipe(std::string& secret);  // overwrite before release
 }  // namespace vaultcrypto

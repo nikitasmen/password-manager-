@@ -133,10 +133,7 @@ class Handler(BaseHTTPRequestHandler):
             del devices[name]
             pins.pop(name, None)
             print(f"[{who}] revoked {name}", flush=True)
-            return self.reply(200, {"ok": True})
-        if route == ("DELETE", "/pin"):
-            pins.pop(who, None)
-            return self.reply(200, {"ok": True})
+            return self.reply(202, {"pending": True})  # like the board, then "BOOT" is pressed at once
         if route in (("PUT", "/pin"), ("POST", "/pin")):
             req = self.body()
             if not isinstance(req, dict):

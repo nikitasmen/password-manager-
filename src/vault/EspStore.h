@@ -39,7 +39,7 @@ class EspStore : public IVaultStore {
         bool thisDevice = false;
     };
     std::vector<Device> devices();
-    // Blocks until someone presses BOOT on the board (up to a minute). Throws with the board's reason if not.
+    // Asks the board, then waits until someone presses BOOT there (up to a minute). Throws if it doesn't happen.
     void revokeDevice(const std::string& name);
 
     // PIN unlock (PinUnlock.h). The board keeps one PIN record per device.
@@ -50,15 +50,13 @@ class EspStore : public IVaultStore {
         int triesLeft = 0;      // Wrong
     };
     PinReply tryPin(const std::string& proofHex);
-    void clearPin();
 
    private:
     struct Response {
         long status;
         std::string body;
     };
-    Response request(const std::string& method, const std::string& path, const std::string& body = "",
-                     long timeoutSeconds = 15);
+    Response request(const std::string& method, const std::string& path, const std::string& body = "");
 
     EspConfig cfg_;
     // One handle for the store's lifetime: curl keeps the TLS connection open between requests.

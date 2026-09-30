@@ -2,7 +2,10 @@
 
 #include <curl/curl.h>
 
+#include <algorithm>
+#include <chrono>
 #include <memory>
+#include <thread>
 
 namespace {
 
@@ -20,8 +23,7 @@ EspStore::EspStore(EspConfig cfg)
     if (!curl_) throw std::runtime_error("curl init failed");
 }
 
-EspStore::Response EspStore::request(const std::string& method, const std::string& path, const std::string& body,
-                                     long timeoutSeconds) {
+EspStore::Response EspStore::request(const std::string& method, const std::string& path, const std::string& body) {
     CURL* c = static_cast<CURL*>(curl_.get());
     curl_easy_reset(c);  // clears options, keeps the open connection
     std::string port = std::to_string(cfg_.port);
@@ -44,7 +46,7 @@ EspStore::Response EspStore::request(const std::string& method, const std::strin
     curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 1500L);  // short: "not home" should be detected fast
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, timeoutSeconds);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 15L);
     curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method.c_str());
     if (!body.empty()) curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, collect);
@@ -108,15 +110,23 @@ std::vector<EspStore::Device> EspStore::devices() {
 }
 
 void EspStore::revokeDevice(const std::string& name) {
-    // the board waits up to 60 s for a BOOT press before answering
-    auto r = request("DELETE", "/devices/" + name, "", 75);
-    if (r.status == 200) return;
-    std::string why = "HTTP " + std::to_string(r.status);
-    try {
-        why = nlohmann::json::parse(r.body).value("error", why);
-    } catch (const nlohmann::json::exception&) {
+    // The board only records the request (202) and revokes when BOOT is pressed; watch the list until it's gone.
+    auto r = request("DELETE", "/devices/" + name);
+    if (r.status != 200 && r.status != 202) {
+        std::string why = "HTTP " + std::to_string(r.status);
+        try {
+            why = nlohmann::json::parse(r.body).value("error", why);
+        } catch (const nlohmann::json::exception&) {
+        }
+        throw std::runtime_error("the board didn't revoke " + name + ": " + why);
     }
-    throw std::runtime_error("the board didn't revoke " + name + ": " + why);
+    for (auto until = std::chrono::steady_clock::now() + std::chrono::seconds(65);;) {
+        auto list = devices();
+        if (std::none_of(list.begin(), list.end(), [&](const Device& d) { return d.name == name; })) return;
+        if (std::chrono::steady_clock::now() > until) break;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    throw std::runtime_error("BOOT wasn't pressed on the board in time; " + name + " still has access");
 }
 
 std::string EspStore::setPin(const std::string& verifierHex) {
@@ -133,9 +143,4 @@ EspStore::PinReply EspStore::tryPin(const std::string& proofHex) {
     if (r.status == 410) return {PinReply::Removed};
     if (r.status == 404) return {PinReply::NotSet};
     throw std::runtime_error("POST /pin: HTTP " + std::to_string(r.status));
-}
-
-void EspStore::clearPin() {
-    auto r = request("DELETE", "/pin");
-    if (r.status != 200) throw std::runtime_error("DELETE /pin: HTTP " + std::to_string(r.status));
 }

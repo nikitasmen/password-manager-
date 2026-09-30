@@ -52,7 +52,6 @@ class VaultService {
     // PIN unlock (PinUnlock.h): the vault key sealed under a key from the PIN and the board's secret.
     // These never see the PIN or the secret, only the derived key.
     std::string sealKeyForPin(const std::string& pinKey);  // requires unlocked; returns the blob
-    std::string vaultId();                                  // of the current meta
     bool unlockWithPinKey(const std::string& pinKey, const std::string& blob);  // false = doesn't open this vault
 
     SyncStatus sync();
@@ -64,6 +63,7 @@ class VaultService {
     }
 
    private:
+    std::string vaultId();  // of the current meta
     void requireUnlocked() const;
     void reindex();
     void refresh();  // before a read: sync if stale, or re-read the store when there is no remote

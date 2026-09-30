@@ -132,17 +132,13 @@ UIManager::BoardState UIManager::checkBoard(std::string& detail) {
         detail = "This computer isn't paired with the ESP32 (" + std::string(e.what()) + ").";
         return BoardState::NotPaired;
     }
-    if (!pendingHost_.empty()) {  // a corrected address that works is worth keeping
-        ConfigManager::getInstance().saveConfig();
-        pendingHost_.clear();
-    }
+    ConfigManager::getInstance().saveConfig();  // keeps an address corrected in the connector
     return BoardState::Connected;
 }
 
 void UIManager::setBoardHost(const std::string& host) {
     if (!board_ || host.empty()) return;
     board_->setHost(host);
-    pendingHost_ = host;
     AppConfig c = ConfigManager::getInstance().getConfig();  // so checkBoard's messages name the new address
     c.espHost = host;
     ConfigManager::getInstance().updateConfig(c);
@@ -155,14 +151,7 @@ bool UIManager::savePairing(const PairedFiles& files, std::string& error) {
         // all three to .tmp first: cert and key must never be from different pairings
         const std::pair<std::string, const std::string*> out[] = {
             {c.espCert, &files.serverPem}, {c.espClientCert, &files.certPem}, {c.espClientKey, &files.keyPem}};
-        for (const auto& [path, content] : out) {
-            fs::create_directories(fs::path(path).parent_path());
-            const std::string tmp = path + ".tmp";
-            { std::ofstream(tmp, std::ios::trunc); }  // create it empty, restrict it, then write the secret
-            fs::permissions(tmp, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace);
-            std::ofstream f(tmp, std::ios::trunc | std::ios::binary);
-            if (!(f << *content) || !(f.close(), f)) throw std::runtime_error("couldn't write " + tmp);
-        }
+        for (const auto& [path, content] : out) writePrivateTmp(path, *content);
         for (const auto& [path, content] : out) fs::rename(path + ".tmp", path);
     } catch (const std::exception& e) {
         error = std::string("Couldn't save the certificates: ") + e.what();
@@ -243,9 +232,8 @@ bool UIManager::safeSetPin(const std::string& masterPassword, const std::string&
         const std::string salt = vaultcrypto::randomBytes(16);
         f.salt = base64::encode(salt);
         f.iterations = kDefaultKdfIterations;
-        f.vaultId = vault->vaultId();
         const std::string proof = pinProofHex(pin, salt, f.iterations);
-        std::string key = pinWrapKey(board_->setPin(pinVerifierHex(proof)), proof);
+        std::string key = pinWrapKey(board_->setPin(vaultcrypto::sha256Hex(proof)), proof);
         f.blob = vault->sealKeyForPin(key);
         vaultcrypto::wipe(key);
         savePinFile(pinFilePath(), f);
@@ -262,10 +250,7 @@ bool UIManager::safeRemovePin(std::string& error) {
     std::error_code ec;
     std::filesystem::remove(pinFilePath(), ec);
     if (std::filesystem::exists(pinFilePath())) return error = "Couldn't delete " + pinFilePath(), false;
-    // Tidy up the board's record too. If it's unreachable that's fine: without the file here, it opens nothing.
-    std::string ignored;
-    if (board_) boardCall(ignored, false, [&] { return board_->clearPin(), true; });
-    return true;
+    return true;  // the board's record opens nothing without this file, and a new PIN overwrites it
 }
 
 std::string UIManager::defaultDeviceName() {

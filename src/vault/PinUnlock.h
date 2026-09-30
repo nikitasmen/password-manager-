@@ -12,16 +12,16 @@
 bool validPin(const std::string& pin);  // at least 4 digits, digits only
 
 struct PinFile {
-    std::string vaultId;  // the vault this PIN opens
-    std::string salt;     // base64
+    std::string salt;  // base64
     int iterations = 0;
     std::string blob;  // AEAD blob of the vault key
 };
 std::optional<PinFile> loadPinFile(const std::string& path);  // nullopt if missing or unreadable
 void savePinFile(const std::string& path, const PinFile& f);  // mode 600; throws on failure
+// Writes path + ".tmp", mode 600 before any content lands; the caller renames it into place. Throws on failure.
+void writePrivateTmp(const std::string& path, const std::string& content);
 
 std::string pinProofHex(const std::string& pin, const std::string& saltRaw, int iterations);  // slow, on purpose
-std::string pinVerifierHex(const std::string& proofHex);                                      // what the board stores
 std::string pinWrapKey(const std::string& secretHex, const std::string& proofHex);            // 32 bytes
 
 #endif  // PIN_UNLOCK_H

@@ -19,6 +19,13 @@ PAIR_PORT="${PWVAULT_PAIR_PORT:-8444}"  # override for tests (fake_esp.py)
 umask 077
 
 die() { echo "error: $*" >&2; exit 1; }
+for tool in openssl curl; do
+    command -v $tool >/dev/null || die "needs $tool; install it, or run: nix-shell -p openssl curl --run '$0 $*'"
+done
+[ ! -e "$CONF_DIR/config" ] || [ -r "$CONF_DIR/config" ] ||
+    die "can't read $CONF_DIR/config (owned by $(stat -c %U "$CONF_DIR/config")); fix: sudo chown $(id -un): $CONF_DIR/config"
+[ ! -e "$CONF_DIR" ] || [ -w "$CONF_DIR" ] ||
+    die "can't write to $CONF_DIR (owned by $(stat -c %U "$CONF_DIR")); fix: sudo chown -R $(id -un): $CONF_DIR"
 conf_get() { [ -r "$CONF_DIR/config" ] && sed -n "s/^$1=//p" "$CONF_DIR/config" | tail -1 || true; }
 # set or replace key=value in this machine's config
 conf_set() {
@@ -114,10 +121,14 @@ devices)
 revoke)
     name="${2:-}"
     [ -n "$name" ] || die "usage: ./pki.sh revoke <name>"
-    echo "press BOOT on the board to confirm revoking '$name'"
     resp=$(board "/devices/$name" -X DELETE)
-    [ "${resp##*$'\n'}" = 200 ] || die "board: $(json_field "${resp%$'\n'*}" error)"
-    echo "revoked $name"
+    case ${resp##*$'\n'} in 200 | 202) ;; *) die "board: $(json_field "${resp%$'\n'*}" error)" ;; esac
+    echo "now press BOOT on the board to confirm revoking '$name' (within a minute)"
+    for _ in $(seq 65); do  # the board revokes on the press; watch the list until the name is gone
+        grep -q "\"name\": *\"$name\"" <<< "$(board /devices)" || { echo "revoked $name"; exit 0; }
+        sleep 1
+    done
+    die "BOOT wasn't pressed in time; $name still has access"
     ;;
 *)
     sed -n '2,11p' "$(basename "$0")" | sed 's/^# \{0,1\}//'

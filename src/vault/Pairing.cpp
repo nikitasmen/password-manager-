@@ -38,13 +38,6 @@ std::string der(X509* x) {
     return out;
 }
 
-std::string sha256Hex(const std::string& data) {
-    unsigned char h[32];
-    unsigned int n = 0;
-    EVP_Digest(data.data(), data.size(), h, &n, EVP_sha256(), nullptr);
-    return vaultcrypto::toHex(std::string(reinterpret_cast<char*>(h), n));
-}
-
 size_t collect(char* data, size_t size, size_t n, void* out) {
     static_cast<std::string*>(out)->append(data, size * n);
     return size * n;
@@ -103,7 +96,7 @@ PairedFiles pairWithBoard(const std::string& host, int pairPort, const std::stri
     Bio serverBio(BIO_new_mem_buf(out.serverPem.data(), static_cast<int>(out.serverPem.size())));
     Cert server(PEM_read_bio_X509(serverBio.get(), nullptr, nullptr, nullptr));
     if (!server) throw PairError("The board's certificate couldn't be read.");
-    const std::string fp = sha256Hex(der(server.get()));
+    const std::string fp = vaultcrypto::sha256Hex(der(server.get()));
 
     // Our key and a certificate request for it, as base64 DER
     Pkey key(EVP_EC_gen("P-256"));

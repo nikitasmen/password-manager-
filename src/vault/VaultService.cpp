@@ -139,15 +139,8 @@ bool VaultService::remove(const std::string& platform) {
 
 bool VaultService::changeMasterPassword(const std::string& currentPassword, const std::string& newPassword) {
     requireUnlocked();
+    if (!verifyMasterPassword(currentPassword)) return false;  // being unlocked isn't enough: they must know it
     VaultMeta current = *local_->getMeta();
-    try {  // being unlocked isn't enough: whoever changes it must know it
-        std::string key = vaultformat::unwrapVaultKey(currentPassword, current);
-        const bool same = key == vaultKey_;
-        vaultcrypto::wipe(key);
-        if (!same) return false;
-    } catch (const WrongPassword&) {
-        return false;
-    }
     if (!local_->putMeta(vaultformat::rewrap(current, vaultKey_, newPassword), current.rev))
         throw std::runtime_error("the vault changed meanwhile; try again");
     sync();

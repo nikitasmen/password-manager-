@@ -142,6 +142,13 @@ std::string hmacSha256(const std::string& key, const std::string& message) {
     return mac;
 }
 
+std::string sha256Hex(const std::string& data) {
+    unsigned char h[32];
+    unsigned int n = 0;
+    if (!EVP_Digest(data.data(), data.size(), h, &n, EVP_sha256(), nullptr)) throw std::runtime_error("OpenSSL: SHA-256 failed");
+    return toHex(std::string(reinterpret_cast<char*>(h), n));
+}
+
 std::string toHex(const std::string& bytes) {
     static const char* digits = "0123456789abcdef";
     std::string out;

@@ -117,7 +117,10 @@ function(link_common target)
     endif()
     target_link_libraries(${target} PRIVATE ${OPENSSL_LIBRARIES})
     if(JSON_LIB)
-        target_link_libraries(${target} PRIVATE ${JSON_LIB})
+        # As a compile option, not an include dir: inside nix-shell the compiler already has this dir implicitly,
+        # so CMake would drop it from the flags, and builds from any other shell couldn't find json.hpp.
+        get_target_property(JSON_INC ${JSON_LIB} INTERFACE_INCLUDE_DIRECTORIES)
+        target_compile_options(${target} PRIVATE -isystem ${JSON_INC})
     endif()
 
     # Link CURL on Unix systems

@@ -1,7 +1,5 @@
 #include "PinUnlock.h"
 
-#include <openssl/evp.h>
-
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -20,22 +18,27 @@ std::optional<PinFile> loadPinFile(const std::string& path) {
     nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
     if (!in || !j.is_object()) return std::nullopt;
     try {
-        return PinFile{j.at("vault_id"), j.at("salt"), j.at("iter"), j.at("blob")};
+        return PinFile{j.at("salt"), j.at("iter"), j.at("blob")};
     } catch (const nlohmann::json::exception&) {
         return std::nullopt;
     }
 }
 
-void savePinFile(const std::string& path, const PinFile& f) {
+void writePrivateTmp(const std::string& path, const std::string& content) {
     namespace fs = std::filesystem;
     const std::string tmp = path + ".tmp";
+    fs::create_directories(fs::path(tmp).parent_path());
     { std::ofstream(tmp, std::ios::trunc); }  // create it empty, restrict it, then write
     fs::permissions(tmp, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace);
-    std::ofstream out(tmp, std::ios::trunc);
-    out << nlohmann::json{{"vault_id", f.vaultId}, {"salt", f.salt}, {"iter", f.iterations}, {"blob", f.blob}}.dump();
+    std::ofstream out(tmp, std::ios::trunc | std::ios::binary);
+    out << content;
     out.close();
     if (!out) throw std::runtime_error("couldn't write " + tmp);
-    fs::rename(tmp, path);
+}
+
+void savePinFile(const std::string& path, const PinFile& f) {
+    writePrivateTmp(path, nlohmann::json{{"salt", f.salt}, {"iter", f.iterations}, {"blob", f.blob}}.dump());
+    std::filesystem::rename(path + ".tmp", path);
 }
 
 std::string pinProofHex(const std::string& pin, const std::string& saltRaw, int iterations) {
@@ -43,13 +46,6 @@ std::string pinProofHex(const std::string& pin, const std::string& saltRaw, int 
     std::string hex = vaultcrypto::toHex(k);
     vaultcrypto::wipe(k);
     return hex;
-}
-
-std::string pinVerifierHex(const std::string& proofHex) {
-    unsigned char h[32];
-    unsigned int n = 0;
-    EVP_Digest(proofHex.data(), proofHex.size(), h, &n, EVP_sha256(), nullptr);
-    return vaultcrypto::toHex(std::string(reinterpret_cast<char*>(h), n));
 }
 
 std::string pinWrapKey(const std::string& secretHex, const std::string& proofHex) {
