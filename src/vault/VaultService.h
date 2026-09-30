@@ -45,7 +45,15 @@ class VaultService {
     std::optional<Credential> get(const std::string& platform);  // also tells the remote (OLED) who read what
     void put(const Credential& cred);                            // add or update
     bool remove(const std::string& platform);
-    void changeMasterPassword(const std::string& newPassword);
+    // Rewraps the vault key; entries aren't re-encrypted. false = currentPassword is wrong (nothing changed).
+    bool changeMasterPassword(const std::string& currentPassword, const std::string& newPassword);
+    [[nodiscard]] bool verifyMasterPassword(const std::string& password);  // requires unlocked
+
+    // PIN unlock (PinUnlock.h): the vault key sealed under a key from the PIN and the board's secret.
+    // These never see the PIN or the secret, only the derived key.
+    std::string sealKeyForPin(const std::string& pinKey);  // requires unlocked; returns the blob
+    std::string vaultId();                                  // of the current meta
+    bool unlockWithPinKey(const std::string& pinKey, const std::string& blob);  // false = doesn't open this vault
 
     SyncStatus sync();
     [[nodiscard]] SyncStatus lastSyncStatus() const {

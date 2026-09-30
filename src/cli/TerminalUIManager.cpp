@@ -9,6 +9,7 @@
 #include "../core/clipboard.h"
 #include "../core/terminal_ui.h"
 #include "../utils/EncryptionUtils.h"
+#include "../vault/Crypto.h"
 
 using namespace term;
 
@@ -178,6 +179,16 @@ bool TerminalUIManager::unlockScreen() {
             continue;
         }
         std::cout << "Unlock your vault to see your passwords.\n\n";
+        if (hasPin() && !usePassword_) {
+            std::string pin = readSecret("PIN " + muted("(or m for the master password)") + ": ");
+            if (pin == "m") {
+                usePassword_ = true;
+                attempt--;  // switching isn't a failed attempt
+                continue;
+            }
+            if (loginWithPin(pin)) return true;
+            continue;
+        }
         if (login(readSecret("Master password: "))) return true;
     }
     header("Locked");
@@ -194,6 +205,16 @@ bool TerminalUIManager::login(const std::string& password) {
         return false;
     }
     if (!isLoggedIn) message_ = danger("That's not the master password.");
+    return isLoggedIn;
+}
+
+bool TerminalUIManager::loginWithPin(const std::string& pin) {
+    std::cout << muted("Unlocking...") << std::flush;
+    std::string msg;
+    const PinResult r = safeUnlockWithPin(pin, msg);
+    isLoggedIn = r == PinResult::Unlocked;
+    if (!isLoggedIn) message_ = danger(msg);
+    if (r != PinResult::Unlocked && r != PinResult::Wrong) usePassword_ = true;
     return isLoggedIn;
 }
 
@@ -240,7 +261,7 @@ void TerminalUIManager::home() {
         std::vector<std::pair<std::string, std::string>> keys;
         if (!shown.empty()) keys.push_back({shown.size() == 1 ? "1" : "1-" + std::to_string(shown.size()), "open"});
         keys.insert(keys.end(), {{"n", "new"}, {"/text", "search"}, {"p", "master password"}});
-        if (board_) keys.push_back({"d", "devices"});
+        if (board_) keys.insert(keys.end(), {{"k", "PIN"}, {"d", "devices"}});
         keys.insert(keys.end(), {{"l", "lock"}, {"q", "quit"}});
         std::cout << "\n" << legend(keys) << "\n";
 
@@ -254,6 +275,8 @@ void TerminalUIManager::home() {
             newEntry();
         } else if (in == "p") {
             changeMasterPassword();
+        } else if (in == "k" && board_) {
+            pinScreen();
         } else if (in == "d" && board_) {
             devicesScreen();
         } else if (!in.empty() && in[0] == '/') {
@@ -352,20 +375,37 @@ void TerminalUIManager::editEntry(const Credential& c) {
 
 void TerminalUIManager::changeMasterPassword() {
     header("Change master password");
-    std::cout << "Your other devices will need the new password after their next sync.\n\n";
+    std::cout << "Your other devices will ask for the new password after their next sync.\n\n";
+    std::string current = readSecret("Current master password: ");
+    if (current.empty()) return;
     std::string pw = readSecret("New master password: ");
-    if (pw.empty()) return;
-    if (pw != readSecret("Repeat it: ")) {
-        message_ = danger("The two passwords don't match. Nothing was changed.");
-        return;
+    std::string repeat = readSecret("Repeat the new one: ");
+    std::string error;
+    message_ = safeChangeMasterPassword(current, pw, repeat, error)
+                   ? accent("Master password changed.") + " " + muted("Your other devices will ask for it after their next sync.")
+                   : danger(error + " Nothing was changed.");
+    vaultcrypto::wipe(current), vaultcrypto::wipe(pw), vaultcrypto::wipe(repeat);
+}
+
+void TerminalUIManager::pinScreen() {
+    header("PIN unlock");
+    std::cout << "Unlock this computer with a PIN instead of the master password. The ESP32 checks the PIN and allows\n"
+              << "5 wrong tries; after that the master password is needed again. The PIN only works while the board\n"
+              << "is reachable.\n\n";
+    if (hasPin()) {
+        std::cout << "A PIN is set on this computer.\n\n" << legend({{"c", "change"}, {"r", "remove"}, {"Enter", "back"}}) << "\n";
+        std::string in = readLine("> "), error;
+        if (in == "r") message_ = safeRemovePin(error) ? accent("PIN removed.") : danger(error);
+        if (in != "c") return;
     }
-    const int minLen = ConfigManager::getInstance().getConfig().minPasswordLength;
-    if (static_cast<int>(pw.size()) < minLen) {
-        message_ = danger("Use at least " + std::to_string(minLen) + " characters. Nothing was changed.");
-        return;
-    }
-    message_ = safeChangeMasterPassword(pw) ? accent("Master password changed.")
-                                            : danger("Couldn't change the master password.");
+    std::string master = readSecret("Master password: ");
+    if (master.empty()) return;
+    std::string pin = readSecret("New PIN (at least 4 digits): ");
+    std::string repeat = readSecret("Repeat the PIN: ");
+    std::string error;
+    message_ = safeSetPin(master, pin, repeat, error) ? accent("PIN set. Next time, unlock with it.")
+                                                      : danger(error + " Nothing was changed.");
+    vaultcrypto::wipe(master), vaultcrypto::wipe(pin), vaultcrypto::wipe(repeat);
 }
 
 void TerminalUIManager::devicesScreen() {

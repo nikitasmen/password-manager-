@@ -41,6 +41,9 @@ class TerminalUIManager : public UIManager {
     void changeMasterPassword();
     void devicesScreen();  // devices paired with the ESP32
     void connector();      // on start: pair with / reach the ESP32, unless it's already connected
+    void pinScreen();      // set, change or remove the PIN
+    bool loginWithPin(const std::string& pin);  // false: message_ says why; usePassword_ set if the PIN can't work
+    bool usePassword_ = false;                  // this run: the PIN failed for good, or the user asked
 
     std::string message_;  // shown once, at the top of the next screen
     bool quit_ = false;

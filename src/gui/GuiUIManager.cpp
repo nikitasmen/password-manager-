@@ -145,7 +145,8 @@ int GuiUIManager::show() {
 
 void GuiUIManager::buildUnlockWindow(bool create) {
     const int W = 440, x = 28, fw = W - 2 * x;
-    auto* w = new Fl_Double_Window(W, create ? 560 : 490);
+    const bool offerPin = !create && hasPin(), pin = offerPin && !usePassword_;
+    auto* w = new Fl_Double_Window(W, create ? 574 : offerPin ? 548 : 504);
     w->copy_label(create ? "Create your vault" : "Unlock your vault");
     w->color(enclosure());
 
@@ -155,19 +156,27 @@ void GuiUIManager::buildUnlockWindow(bool create) {
     y += 34;
     text(x, y, fw, 40, whereText(), kSans, kBody, muted());
     y += 64;
-    pass1_ = field<Fl_Secret_Input>(x, y, fw, 38, "Master password");
+    pass1_ = field<Fl_Secret_Input>(x, y, fw, 38, pin ? "PIN" : "Master password");
     y += 60;
     pass2_ = nullptr;
     if (create) {
         pass2_ = field<Fl_Secret_Input>(x, y, fw, 38, "Repeat it");
         y += 60;
     }
-    unlockError_ = text(x, y - 14, fw, 24, "", kSans, kSmall, danger());
-    y += 14;
+    unlockError_ = text(x, y - 14, fw, 38, "", kSans, kSmall, danger());  // two lines: PIN messages are long
+    y += 28;
     Fl_Button* go = button(x, y, fw, 42, create ? "Create vault" : "Unlock", Kind::Primary);
+    if (offerPin) {
+        Fl_Button* other = button(x, y + 52, fw, 32, pin ? "Use the master password instead" : "Use the PIN instead");
+        on(other, [this] {
+            usePassword_ = !usePassword_;
+            buildUnlockWindow(false);
+            unlockWin_->show();
+        });
+    }
     w->end();
 
-    on(go, [this, create] {
+    on(go, [this, create, pin] {
         unlockError_->labelcolor(muted());
         unlockError_->copy_label(create ? "Creating your vault..." : "Unlocking...");
         unlockError_->redraw();
@@ -175,6 +184,8 @@ void GuiUIManager::buildUnlockWindow(bool create) {
         unlockError_->labelcolor(danger());
         if (create)
             setupPassword(pass1_->value(), pass2_->value(), encryption_utils::getDefault());
+        else if (pin)
+            loginWithPin(pass1_->value());
         else
             login(pass1_->value());
     });
@@ -207,6 +218,24 @@ bool GuiUIManager::login(const std::string& password) {
     isLoggedIn = true;
     buildVaultWindow();
     return true;
+}
+
+bool GuiUIManager::loginWithPin(const std::string& pin) {
+    std::string msg;
+    const PinResult r = safeUnlockWithPin(pin, msg);
+    if (r == PinResult::Unlocked) {
+        isLoggedIn = true;
+        buildVaultWindow();
+        return true;
+    }
+    if (r != PinResult::Wrong) {  // the PIN can't work now: switch this window to the master password
+        usePassword_ = true;
+        buildUnlockWindow(false);
+        unlockWin_->show();
+    }
+    if (unlockError_) unlockError_->copy_label(literal(msg).c_str());
+    if (pass1_) pass1_->value("");
+    return false;
 }
 
 bool GuiUIManager::setupPassword(const std::string& newPassword, const std::string& confirmPassword, CipherAlg alg) {
@@ -524,7 +553,8 @@ void GuiUIManager::openSettings() {
     const size_t mark = callbacks_.size();
     const AppConfig& c = ConfigManager::getInstance().getConfig();
     const int W = 520, x = 28, fw = W - 2 * x;
-    auto* w = new Fl_Double_Window(W, 580);
+    const int pinRow = board_ ? 56 : 0;  // PIN unlock needs the board
+    auto* w = new Fl_Double_Window(W, 640 + pinRow);
     w->copy_label("Settings");
     w->color(enclosure());
     text(x, 22, fw, 30, "Settings", kSansBold, 20, ink());
@@ -557,14 +587,42 @@ void GuiUIManager::openSettings() {
     mode->add("Window|Terminal|Window if available");
     mode->value(c.defaultUIMode == "gui" ? 0 : (c.defaultUIMode == "tui" || c.defaultUIMode == "cli") ? 1 : 2);
     Fl_Button* updates = button(x + fw - 170, 478, 170, 36, "Check for updates");
-    text(x, 530, 150, 38, "Version " + c.version, kSans, kSmall, muted());  // footer, left of Cancel/Save
     on(updates, [this] {
         if (!updateDialog_) updateDialog_ = std::make_unique<UpdateDialog>();
         updateDialog_->show();
     });
 
-    Fl_Button* cancel = button(W - x - 208, 530, 100, 38, "Cancel");
-    Fl_Button* save = button(W - x - 100, 530, 100, 38, "Save", Kind::Primary);
+    text(x, 534, fw - 230, 36, "Master password", kSansBold, kBody, ink());
+    Fl_Button* master = button(x + fw - 220, 534, 220, 36, "Change master password");
+    on(master, [this] { changeMasterPassword(); });
+    if (board_) {
+        Fl_Box* pinText = text(x, 590, fw - 230, 36, "", kSansBold, kBody, ink());
+        Fl_Button* setPin = button(x + fw - 220, 590, 106, 36, "");
+        Fl_Button* removePin = button(x + fw - 106, 590, 106, 36, "Remove PIN");
+        auto refresh = [=, this] {
+            pinText->copy_label(hasPin() ? "PIN unlock: on" : "PIN unlock: off");
+            setPin->copy_label(hasPin() ? "Change PIN" : "Set PIN");
+            hasPin() ? removePin->activate() : removePin->deactivate();
+            pinText->window()->redraw();
+        };
+        on(setPin, [=, this] {
+            setPinDialog();
+            refresh();
+        });
+        on(removePin, [=, this] {
+            if (fl_choice("Remove the PIN? You'll unlock with the master password.", "Cancel", "Remove", nullptr) != 1)
+                return;
+            std::string error;
+            if (!safeRemovePin(error)) fl_alert("%s", literal(error).c_str());
+            refresh();
+        });
+        refresh();
+    }
+
+    const int footY = 590 + pinRow;
+    text(x, footY, 150, 38, "Version " + c.version, kSans, kSmall, muted());  // footer, left of Cancel/Save
+    Fl_Button* cancel = button(W - x - 208, footY, 100, 38, "Cancel");
+    Fl_Button* save = button(W - x - 100, footY, 100, 38, "Save", Kind::Primary);
     w->end();
 
     on(cancel, [w] { w->hide(); });
@@ -589,6 +647,82 @@ void GuiUIManager::openSettings() {
         showDetail(current_);  // e.g. the encryption row
     });
     runModal(w);
+    delete w;
+    callbacks_.resize(mark);
+}
+
+void GuiUIManager::changeMasterPassword() {
+    const size_t mark = callbacks_.size();
+    const int W = 460, H = 440, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, H);
+    w->copy_label("Change master password");
+    w->color(enclosure());
+    text(x, 22, fw, 30, "Change master password", kSansBold, 20, ink());
+    text(x, 56, fw, 40, "Your entries stay as they are. Your other devices will ask for the new password after their next sync.",
+         kSans, kSmall, muted());
+    auto* current = field<Fl_Secret_Input>(x, 128, fw, 36, "Current master password");
+    auto* next = field<Fl_Secret_Input>(x, 196, fw, 36, "New master password");
+    auto* repeat = field<Fl_Secret_Input>(x, 264, fw, 36, "Repeat the new one");
+    Fl_Box* error = text(x, 312, fw, 44, "", kSans, kSmall, danger());
+    Fl_Button* cancel = button(W - x - 208, H - 58, 100, 38, "Cancel");
+    Fl_Button* save = button(W - x - 100, H - 58, 100, 38, "Change", Kind::Primary);
+    save->shortcut(FL_Enter);
+    w->end();
+
+    on(cancel, [w] { w->hide(); });
+    on(save, [&, this] {
+        std::string why;
+        if (safeChangeMasterPassword(current->value(), next->value(), repeat->value(), why)) {
+            w->hide();
+            flash("master password changed");
+        } else {
+            error->copy_label(literal(why).c_str());
+        }
+    });
+    current->take_focus();
+    runModal(w);
+    for (Fl_Secret_Input* f : {current, next, repeat}) f->value("");  // don't leave them in widget memory
+    delete w;
+    callbacks_.resize(mark);
+}
+
+void GuiUIManager::setPinDialog() {
+    const size_t mark = callbacks_.size();
+    const int W = 460, H = 470, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, H);
+    w->copy_label("PIN unlock");
+    w->color(enclosure());
+    text(x, 22, fw, 30, "PIN unlock", kSansBold, 20, ink());
+    text(x, 56, fw, 56,
+         "Unlock this computer with a PIN. The ESP32 checks it and allows 5 wrong tries, then the master password is "
+         "needed again. The PIN only works while the board is reachable.",
+         kSans, kSmall, muted());
+    auto* master = field<Fl_Secret_Input>(x, 144, fw, 36, "Master password");
+    auto* pin = field<Fl_Secret_Input>(x, 212, fw, 36, "PIN (at least 4 digits)");
+    auto* repeat = field<Fl_Secret_Input>(x, 280, fw, 36, "Repeat the PIN");
+    Fl_Box* error = text(x, 328, fw, 44, "", kSans, kSmall, danger());
+    Fl_Button* cancel = button(W - x - 208, H - 58, 100, 38, "Cancel");
+    Fl_Button* save = button(W - x - 100, H - 58, 100, 38, "Set PIN", Kind::Primary);
+    save->shortcut(FL_Enter);
+    w->end();
+
+    on(cancel, [w] { w->hide(); });
+    on(save, [&, this] {
+        error->labelcolor(muted());
+        error->copy_label("Setting the PIN...");
+        Fl::flush();  // a slow key derivation plus a round trip to the board
+        error->labelcolor(danger());
+        std::string why;
+        if (safeSetPin(master->value(), pin->value(), repeat->value(), why)) {
+            w->hide();
+            flash("pin set");
+        } else {
+            error->copy_label(literal(why).c_str());
+        }
+    });
+    master->take_focus();
+    runModal(w);
+    for (Fl_Secret_Input* f : {master, pin, repeat}) f->value("");
     delete w;
     callbacks_.resize(mark);
 }

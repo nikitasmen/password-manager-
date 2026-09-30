@@ -87,6 +87,10 @@ The board is a plain USB-powered device: plug it into any charger.
 
 **Managing devices:** in the app, **Devices** (GUI title bar) or `d` (TUI) lists every paired device and when it last talked to the board, and revokes one: press BOOT on the board to confirm. From a shell, `./pki.sh devices` and `./pki.sh revoke <name>` do the same. No reflash needed. The confirmation stops a stolen device from revoking your others.
 
+### PIN unlock
+
+Settings → **Set PIN** (TUI: `k`) lets this computer unlock with a PIN of at least 4 digits instead of the master password. The board checks the PIN: this computer keeps the vault key locked with a secret that only the board holds and hands out only for the right PIN. After 5 wrong PINs the board deletes that secret, and the master password is needed again. So a copy of this computer's disk can't be used to guess the PIN offline. The PIN works only while the board is reachable; the master password always works. Each computer has its own PIN and its own count of wrong tries. Revoking or re-pairing a device removes its PIN.
+
 ### Using it away from home
 
 **Don't port-forward the ESP32 to the internet.** Its TLS stack never gets security updates, and it's easy to knock offline. Instead, reach your home network over a VPN: a [Tailscale subnet router](https://tailscale.com/kb/1019/subnets) on any always-on home machine, or WireGuard on your router. The app config stays the same (use the board's LAN IP), and only your own devices can reach it.

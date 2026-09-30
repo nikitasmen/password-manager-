@@ -39,6 +39,9 @@ def newer(a, b):
 lock = threading.Lock()  # one request at a time touches state, like the board's mutex
 devices = {}  # name -> hex SHA-256 of its current cert; not in here = revoked
 seen = {}  # name -> unix time of its last request
+pins = {}  # name -> {secret, verifier, fails}, like /pin/<name> on the board
+PIN_TRIES = 5
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
 ctx_holder = {}
 pairing = {}  # code, server_fp, ca_dir
@@ -128,8 +131,36 @@ class Handler(BaseHTTPRequestHandler):
             if name not in devices:
                 return self.reply(404, {"error": "no such device"})
             del devices[name]
+            pins.pop(name, None)
             print(f"[{who}] revoked {name}", flush=True)
             return self.reply(200, {"ok": True})
+        if route == ("DELETE", "/pin"):
+            pins.pop(who, None)
+            return self.reply(200, {"ok": True})
+        if route in (("PUT", "/pin"), ("POST", "/pin")):
+            req = self.body()
+            if not isinstance(req, dict):
+                return None if req is None else self.reply(400, {"error": "bad body"})
+            if route == ("PUT", "/pin"):
+                if not HEX64.match(str(req.get("verifier"))):
+                    return self.reply(400, {"error": "need {verifier: 64 hex}"})
+                pins[who] = {"secret": secrets.token_hex(32), "verifier": req["verifier"], "fails": 0}
+                print(f"[{who}] PIN set", flush=True)
+                return self.reply(200, {"secret": pins[who]["secret"]})
+            if not HEX64.match(str(req.get("proof"))):
+                return self.reply(400, {"error": "need {proof: 64 hex}"})
+            rec = pins.get(who)
+            if not rec:
+                return self.reply(404, {"error": "no PIN set"})
+            if hmac.compare_digest(hashlib.sha256(req["proof"].encode()).hexdigest(), rec["verifier"]):
+                rec["fails"] = 0
+                return self.reply(200, {"secret": rec["secret"]})
+            rec["fails"] += 1
+            if rec["fails"] >= PIN_TRIES:
+                del pins[who]
+                print(f"[{who}] wrong PIN, PIN removed", flush=True)
+                return self.reply(410, {"error": "too many wrong PINs; the PIN was removed", "left": 0})
+            return self.reply(403, {"error": "wrong PIN", "left": PIN_TRIES - rec["fails"]})
         if route == ("GET", "/entries"):
             after = int(parse_qs(url.query).get("after", ["0"])[0])
             return self.reply(200, {"entries": [e for e in state["entries"].values() if e["seq"] > after],
@@ -209,6 +240,7 @@ class PairHandler(Handler):
             except (ValueError, subprocess.CalledProcessError):
                 return self.reply(400, {"error": "bad csr"})
             devices[name] = hashlib.sha256(cert).hexdigest()
+            pins.pop(name, None)  # a PIN belongs to the old pairing
             print(f"[{name}] paired", flush=True)
             cert_b64 = base64.b64encode(cert).decode()
             return self.reply(200, {"cert": cert_b64,

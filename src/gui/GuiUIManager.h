@@ -56,6 +56,10 @@ class GuiUIManager : public UIManager {
     void editEntry(const std::optional<Credential>& existing);  // modal add/edit dialog
     void openSettings();                                         // modal settings dialog
     void openDevices();                                          // modal: devices paired with the ESP32
+    void changeMasterPassword();                                 // modal: current + new + repeat
+    void setPinDialog();                                         // modal: master password + PIN + repeat
+    bool loginWithPin(const std::string& pin);
+    bool usePassword_ = false;  // unlock with the master password even though a PIN is set
     void runConnector();  // on start: pair with / reach the ESP32, unless it's already connected
     void lockVault();
     void copy(const std::string& text, const std::string& what);

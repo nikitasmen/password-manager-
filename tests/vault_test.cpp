@@ -13,6 +13,7 @@
 #include "../src/vault/EspStore.h"
 #include "../src/vault/LocalFileStore.h"
 #include "../src/vault/Pairing.h"
+#include "../src/vault/PinUnlock.h"
 #include "../src/vault/VaultService.h"
 
 namespace fs = std::filesystem;
@@ -218,7 +219,8 @@ void testSync(const fs::path& dir) {
     CHECK(phone.vault->get("mail")->password == "from-phone");
 
     // master password change on laptop reaches the phone; entries stay readable (same vault key)
-    laptop.vault->changeMasterPassword("new-master");
+    CHECK(!laptop.vault->changeMasterPassword("not-it", "new-master"));  // must know the current one
+    CHECK(laptop.vault->changeMasterPassword("master", "new-master"));
     phone.vault->sync();
     CHECK(phone.vault->get("gitlab")->password == "pw2");  // still unlocked, still works
     phone.vault->lock();
@@ -450,6 +452,30 @@ void testPair(const fs::path& dir, const std::string& spec) {
     auto devices = esp.devices();
     CHECK(std::any_of(devices.begin(), devices.end(), [](const auto& d) { return d.thisDevice && d.name == "pair-test"; }));
     std::cout << "pair: ok (wrong code refused, no pairing port reported, issued cert accepted)\n";
+
+    // PIN unlock through the board: the vault key sealed under HMAC(board secret, PIN proof)
+    CHECK(validPin("1234") && validPin("00000000") && !validPin("123") && !validPin("12a4") && !validPin(""));
+    VaultService v(std::make_unique<LocalFileStore>((dir / "pin-vault.json").string()), nullptr, "");
+    v.create("master", CipherAlg::Aes256Gcm, 1000);
+    v.put({"mail", "me", "pw", CipherAlg::Aes256Gcm});
+    const std::string salt = vaultcrypto::randomBytes(16), proof = pinProofHex("2468", salt, 1000),
+                      wrongProof = pinProofHex("1357", salt, 1000);
+    const std::string blob = v.sealKeyForPin(pinWrapKey(esp.setPin(pinVerifierHex(proof)), proof));
+    v.lock();
+    auto r = esp.tryPin(proof);
+    CHECK(r.result == EspStore::PinReply::Ok && v.unlockWithPinKey(pinWrapKey(r.secretHex, proof), blob));
+    CHECK(v.get("mail")->password == "pw");
+    for (int left = 4; left >= 1; left--) CHECK(esp.tryPin(wrongProof).triesLeft == left);
+    CHECK(esp.tryPin(proof).result == EspStore::PinReply::Ok);  // the right PIN resets the count
+    for (int i = 0; i < 4; i++) CHECK(esp.tryPin(wrongProof).result == EspStore::PinReply::Wrong);
+    CHECK(esp.tryPin(wrongProof).result == EspStore::PinReply::Removed);  // the 5th: gone
+    CHECK(esp.tryPin(proof).result == EspStore::PinReply::NotSet);        // even the right PIN, now
+    VaultService other(std::make_unique<LocalFileStore>((dir / "other-vault.json").string()), nullptr, "");
+    other.create("master", CipherAlg::Aes256Gcm, 1000);
+    other.lock();
+    CHECK(!other.unlockWithPinKey(pinWrapKey(r.secretHex, proof), blob));  // bound to its own vault
+    esp.clearPin();
+    std::cout << "pin: ok (unlocks; 5 wrong tries remove it; bound to its vault)\n";
 }
 
 int main() {

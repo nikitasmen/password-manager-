@@ -9,7 +9,9 @@
 #include <fstream>
 #include <iostream>
 
+#include "../core/base64.h"
 #include "../utils/EncryptionUtils.h"
+#include "../vault/Crypto.h"
 #include "../vault/EspStore.h"
 #include "../vault/LocalFileStore.h"
 
@@ -70,11 +72,23 @@ std::vector<std::string> UIManager::safeGetPlatforms() {
     return guarded("listing platforms", std::vector<std::string>{}, [&] { return vault->platforms(); });
 }
 
-bool UIManager::safeChangeMasterPassword(const std::string& newPassword) {
-    return guarded("changing master password", false, [&] {
-        vault->changeMasterPassword(newPassword);
-        return true;
-    });
+bool UIManager::safeChangeMasterPassword(const std::string& current,
+                                         const std::string& next,
+                                         const std::string& repeat,
+                                         std::string& error) {
+    const size_t minLen = static_cast<size_t>(ConfigManager::getInstance().getConfig().minPasswordLength);
+    if (next != repeat) error = "The two new passwords don't match.";
+    else if (next.size() < minLen) error = "Use at least " + std::to_string(minLen) + " characters.";
+    else if (next == current) error = "That's the password you have now.";
+    if (!error.empty()) return false;
+    try {
+        if (vault->changeMasterPassword(current, next)) return true;
+        error = "That's not your current master password.";
+    } catch (const std::exception& e) {
+        std::cerr << "changing master password: " << e.what() << "\n";
+        error = std::string("Couldn't change it: ") + e.what();
+    }
+    return false;
 }
 
 namespace {
@@ -158,6 +172,99 @@ bool UIManager::savePairing(const PairedFiles& files, std::string& error) {
         error = "Paired, but couldn't write " + ConfigManager::configFile() + " (is it owned by root?)";
         return false;
     }
+    return true;
+}
+
+std::string UIManager::pinFilePath() {
+    return ConfigManager::configDir() + "/pin.json";
+}
+
+bool UIManager::hasPin() const {
+    return board_ && std::filesystem::exists(pinFilePath());
+}
+
+UIManager::PinResult UIManager::safeUnlockWithPin(const std::string& pin, std::string& message) {
+    auto file = loadPinFile(pinFilePath());
+    if (!board_ || !file) {
+        message = "PIN unlock isn't set up here. Use your master password.";
+        return PinResult::Failed;
+    }
+    const std::string proof = pinProofHex(pin, base64::decode(file->salt), file->iterations);
+    EspStore::PinReply reply;
+    try {
+        reply = board_->tryPin(proof);
+    } catch (const StoreUnavailable&) {
+        message = "The ESP32 isn't reachable, and the PIN needs it. Use your master password.";
+        return PinResult::Unavailable;
+    } catch (const std::exception& e) {
+        message = std::string(e.what()) + " Use your master password.";
+        return PinResult::Failed;
+    }
+    std::error_code ec;
+    switch (reply.result) {
+        case EspStore::PinReply::Wrong:
+            message = "Wrong PIN. " + std::to_string(reply.triesLeft) + (reply.triesLeft == 1 ? " try" : " tries") +
+                      " left before the PIN is removed.";
+            return PinResult::Wrong;
+        case EspStore::PinReply::Removed:
+            std::filesystem::remove(pinFilePath(), ec);
+            message = "Too many wrong PINs: the board removed the PIN. Unlock with your master password; you can set a "
+                      "new PIN in Settings.";
+            return PinResult::Removed;
+        case EspStore::PinReply::NotSet:
+            std::filesystem::remove(pinFilePath(), ec);
+            message = "The board has no PIN for this device anymore (revoked or re-paired). Use your master password.";
+            return PinResult::Removed;
+        case EspStore::PinReply::Ok:
+            break;
+    }
+    std::string key = pinWrapKey(reply.secretHex, proof);
+    bool ok = false;
+    try {
+        ok = vault->unlockWithPinKey(key, file->blob);
+    } catch (const std::exception& e) {
+        message = e.what();
+    }
+    vaultcrypto::wipe(key);
+    if (ok) return PinResult::Unlocked;
+    if (message.empty()) message = "This PIN was set up for a different vault. Use your master password.";
+    return PinResult::Failed;
+}
+
+bool UIManager::safeSetPin(const std::string& masterPassword, const std::string& pin, const std::string& repeat,
+                           std::string& error) {
+    if (!board_) error = "PIN unlock needs the ESP32 (espHost in the config).";
+    else if (!validPin(pin)) error = "Use at least 4 digits, and only digits.";
+    else if (pin != repeat) error = "The two PINs don't match.";
+    else if (!vault->verifyMasterPassword(masterPassword)) error = "That's not your master password.";
+    if (!error.empty()) return false;
+    try {
+        PinFile f;
+        const std::string salt = vaultcrypto::randomBytes(16);
+        f.salt = base64::encode(salt);
+        f.iterations = kDefaultKdfIterations;
+        f.vaultId = vault->vaultId();
+        const std::string proof = pinProofHex(pin, salt, f.iterations);
+        std::string key = pinWrapKey(board_->setPin(pinVerifierHex(proof)), proof);
+        f.blob = vault->sealKeyForPin(key);
+        vaultcrypto::wipe(key);
+        savePinFile(pinFilePath(), f);
+        return true;
+    } catch (const StoreUnavailable&) {
+        error = "The ESP32 isn't reachable. Setting a PIN needs it.";
+    } catch (const std::exception& e) {
+        error = std::string("Couldn't set the PIN: ") + e.what();
+    }
+    return false;
+}
+
+bool UIManager::safeRemovePin(std::string& error) {
+    std::error_code ec;
+    std::filesystem::remove(pinFilePath(), ec);
+    if (std::filesystem::exists(pinFilePath())) return error = "Couldn't delete " + pinFilePath(), false;
+    // Tidy up the board's record too. If it's unreachable that's fine: without the file here, it opens nothing.
+    std::string ignored;
+    if (board_) boardCall(ignored, false, [&] { return board_->clearPin(), true; });
     return true;
 }
 

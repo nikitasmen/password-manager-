@@ -72,6 +72,7 @@ set(VAULT_SOURCES
     src/vault/VaultService.cpp
     src/vault/EspStore.cpp
     src/vault/Pairing.cpp
+    src/vault/PinUnlock.cpp
 )
 
 set(CLI_SOURCES

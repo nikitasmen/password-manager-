@@ -137,12 +137,63 @@ bool VaultService::remove(const std::string& platform) {
     return true;
 }
 
-void VaultService::changeMasterPassword(const std::string& newPassword) {
+bool VaultService::changeMasterPassword(const std::string& currentPassword, const std::string& newPassword) {
     requireUnlocked();
     VaultMeta current = *local_->getMeta();
+    try {  // being unlocked isn't enough: whoever changes it must know it
+        std::string key = vaultformat::unwrapVaultKey(currentPassword, current);
+        const bool same = key == vaultKey_;
+        vaultcrypto::wipe(key);
+        if (!same) return false;
+    } catch (const WrongPassword&) {
+        return false;
+    }
     if (!local_->putMeta(vaultformat::rewrap(current, vaultKey_, newPassword), current.rev))
         throw std::runtime_error("the vault changed meanwhile; try again");
     sync();
+    return true;
+}
+
+bool VaultService::verifyMasterPassword(const std::string& password) {
+    requireUnlocked();
+    try {
+        std::string key = vaultformat::unwrapVaultKey(password, *local_->getMeta());
+        const bool same = key == vaultKey_;
+        vaultcrypto::wipe(key);
+        return same;
+    } catch (const WrongPassword&) {
+        return false;
+    }
+}
+
+namespace {
+const std::string kPinAad = "pwvault-pin:";  // + vault id: a PIN blob opens only the vault it was made for
+}
+
+std::string VaultService::vaultId() {
+    auto meta = local_->getMeta();
+    if (!meta) throw std::runtime_error("no vault yet");
+    return meta->vaultId;
+}
+
+std::string VaultService::sealKeyForPin(const std::string& pinKey) {
+    requireUnlocked();
+    return makeCipher(CipherAlg::Aes256Gcm)->seal(pinKey, vaultKey_, kPinAad + vaultId());
+}
+
+bool VaultService::unlockWithPinKey(const std::string& pinKey, const std::string& blob) {
+    sync();  // like unlock(): pick up entries from other devices first
+    auto meta = local_->getMeta();
+    if (!meta) return false;
+    try {
+        std::string key = makeCipher(CipherAlg::Aes256Gcm)->open(pinKey, blob, kPinAad + meta->vaultId);
+        lock();
+        vaultKey_ = std::move(key);
+    } catch (const DecryptError&) {
+        return false;
+    }
+    reindex();
+    return true;
 }
 
 VaultService::SyncStatus VaultService::sync() {

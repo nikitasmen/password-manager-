@@ -8,6 +8,7 @@
 #include "../config/GlobalConfig.h"
 #include "../vault/EspStore.h"
 #include "../vault/Pairing.h"
+#include "../vault/PinUnlock.h"
 #include "../vault/VaultService.h"
 
 /**
@@ -33,7 +34,11 @@ class UIManager {
     std::optional<Credential> safeGetCredentials(const std::string& platform);
     bool safeDeleteCredential(const std::string& platform);
     std::vector<std::string> safeGetPlatforms();
-    bool safeChangeMasterPassword(const std::string& newPassword);
+    // Validates (current right, new repeated, long enough, actually new) and changes it. false + error on failure.
+    bool safeChangeMasterPassword(const std::string& current,
+                                  const std::string& next,
+                                  const std::string& repeat,
+                                  std::string& error);
     // One line for the user: where the vault is kept and whether the ESP32 is reachable.
     std::string syncStatusText() const;
 
@@ -52,6 +57,15 @@ class UIManager {
     // Writes the pairing result where the config points (mode 600) and saves espHost. false + error on failure.
     bool savePairing(const PairedFiles& files, std::string& error);
     static std::string defaultDeviceName();  // from the hostname, e.g. "nixos"
+
+    // PIN unlock, checked by the board (PinUnlock.h). Needs the board; the master password always works too.
+    static std::string pinFilePath();  // configDir()/pin.json, this device only
+    bool hasPin() const;               // set up on this device (the board may still have dropped it)
+    enum class PinResult { Unlocked, Wrong, Removed, Unavailable, Failed };
+    PinResult safeUnlockWithPin(const std::string& pin, std::string& message);  // message: for the user
+    // Requires unlocked. Asks for the master password again: setting a PIN is as sensitive as changing it.
+    bool safeSetPin(const std::string& masterPassword, const std::string& pin, const std::string& repeat, std::string& error);
+    bool safeRemovePin(std::string& error);
 
    public:
     /**

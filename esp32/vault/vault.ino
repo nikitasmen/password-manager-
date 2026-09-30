@@ -13,6 +13,11 @@
 //                  /e/<id>        one entry record (JSON) per file
 //                  /ca.key, /ca.pem  device CA, made on first boot
 //                  /devices.json  {name: hex SHA-256 of its current cert}; a name not in it is revoked
+//                  /pin/<name>    PIN unlock for that device: {secret, verifier, fails}
+//
+// PIN unlock (/pin): the client keeps the vault key wrapped with HMAC(secret, proof), proof being a slow hash of the
+// PIN; the board holds `secret` and releases it only for the right proof (verifier = SHA-256 of the proof's hex).
+// PIN_TRIES wrong proofs delete the record, so a PIN can't be guessed beyond that, offline or here.
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
@@ -50,6 +55,7 @@ constexpr size_t MAX_BODY = 16 * 1024;
 constexpr size_t MAX_BATCH = 32;
 constexpr uint16_t PAIR_PORT = 8444;
 constexpr uint32_t PAIR_MS = 120000, CONFIRM_MS = 60000;
+constexpr int PIN_TRIES = 5;
 
 Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);
 std::mutex mtx;  // guards storage and `event`; http handlers and loop() run on different tasks
@@ -522,8 +528,82 @@ esp_err_t hRevoke(httpd_req_t* r) {
     std::lock_guard<std::mutex> g(mtx);
     for (size_t i = 0; i < devices.size(); i++)
         if (devices[i].name == name) devices.erase(devices.begin() + i);
+    LittleFS.remove("/pin/" + name);
     if (!saveDevices()) return fail(r, "500 Internal Server Error", "write failed");
     showEvent(by.c_str(), "revoked", name, "saved");
+    return ok(r);
+}
+
+// ---- PIN unlock ----
+
+bool validHex64(const char* h) {
+    if (!h || strlen(h) != 64) return false;
+    for (const char* p = h; *p; p++)
+        if (!isdigit(*p) && !(*p >= 'a' && *p <= 'f')) return false;
+    return true;
+}
+
+// PUT /pin {verifier}: (re)sets this device's PIN; replies with the new secret
+esp_err_t hSetPin(httpd_req_t* r) {
+    std::lock_guard<std::mutex> g(mtx);
+    JsonDocument in;
+    const char* who = readBody(r, in);
+    if (!who) return ESP_OK;
+    if (!validHex64(in["verifier"])) return fail(r, "400 Bad Request", "need {verifier: 64 hex}");
+    uint8_t raw[32];
+    rng(nullptr, raw, sizeof raw);
+    JsonDocument rec;
+    rec["secret"] = hex(raw, sizeof raw);
+    rec["verifier"] = in["verifier"];
+    rec["fails"] = 0;
+    String out;
+    serializeJson(rec, out);
+    if (!writeFile(String("/pin/") + who, out)) return fail(r, "500 Internal Server Error", "write failed");
+    showEvent(who, "PIN set", "", "saved");
+    return sendJson(r, "200 OK", "{\"secret\":\"" + rec["secret"].as<String>() + "\"}");
+}
+
+// POST /pin {proof}: the secret for the right proof; a wrong one counts, and the last allowed one deletes the PIN
+esp_err_t hTryPin(httpd_req_t* r) {
+    std::lock_guard<std::mutex> g(mtx);
+    JsonDocument in, rec;
+    const char* who = readBody(r, in);
+    if (!who) return ESP_OK;
+    if (!validHex64(in["proof"])) return fail(r, "400 Bad Request", "need {proof: 64 hex}");
+    const String path = String("/pin/") + who;
+    String raw = readFile(path);
+    if (!raw.length() || deserializeJson(rec, raw)) return fail(r, "404 Not Found", "no PIN set");
+    const char* proof = in["proof"];
+    if (sameMac(sha256Hex((const uint8_t*)proof, strlen(proof)), rec["verifier"].as<String>())) {
+        if (rec["fails"].as<int>()) {
+            rec["fails"] = 0;
+            String out;
+            serializeJson(rec, out);
+            writeFile(path, out);
+        }
+        showEvent(who, "unlocked", "with PIN", "");
+        return sendJson(r, "200 OK", "{\"secret\":\"" + rec["secret"].as<String>() + "\"}");
+    }
+    int fails = rec["fails"].as<int>() + 1;
+    // counted in flash before replying: cutting the power doesn't give extra tries
+    if (fails >= PIN_TRIES) {
+        LittleFS.remove(path);
+        showEvent(who, "wrong PIN", "PIN removed", "use password");
+        return sendJson(r, "410 Gone", "{\"error\":\"too many wrong PINs; the PIN was removed\",\"left\":0}");
+    }
+    rec["fails"] = fails;
+    String out;
+    serializeJson(rec, out);
+    if (!writeFile(path, out)) return fail(r, "500 Internal Server Error", "write failed");
+    showEvent(who, "wrong PIN", String(PIN_TRIES - fails) + " tries left", "");
+    return sendJson(r, "403 Forbidden", "{\"error\":\"wrong PIN\",\"left\":" + String(PIN_TRIES - fails) + "}");
+}
+
+esp_err_t hClearPin(httpd_req_t* r) {
+    std::lock_guard<std::mutex> g(mtx);
+    const char* who = authDevice(r);
+    if (!who) return forbid(r);
+    LittleFS.remove(String("/pin/") + who);
     return ok(r);
 }
 
@@ -575,6 +655,7 @@ esp_err_t hPair(httpd_req_t* r) {
         String fp = sha256Hex((const uint8_t*)cert.c_str(), cert.length());
         if (Device* d = findDevice(name)) d->fp = fp;  // the old cert stops working
         else devices.push_back({name, fp, 0});
+        LittleFS.remove("/pin/" + name);  // a PIN belongs to the old pairing
         if (!saveDevices()) return fail(r, "500 Internal Server Error", "write failed");
         showEvent(name.c_str(), "paired", "", "welcome");
     }
@@ -630,6 +711,7 @@ void startServer() {
     conf.httpd.stack_size = 16384;       // TLS + JSON
     conf.httpd.lru_purge_enable = true;  // clients keep connections open; evict the idlest instead of refusing
     conf.httpd.uri_match_fn = httpd_uri_match_wildcard;
+    conf.httpd.max_uri_handlers = 12;
     httpd_handle_t server;
     if (httpd_ssl_start(&server, &conf) != ESP_OK) {
         Serial.println("HTTPS server failed to start");
@@ -642,7 +724,8 @@ void startServer() {
     } routes[] = {{"/meta", HTTP_GET, hGetMeta},        {"/meta", HTTP_PUT, hPutMeta},
                   {"/entries", HTTP_GET, hGetEntries},  {"/entries", HTTP_POST, hPostEntries},
                   {"/access", HTTP_POST, hAccess},      {"/devices", HTTP_GET, hDevices},
-                  {"/devices/*", HTTP_DELETE, hRevoke}};
+                  {"/devices/*", HTTP_DELETE, hRevoke}, {"/pin", HTTP_PUT, hSetPin},
+                  {"/pin", HTTP_POST, hTryPin},         {"/pin", HTTP_DELETE, hClearPin}};
     for (auto& rt : routes) {
         httpd_uri_t u = {};
         u.uri = rt.uri;
@@ -726,6 +809,7 @@ void setup() {
 
     if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
     LittleFS.mkdir("/e");
+    LittleFS.mkdir("/pin");
     seq = strtoull(readFile("/seq").c_str(), nullptr, 10);
     buildIndex();
     loadDevices();

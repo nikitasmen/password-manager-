@@ -42,6 +42,16 @@ class EspStore : public IVaultStore {
     // Blocks until someone presses BOOT on the board (up to a minute). Throws with the board's reason if not.
     void revokeDevice(const std::string& name);
 
+    // PIN unlock (PinUnlock.h). The board keeps one PIN record per device.
+    std::string setPin(const std::string& verifierHex);  // returns the board's secret for this device
+    struct PinReply {
+        enum { Ok, Wrong, Removed, NotSet } result;
+        std::string secretHex;  // Ok
+        int triesLeft = 0;      // Wrong
+    };
+    PinReply tryPin(const std::string& proofHex);
+    void clearPin();
+
    private:
     struct Response {
         long status;

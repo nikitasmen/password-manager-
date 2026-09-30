@@ -118,3 +118,24 @@ void EspStore::revokeDevice(const std::string& name) {
     }
     throw std::runtime_error("the board didn't revoke " + name + ": " + why);
 }
+
+std::string EspStore::setPin(const std::string& verifierHex) {
+    auto r = request("PUT", "/pin", nlohmann::json{{"verifier", verifierHex}}.dump());
+    if (r.status != 200) throw std::runtime_error("PUT /pin: HTTP " + std::to_string(r.status));
+    return nlohmann::json::parse(r.body).at("secret").get<std::string>();
+}
+
+EspStore::PinReply EspStore::tryPin(const std::string& proofHex) {
+    auto r = request("POST", "/pin", nlohmann::json{{"proof", proofHex}}.dump());
+    auto j = nlohmann::json::parse(r.body, nullptr, false);
+    if (r.status == 200) return {PinReply::Ok, j.at("secret").get<std::string>()};
+    if (r.status == 403) return {PinReply::Wrong, "", j.is_object() ? j.value("left", 0) : 0};
+    if (r.status == 410) return {PinReply::Removed};
+    if (r.status == 404) return {PinReply::NotSet};
+    throw std::runtime_error("POST /pin: HTTP " + std::to_string(r.status));
+}
+
+void EspStore::clearPin() {
+    auto r = request("DELETE", "/pin");
+    if (r.status != 200) throw std::runtime_error("DELETE /pin: HTTP " + std::to_string(r.status));
+}
