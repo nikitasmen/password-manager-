@@ -191,7 +191,9 @@ void TerminalUIManager::home() {
         }
         std::vector<std::pair<std::string, std::string>> keys;
         if (!shown.empty()) keys.push_back({shown.size() == 1 ? "1" : "1-" + std::to_string(shown.size()), "open"});
-        keys.insert(keys.end(), {{"n", "new"}, {"/text", "search"}, {"p", "master password"}, {"l", "lock"}, {"q", "quit"}});
+        keys.insert(keys.end(), {{"n", "new"}, {"/text", "search"}, {"p", "master password"}});
+        if (board_) keys.push_back({"d", "devices"});
+        keys.insert(keys.end(), {{"l", "lock"}, {"q", "quit"}});
         std::cout << "\n" << legend(keys) << "\n";
 
         std::string in = readLine("> ");
@@ -204,6 +206,8 @@ void TerminalUIManager::home() {
             newEntry();
         } else if (in == "p") {
             changeMasterPassword();
+        } else if (in == "d" && board_) {
+            devicesScreen();
         } else if (!in.empty() && in[0] == '/') {
             filter = in.substr(1);
         } else if (!in.empty()) {
@@ -314,6 +318,40 @@ void TerminalUIManager::changeMasterPassword() {
     }
     message_ = safeChangeMasterPassword(pw) ? accent("Master password changed.")
                                             : danger("Couldn't change the master password.");
+}
+
+void TerminalUIManager::devicesScreen() {
+    while (isLoggedIn) {
+        std::string error;
+        auto devices = safeListDevices(error);
+        if (!devices) {
+            message_ = danger(error);
+            return;
+        }
+        header("Devices");
+        std::vector<std::string> rows;
+        for (const auto& d : *devices)
+            rows.push_back(bold(d.name) + (d.thisDevice ? " " + accent("(this computer)") : "") + "  " +
+                           muted(lastSeenText(d.lastSeen)));
+        printEntries(rows);
+        std::cout << "\n"
+                  << muted("To add a device: run esp32/pki.sh pair <name> on it, then press BOOT on the board.") << "\n\n"
+                  << legend({{"r 1-" + std::to_string(devices->size()), "revoke"}, {"Enter", "back"}}) << "\n";
+
+        std::string in = readLine("> ");
+        if (in.empty()) return;
+        int n = in.size() > 2 && in.rfind("r ", 0) == 0 ? std::atoi(in.c_str() + 2) : 0;
+        if (n < 1 || n > static_cast<int>(devices->size())) {
+            message_ = danger("Type r and a number from the list, e.g. r 2.");
+            continue;
+        }
+        const EspStore::Device d = (*devices)[n - 1];
+        std::cout << "\nRevoke " << bold(d.name) << "? It loses access to the vault until it is paired again.\n";
+        if (d.thisDevice) std::cout << danger("That's this computer: you'll be locked out here.") << "\n";
+        if (lower(readLine("Type yes to revoke: ")) != "yes") continue;
+        std::cout << "Press BOOT on the board to confirm (within a minute)..." << std::flush;
+        message_ = safeRevokeDevice(d.name, error) ? accent("Revoked " + d.name + ".") : danger(error);
+    }
 }
 
 // ---- UIManager interface ----

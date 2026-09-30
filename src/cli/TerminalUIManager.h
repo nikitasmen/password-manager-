@@ -39,6 +39,7 @@ class TerminalUIManager : public UIManager {
     void newEntry();
     void editEntry(const Credential& c);
     void changeMasterPassword();
+    void devicesScreen();  // devices paired with the ESP32
 
     std::string message_;  // shown once, at the top of the next screen
     bool quit_ = false;

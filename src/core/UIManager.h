@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../config/GlobalConfig.h"
+#include "../vault/EspStore.h"
 #include "../vault/VaultService.h"
 
 /**
@@ -34,6 +35,13 @@ class UIManager {
     bool safeChangeMasterPassword(const std::string& newPassword);
     // One line for the user: where the vault is kept and whether the ESP32 is reachable.
     std::string syncStatusText() const;
+
+    // Devices paired with the board. Not vault data, so it bypasses VaultService; board_ is owned by `vault`
+    // (null without espHost). On failure: nullopt/false, and `error` is a sentence for the user.
+    EspStore* board_ = nullptr;
+    std::optional<std::vector<EspStore::Device>> safeListDevices(std::string& error);
+    bool safeRevokeDevice(const std::string& name, std::string& error);  // blocks until BOOT is pressed (≤ 1 min)
+    static std::string lastSeenText(int64_t unixTime);                   // "seen 5 min ago"
 
    public:
     /**

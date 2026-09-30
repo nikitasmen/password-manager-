@@ -104,8 +104,12 @@ devices)
     resp=$(board /devices)
     [ "${resp##*$'\n'}" = 200 ] || die "board: $(json_field "${resp%$'\n'*}" error)"
     you=$(json_field "$resp" you)
-    sed -n 's/.*"devices": *\[\([^]]*\)\].*/\1/p' <<< "$resp" | tr -d '"' | tr ',' '\n' |
-        while read -r n; do [ -z "$n" ] || echo "$n$([ "$n" = "$you" ] && echo '  (this machine)')"; done
+    grep -o '{[^}]*}' <<< "$resp" | while read -r obj; do  # [{"name": .., "seen": <unix time, 0 = unknown>}]
+        n=$(json_field "$obj" name)
+        seen=$(sed -n 's/.*"seen": *\([0-9]*\).*/\1/p' <<< "$obj")
+        when=$([ "${seen:-0}" -gt 0 ] && date -d "@$seen" '+last seen %F %H:%M' || echo 'not seen since the board started')
+        printf '%-20s %s%s\n' "$n" "$when" "$([ "$n" = "$you" ] && echo '  (this machine)')"
+    done
     ;;
 revoke)
     name="${2:-}"

@@ -55,6 +55,7 @@ class GuiUIManager : public UIManager {
     void showDetail(std::optional<Credential> cred);
     void editEntry(const std::optional<Credential>& existing);  // modal add/edit dialog
     void openSettings();                                         // modal settings dialog
+    void openDevices();                                          // modal: devices paired with the ESP32
     void lockVault();
     void copy(const std::string& text, const std::string& what);
     void flash(const std::string& event);  // a transient line on the OLED strip, like the board's events

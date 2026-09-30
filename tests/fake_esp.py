@@ -22,6 +22,7 @@ import ssl
 import subprocess
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -37,6 +38,7 @@ def newer(a, b):
 
 lock = threading.Lock()  # one request at a time touches state, like the board's mutex
 devices = {}  # name -> hex SHA-256 of its current cert; not in here = revoked
+seen = {}  # name -> unix time of its last request
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
 ctx_holder = {}
 pairing = {}  # code, server_fp, ca_dir
@@ -94,7 +96,10 @@ class Handler(BaseHTTPRequestHandler):
         subject = dict(x[0] for x in self.connection.getpeercert()["subject"])
         name = subject.get("commonName")
         fp = hashlib.sha256(self.connection.getpeercert(binary_form=True)).hexdigest()
-        return name if devices.get(name) == fp else None
+        if devices.get(name) != fp:
+            return None
+        seen[name] = int(time.time())
+        return name
 
     def body(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -117,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/meta"):
             return self.reply(200, state["meta"]) if state["meta"] else self.reply(404, {"error": "no vault yet"})
         if route == ("GET", "/devices"):
-            return self.reply(200, {"devices": list(devices), "you": who})
+            return self.reply(200, {"devices": [{"name": n, "seen": seen.get(n, 0)} for n in devices], "you": who})
         if method == "DELETE" and url.path.startswith("/devices/"):
             name = url.path[len("/devices/"):]
             if name not in devices:

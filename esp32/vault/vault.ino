@@ -67,6 +67,7 @@ struct {
 // Paired devices, name -> fingerprint of the one cert that may use that name. Guarded by mtx.
 struct Device {
     String name, fp;
+    time_t seen = 0;  // last request, unix time (0 = not since boot, or no NTP yet); RAM only, spares the flash
 };
 std::vector<Device> devices;
 
@@ -243,7 +244,7 @@ bool loadCa() {
 void loadDevices() {
     JsonDocument d;
     if (deserializeJson(d, readFile("/devices.json"))) return;
-    for (JsonPair kv : d.as<JsonObject>()) devices.push_back({kv.key().c_str(), kv.value().as<String>()});
+    for (JsonPair kv : d.as<JsonObject>()) devices.push_back({kv.key().c_str(), kv.value().as<String>(), 0});
 }
 
 bool saveDevices() {
@@ -331,8 +332,11 @@ const char* authDevice(httpd_req_t* r) {
     int fd = httpd_req_to_sockfd(r);
     for (const Session& s : sessions) {
         if (s.fd != fd) continue;
-        const Device* d = findDevice(s.name);
-        return d && d->fp == s.fp ? s.name : nullptr;
+        Device* d = findDevice(s.name);
+        if (!d || d->fp != s.fp) return nullptr;
+        time_t now = time(nullptr);
+        d->seen = now > 1700000000 ? now : 0;  // before NTP, time() counts from boot
+        return s.name;
     }
     return nullptr;
 }
@@ -492,7 +496,11 @@ esp_err_t hDevices(httpd_req_t* r) {
     const char* who = authDevice(r);
     if (!who) return forbid(r);
     JsonDocument d;
-    for (const Device& dv : devices) d["devices"].add(dv.name);
+    for (const Device& dv : devices) {
+        JsonObject o = d["devices"].add<JsonObject>();
+        o["name"] = dv.name;
+        o["seen"] = (int64_t)dv.seen;
+    }
     d["you"] = who;
     String out;
     serializeJson(d, out);
@@ -566,7 +574,7 @@ esp_err_t hPair(httpd_req_t* r) {
         std::lock_guard<std::mutex> g(mtx);
         String fp = sha256Hex((const uint8_t*)cert.c_str(), cert.length());
         if (Device* d = findDevice(name)) d->fp = fp;  // the old cert stops working
-        else devices.push_back({name, fp});
+        else devices.push_back({name, fp, 0});
         if (!saveDevices()) return fail(r, "500 Internal Server Error", "write failed");
         showEvent(name.c_str(), "paired", "", "welcome");
     }

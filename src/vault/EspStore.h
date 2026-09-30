@@ -1,8 +1,10 @@
 #ifndef ESP_STORE_H
 #define ESP_STORE_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "IVaultStore.h"
 
@@ -27,12 +29,23 @@ class EspStore : public IVaultStore {
     void putEntries(const std::vector<EntryRecord>& entries) override;
     void noteAccess(const std::string& platform, const std::string& username) override;
 
+    // Paired devices, as the board knows them. Not vault data, so not part of IVaultStore.
+    struct Device {
+        std::string name;
+        int64_t lastSeen = 0;  // unix time of its last request since the board booted; 0 = unknown
+        bool thisDevice = false;
+    };
+    std::vector<Device> devices();
+    // Blocks until someone presses BOOT on the board (up to a minute). Throws with the board's reason if not.
+    void revokeDevice(const std::string& name);
+
    private:
     struct Response {
         long status;
         std::string body;
     };
-    Response request(const std::string& method, const std::string& path, const std::string& body = "");
+    Response request(const std::string& method, const std::string& path, const std::string& body = "",
+                     long timeoutSeconds = 15);
 
     EspConfig cfg_;
     // One handle for the store's lifetime: curl keeps the TLS connection open between requests.

@@ -241,11 +241,16 @@ void GuiUIManager::buildVaultWindow() {
     w->color(enclosure());
 
     // The strip redraws every second (clock), so nothing may overlap it: the buttons get their own black area.
-    constexpr int kActionsW = 200;
+    const int kActionsW = board_ ? 292 : 200;
     strip_ = new OledPanel(0, 0, kVaultW - kActionsW, kStripH, 2);
     auto* actions = new Fl_Box(kVaultW - kActionsW, 0, kActionsW, kStripH);
     actions->box(FL_FLAT_BOX);
     actions->color(oledOff());
+    if (board_) {
+        Fl_Button* devices = button(kVaultW - 284, 6, 84, 28, "Devices", Kind::OnOled);
+        devices->tooltip("Devices paired with the ESP32");
+        on(devices, [this] { openDevices(); });
+    }
     Fl_Button* settings = button(kVaultW - 192, 6, 84, 28, "Settings", Kind::OnOled);
     Fl_Button* lock = button(kVaultW - 100, 6, 84, 28, "Lock", Kind::OnOled);
     lock->tooltip("Lock the vault: the master password is needed again");
@@ -582,6 +587,62 @@ void GuiUIManager::openSettings() {
         flash(restart ? "saved, restart for esp32 changes" : "settings saved");
         showDetail(current_);  // e.g. the encryption row
     });
+    runModal(w);
+    delete w;
+    callbacks_.resize(mark);
+}
+
+void GuiUIManager::openDevices() {
+    const size_t mark = callbacks_.size();
+    const int W = 520, H = 470, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, H);
+    w->copy_label("Devices");
+    w->color(enclosure());
+    text(x, 22, fw, 30, "Devices", kSansBold, 20, ink());
+    text(x, 56, fw, 44,
+         "Everything paired with the ESP32. To add a device, run esp32/pki.sh pair <name> on it and press BOOT on "
+         "the board.",
+         kSans, kSmall, muted());
+    auto* list = new EntryList(x, 108, fw, 230);
+    Fl_Box* status = text(x, 346, fw, 44, "", kSans, kSmall, muted());
+    Fl_Button* revoke = button(x, H - 58, 120, 38, "Revoke", Kind::Danger);
+    Fl_Button* close = button(W - x - 100, H - 58, 100, 38, "Close", Kind::Primary);
+    w->end();
+
+    std::vector<EspStore::Device> devices;
+    auto say = [&](const std::string& msg, bool bad) {
+        status->labelcolor(bad ? danger() : muted());
+        status->copy_label(literal(msg).c_str());
+    };
+    auto reload = [&] {
+        list->clear();
+        std::string error;
+        auto got = safeListDevices(error);
+        devices = got ? *got : std::vector<EspStore::Device>{};
+        for (const auto& d : devices)
+            list->add((d.name + (d.thisDevice ? "  (this computer)" : "") + "   " + lastSeenText(d.lastSeen)).c_str());
+        if (!got) say(error, true);
+        revoke->deactivate();
+    };
+    on(list, [&] { list->value() ? revoke->activate() : revoke->deactivate(); });
+    on(revoke, [&] {
+        if (!list->value()) return;
+        const EspStore::Device d = devices[list->value() - 1];
+        const std::string q = "Revoke " + d.name + "? It loses access to the vault until it is paired again." +
+                              (d.thisDevice ? "\n\nThat's this computer: you'll be locked out here." : "");
+        if (fl_choice("%s", "Cancel", "Revoke", nullptr, literal(q).c_str()) != 1) return;
+        say("Press BOOT on the board to confirm (within a minute)...", false);
+        w->cursor(FL_CURSOR_WAIT);
+        Fl::flush();  // the call below blocks until the press
+        // ponytail: blocks the UI up to a minute; a worker thread if that ever matters
+        std::string error;
+        const bool ok = safeRevokeDevice(d.name, error);
+        w->cursor(FL_CURSOR_DEFAULT);
+        reload();
+        ok ? say("Revoked " + d.name + ".", false) : say(error, true);
+    });
+    on(close, [w] { w->hide(); });
+    reload();
     runModal(w);
     delete w;
     callbacks_.resize(mark);

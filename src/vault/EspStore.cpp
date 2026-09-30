@@ -20,7 +20,8 @@ EspStore::EspStore(EspConfig cfg)
     if (!curl_) throw std::runtime_error("curl init failed");
 }
 
-EspStore::Response EspStore::request(const std::string& method, const std::string& path, const std::string& body) {
+EspStore::Response EspStore::request(const std::string& method, const std::string& path, const std::string& body,
+                                     long timeoutSeconds) {
     CURL* c = static_cast<CURL*>(curl_.get());
     curl_easy_reset(c);  // clears options, keeps the open connection
     std::string port = std::to_string(cfg_.port);
@@ -43,7 +44,7 @@ EspStore::Response EspStore::request(const std::string& method, const std::strin
     curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 1500L);  // short: "not home" should be detected fast
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, timeoutSeconds);
     curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method.c_str());
     if (!body.empty()) curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, collect);
@@ -58,7 +59,9 @@ EspStore::Response EspStore::request(const std::string& method, const std::strin
                                  std::string(curl_easy_strerror(rc)) + ")");
     if (rc != CURLE_OK) throw std::runtime_error(std::string("ESP32: ") + curl_easy_strerror(rc));
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &res.status);
-    if (res.status == 403) throw std::runtime_error("ESP32: this device was revoked or re-paired; pair it again (esp32/pki.sh pair)");
+    // Other 403s (e.g. a revoke not confirmed on the board) are for the caller
+    if (res.status == 403 && res.body.find("device revoked") != std::string::npos)
+        throw std::runtime_error("ESP32: this device was revoked or re-paired; pair it again (esp32/pki.sh pair)");
     return res;
 }
 
@@ -90,4 +93,28 @@ void EspStore::putEntries(const std::vector<EntryRecord>& entries) {
 
 void EspStore::noteAccess(const std::string& platform, const std::string& username) {
     request("POST", "/access", nlohmann::json{{"platform", platform}, {"username", username}}.dump());
+}
+
+std::vector<EspStore::Device> EspStore::devices() {
+    auto r = request("GET", "/devices");
+    if (r.status != 200) throw std::runtime_error("GET /devices: HTTP " + std::to_string(r.status));
+    auto j = nlohmann::json::parse(r.body);
+    std::vector<Device> out;
+    for (const auto& d : j.at("devices")) {
+        std::string name = d.at("name").get<std::string>();
+        out.push_back({name, d.value("seen", int64_t{0}), name == j.value("you", "")});
+    }
+    return out;
+}
+
+void EspStore::revokeDevice(const std::string& name) {
+    // the board waits up to 60 s for a BOOT press before answering
+    auto r = request("DELETE", "/devices/" + name, "", 75);
+    if (r.status == 200) return;
+    std::string why = "HTTP " + std::to_string(r.status);
+    try {
+        why = nlohmann::json::parse(r.body).value("error", why);
+    } catch (const nlohmann::json::exception&) {
+    }
+    throw std::runtime_error("the board didn't revoke " + name + ": " + why);
 }

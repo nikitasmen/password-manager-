@@ -275,6 +275,20 @@ void testEsp(const fs::path& dir, const std::string& spec) {
     }
     CHECK(offline);
     std::cout << "esp auth: ok (cert accepted; no cert refused; unreachable = offline)\n";
+    // Device list: we're on it, exactly once, and just seen. Revoking an unknown name fails before any BOOT prompt.
+    auto devices = esp.devices();
+    CHECK(std::count_if(devices.begin(), devices.end(), [](const auto& d) { return d.thisDevice; }) == 1);
+    for (const auto& d : devices)
+        if (d.thisDevice) CHECK(d.lastSeen == 0 || std::time(nullptr) - d.lastSeen < 120);
+    bool refused = false;
+    try {
+        esp.revokeDevice("no-such-device");
+    } catch (const StoreUnavailable&) {
+    } catch (const std::runtime_error& e) {
+        refused = std::string(e.what()).find("no such device") != std::string::npos;
+    }
+    CHECK(refused);
+    std::cout << "esp devices: ok (" << devices.size() << " paired)\n";
     if (esp.getMeta()) {
         std::cout << "esp: SKIPPED (board already holds a vault; wipe it first)\n";
         return;

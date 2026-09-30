@@ -1,5 +1,7 @@
 #include "UIManager.h"
 
+#include <algorithm>
+#include <ctime>
 #include <filesystem>
 #include <iostream>
 
@@ -27,8 +29,11 @@ R guarded(const char* what, R fallback, F&& call) {
 UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
     const AppConfig& c = ConfigManager::getInstance().getConfig();
     std::unique_ptr<IVaultStore> esp;
-    if (!c.espHost.empty())
-        esp = std::make_unique<EspStore>(EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
+    if (!c.espHost.empty()) {
+        auto board = std::make_unique<EspStore>(EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
+        board_ = board.get();
+        esp = std::move(board);
+    }
     if (!c.localCopy) {
         if (!esp) throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
         vault = std::make_unique<VaultService>(std::move(esp), nullptr, "");
@@ -66,6 +71,39 @@ bool UIManager::safeChangeMasterPassword(const std::string& newPassword) {
         vault->changeMasterPassword(newPassword);
         return true;
     });
+}
+
+namespace {
+template <typename T, typename F>
+T boardCall(std::string& error, T onError, F&& f) {
+    try {
+        return f();
+    } catch (const StoreUnavailable&) {
+        error = "The ESP32 isn't reachable. Is it on, and is this computer on its network?";
+    } catch (const std::exception& e) {
+        error = e.what();
+    }
+    return onError;
+}
+}  // namespace
+
+std::optional<std::vector<EspStore::Device>> UIManager::safeListDevices(std::string& error) {
+    if (!board_) return error = "No ESP32 is set up (espHost in the config).", std::nullopt;
+    return boardCall(error, std::optional<std::vector<EspStore::Device>>{}, [&] { return std::optional(board_->devices()); });
+}
+
+bool UIManager::safeRevokeDevice(const std::string& name, std::string& error) {
+    if (!board_) return error = "No ESP32 is set up (espHost in the config).", false;
+    return boardCall(error, false, [&] { return board_->revokeDevice(name), true; });
+}
+
+std::string UIManager::lastSeenText(int64_t t) {
+    if (t <= 0) return "not seen since the board started";
+    int64_t ago = std::max<int64_t>(0, std::time(nullptr) - t);
+    if (ago < 90) return "active now";
+    if (ago < 3600) return "seen " + std::to_string(ago / 60) + " min ago";
+    if (ago < 2 * 86400) return "seen " + std::to_string(ago / 3600) + " h ago";
+    return "seen " + std::to_string(ago / 86400) + " days ago";
 }
 
 std::string UIManager::syncStatusText() const {

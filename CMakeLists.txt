@@ -8,20 +8,29 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Export compile commands for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# JSON library - using manual inclusion instead of FetchContent
-# Create a directory for the JSON library header
-set(JSON_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
-file(MAKE_DIRECTORY ${JSON_INCLUDE_DIR}/nlohmann)
-
-# Download the JSON single-header file
-file(DOWNLOAD
-    https://github.com/nlohmann/json/releases/download/v3.11.2/json.hpp
-    ${JSON_INCLUDE_DIR}/nlohmann/json.hpp
-    SHOW_PROGRESS
-)
-
-# Add the include directory to the include path
-include_directories(${JSON_INCLUDE_DIR})
+# JSON library: exactly one copy. json 3.11+ puts its version in symbol names, so objects built against two
+# different headers don't link. Use the installed package (nix-shell provides it), else download a header once.
+find_package(nlohmann_json 3.11 CONFIG QUIET)
+if(nlohmann_json_FOUND)
+    message(STATUS "Using nlohmann_json ${nlohmann_json_VERSION} from ${nlohmann_json_DIR}")
+    set(JSON_LIB nlohmann_json::nlohmann_json)
+    set(JSON_INCLUDE_DIR "")
+else()
+    set(JSON_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
+    if(NOT EXISTS ${JSON_INCLUDE_DIR}/nlohmann/json.hpp)
+        file(DOWNLOAD
+            https://github.com/nlohmann/json/releases/download/v3.11.2/json.hpp
+            ${JSON_INCLUDE_DIR}/nlohmann/json.hpp.part
+            STATUS json_status SHOW_PROGRESS)
+        list(GET json_status 0 json_rc)
+        if(NOT json_rc EQUAL 0)
+            file(REMOVE ${JSON_INCLUDE_DIR}/nlohmann/json.hpp.part)
+            message(FATAL_ERROR "Downloading json.hpp failed (${json_status}); needs network once, or install nlohmann_json")
+        endif()
+        file(RENAME ${JSON_INCLUDE_DIR}/nlohmann/json.hpp.part ${JSON_INCLUDE_DIR}/nlohmann/json.hpp)
+    endif()
+    include_directories(${JSON_INCLUDE_DIR})
+endif()
 
 # --- Find FLTK ---
 find_package(FLTK REQUIRED)
@@ -105,6 +114,9 @@ function(link_common target)
         target_link_libraries(${target} PRIVATE ${FILESYSTEM_LIB})
     endif()
     target_link_libraries(${target} PRIVATE ${OPENSSL_LIBRARIES})
+    if(JSON_LIB)
+        target_link_libraries(${target} PRIVATE ${JSON_LIB})
+    endif()
 
     # Link CURL on Unix systems
     if(NOT WIN32 AND CURL_FOUND)
