@@ -51,45 +51,37 @@ Run it from anywhere. Settings live in `~/.config/pwvault/config` and the local 
 
 Tested on an ESP32-D0WD with a 128×64 SSD1306 OLED (I2C, SDA 21 / SCL 22, address 0x3C). The pins are constants at the top of `esp32/vault/vault.ino`.
 
-1. **Certificates:** all of this goes through `esp32/pki.sh`, and everything it creates is gitignored.
-   ```bash
-   cd esp32
-   ./pki.sh server         # the board's TLS cert; every client pins it
-   ./pki.sh init           # your device CA; the board accepts only devices it signed
-   ./pki.sh install laptop # makes THIS machine a device named "laptop" (the name the OLED shows)
-   ```
-   `esp32/pki/ca.key` can issue new devices, so keep it private. Once your devices exist, keeping it offline is best.
+1. **Server certificate:** `esp32/pki.sh server` makes the board's TLS cert (gitignored). Every client pins it.
 2. **Wi-Fi:** `cp esp32/vault/secrets.example.h esp32/vault/secrets.h`, then set your SSID and password (the ESP32 only supports **2.4 GHz**).
 3. **Flash:**
    ```bash
    arduino-cli compile -b esp32:esp32:esp32 --upload -p /dev/ttyUSB0 esp32/vault
    ```
-   The OLED shows the clock and the board's IP. If Wi-Fi doesn't connect within 30 seconds, the board reboots and tries again.
+   The OLED shows the clock and the board's IP. If Wi-Fi doesn't connect within 30 seconds, the board reboots and tries again. On first boot the board makes its own device CA, which never leaves it.
 4. **Fixed IP:** set up a DHCP reservation for the board in your router, so its address doesn't change.
-5. **Point the app at it:** set `espHost=<IP on the OLED>` in `~/.config/pwvault/config`, or in the GUI under Settings (then restart). That's all, because `pki.sh install` put the certificate files where the app looks by default.
+5. **Pair each device**, the first one included (see below). Pairing puts the certificate files where the app looks by default and sets `espHost`.
 
-### Adding another device
+### Pairing a device
 
-Two commands, like pairing a Bluetooth device:
+Only the board and the new device are involved, like pairing a Bluetooth device. The new device needs `openssl` and `curl`.
 
-```bash
-# on the machine with your CA
-esp32/pki.sh enroll desktop
-#   enrollment file: desktop.pwvault
-#   one-time code:   c5a9-d4bc-9598-e964
+1. Press **BOOT** on the board. For 2 minutes it shows a one-time code such as `7KQ2-M9XA-3FPD-W4HN`.
+2. On the new device, run:
+   ```bash
+   esp32/pki.sh pair desktop        # asks for the board's IP and the code
+   #   now press BOOT on the board to approve 'desktop'
+   ```
+3. The OLED asks `pair new device? desktop`. Press **BOOT** again.
+   ```
+   #   ✓ paired as 'desktop'; start the app and unlock with your master password
+   ```
 
-# copy desktop.pwvault to the new machine any way you like, then on it:
-esp32/pki.sh import desktop.pwvault      # asks for the code
-#   this machine is now 'desktop'
-#   ✓ board at 192.168.2.5 accepts this device; start the app and unlock with your master password
-```
-
-The file holds the device's certificate and key, the board's certificate, and the board's address (taken from your config). It's encrypted with the one-time code: without the code it's useless, so USB, `scp` or a cloud folder are all fine for moving it. Delete it after importing. Then start the app on the new machine: it finds the vault on the board and asks for your existing master password. The board needs no reflash.
+The device makes its own key, and only a certificate request leaves it. Both sides authenticate the exchange with the code, bound to the board's certificate, so someone on your Wi-Fi can't pair in between. A wrong code closes pairing (press BOOT again to retry). Pairing a name that already exists replaces its old certificate. Then start the app on the new machine: it finds the vault on the board and asks for your existing master password.
    The GUI title bar and the TUI show the sync status.
 
 The board is a plain USB-powered device: plug it into any charger.
 
-**Managing devices:** to lock out a lost device, run `./pki.sh revoke <name>` and reflash. `./pki.sh list` shows every device and whether it's active.
+**Managing devices:** `./pki.sh devices` lists paired devices. To lock out a lost one, run `./pki.sh revoke <name>` on any other paired device and press BOOT to confirm. No reflash needed. The confirmation stops a stolen device from revoking your others.
 
 ### Using it away from home
 
@@ -103,7 +95,7 @@ Every front end (GUI and TUI) uses the same locations, whatever directory you st
 ~/.config/pwvault/            $XDG_CONFIG_HOME/pwvault
   config                      key=value settings (created with defaults on first run, mode 600)
   server.pem                  the board's pinned certificate    ┐
-  device.pem, device.key      this device's certificate + key   ┘ esp32/pki.sh install <name>
+  device.pem, device.key      this device's certificate + key   ┘ esp32/pki.sh pair <name>
 ~/.local/share/pwvault/       $XDG_DATA_HOME/pwvault
   vault.json, sync.json       local encrypted copy + sync cursors
 ```
@@ -145,10 +137,12 @@ make vault_test && ./vault_test          # crypto vectors, merge rule, multi-dev
 
 `vault_test` runs sync scenarios between simulated devices, with a local file standing in for the ESP32.
 
-**`tests/fake_esp.py`** is a local stand-in for the board: the same API, mutual TLS, revocation and merge rule, with state kept in memory. Use it to test clients (the desktop app, a future mobile app) without touching your real vault:
+**`tests/fake_esp.py`** is a local stand-in for the board: the same API, mutual TLS, pairing, revocation and merge rule, with state kept in memory. Pairing is always open and every "BOOT press" is automatic. Use it to test clients (the desktop app, a future mobile app) without touching your real vault:
 ```bash
-python3 tests/fake_esp.py --port 8443 --cert esp32/vault/cert.pem --key esp32/vault/key.pem --ca esp32/pki/ca.pem
-PWVAULT_TEST_ESP="127.0.0.1:8443,$PWD/esp32/vault/cert.pem,<client .pem>,<client .key>" ./vault_test
+python3 tests/fake_esp.py --port 8443 --cert esp32/vault/cert.pem --key esp32/vault/key.pem --ca-dir /tmp/fake-ca --code ABCD0123EFGH4567
+# pair a sandboxed client (its config: espHost=127.0.0.1, espPort=8443)
+XDG_CONFIG_HOME=/tmp/dev PWVAULT_PAIR_PORT=8444 PWVAULT_CODE=ABCD0123EFGH4567 esp32/pki.sh pair test
+PWVAULT_TEST_ESP="127.0.0.1:8443,/tmp/dev/pwvault/server.pem,/tmp/dev/pwvault/device.pem,/tmp/dev/pwvault/device.key" ./vault_test
 ``` To run it against a real board or the fake, set `PWVAULT_TEST_ESP="<host[:port]>,<server cert.pem>,<client .pem>,<client .key>"`. It always runs read-only checks: your certificate is accepted, a connection without one is refused, and an unreachable board counts as offline. The full sync round trip only runs on a board that doesn't hold a vault yet, and it leaves a test vault behind, so wipe the board's storage afterwards.
 
 `tests/protocol_vectors.json` is a fixed reference, produced by an independent Python implementation, that the C++ code reproduces byte for byte. Any other client should reproduce it too. If you ever change the format on purpose, change `docs/PROTOCOL.md` first and add new vectors alongside the old ones.
@@ -166,7 +160,7 @@ src/vault/              client-side vault, no UI code
 src/core/UIManager.*    base class for front ends; talks only to VaultService
 src/gui/, src/cli/      FLTK GUI and terminal UI
 esp32/vault/            ESP32 firmware (store + OLED)
-esp32/pki.sh            server cert, device CA, add/revoke devices
+esp32/pki.sh            server cert; pair, list and revoke devices
 tests/                  vault_test.cpp, protocol vectors, fake_esp.py (stand-in board)
 ```
 

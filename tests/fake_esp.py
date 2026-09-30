@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
 """A stand-in for the ESP32 store (docs/PROTOCOL.md §6-7), for testing clients without touching the real board.
 
-Same API, mutual TLS, revocation and merge rule as esp32/vault/vault.ino; state is kept in memory.
+Same API, mutual TLS, pairing, revocation and merge rule as esp32/vault/vault.ino; state is kept in memory.
+Its device CA lives in --ca-dir (made on first use, with openssl). Pairing is always open on --pair-port with the
+printed code, and the "BOOT press" is automatic: pair and revoke requests are approved at once.
 
   python3 tests/fake_esp.py --port 8443 --cert esp32/vault/cert.pem --key esp32/vault/key.pem \
-      --ca esp32/pki/ca.pem [--revoke NAME ...]
-Clients connect with host 127.0.0.1, port 8443 and their device certificate, exactly as for the board.
+      --ca-dir <dir> [--code 0123456789ABCDEF]
+Pair a sandboxed client (XDG_CONFIG_HOME, espHost=127.0.0.1, espPort=8443) with
+  PWVAULT_PAIR_PORT=8444 PWVAULT_CODE=<code> esp32/pki.sh pair <name>
 """
 import argparse
+import base64
+import hashlib
+import hmac
 import json
+import os
 import re
+import secrets
 import ssl
+import subprocess
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -26,10 +36,35 @@ def newer(a, b):
 
 
 lock = threading.Lock()  # one request at a time touches state, like the board's mutex
-revoked = set()
-
-
+devices = {}  # name -> hex SHA-256 of its current cert; not in here = revoked
+NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
 ctx_holder = {}
+pairing = {}  # code, server_fp, ca_dir
+
+
+def make_ca(d):
+    if not os.path.exists(f"{d}/ca.pem"):
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                        "-nodes", "-days", "3650", "-subj", "/CN=pwvault device CA", "-keyout", f"{d}/ca.key",
+                        "-out", f"{d}/ca.pem", "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+                        "-addext", "keyUsage=critical,keyCertSign"], check=True, capture_output=True)
+
+
+def sign(name, csr_der):
+    """Sign a CSR (DER) as CN=name, like issueCert() on the board. Returns the cert as DER."""
+    d = pairing["ca_dir"]
+    with tempfile.TemporaryDirectory() as t:
+        open(f"{t}/csr.der", "wb").write(csr_der)
+        open(f"{t}/ext", "w").write("extendedKeyUsage=clientAuth\nkeyUsage=critical,digitalSignature\n")
+        subprocess.run(["openssl", "x509", "-req", "-inform", "DER", "-in", f"{t}/csr.der", "-CA", f"{d}/ca.pem",
+                        "-CAkey", f"{d}/ca.key", "-set_serial", str(secrets.randbits(120)), "-days", "3650",
+                        "-subj", f"/CN={name}", "-extfile", f"{t}/ext", "-outform", "DER", "-out", f"{t}/crt"],
+                       check=True, capture_output=True)
+        return open(f"{t}/crt", "rb").read()
+
+
+def mac(msg):
+    return hmac.new(pairing["code"].encode(), msg.encode(), hashlib.sha256).hexdigest()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -55,8 +90,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def device(self):
+        """The device name, if its cert is the current one for that name (see authDevice() on the board)."""
         subject = dict(x[0] for x in self.connection.getpeercert()["subject"])
-        return subject.get("commonName")
+        name = subject.get("commonName")
+        fp = hashlib.sha256(self.connection.getpeercert(binary_form=True)).hexdigest()
+        return name if devices.get(name) == fp else None
 
     def body(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -70,7 +108,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_request(self, method):
         who = self.device()
-        if who in revoked:
+        if not who:
             self.reply(403, {"error": "device revoked"})
             self.close_connection = True
             return
@@ -78,6 +116,15 @@ class Handler(BaseHTTPRequestHandler):
         route = (method, url.path)
         if route == ("GET", "/meta"):
             return self.reply(200, state["meta"]) if state["meta"] else self.reply(404, {"error": "no vault yet"})
+        if route == ("GET", "/devices"):
+            return self.reply(200, {"devices": list(devices), "you": who})
+        if method == "DELETE" and url.path.startswith("/devices/"):
+            name = url.path[len("/devices/"):]
+            if name not in devices:
+                return self.reply(404, {"error": "no such device"})
+            del devices[name]
+            print(f"[{who}] revoked {name}", flush=True)
+            return self.reply(200, {"ok": True})
         if route == ("GET", "/entries"):
             after = int(parse_qs(url.query).get("after", ["0"])[0])
             return self.reply(200, {"entries": [e for e in state["entries"].values() if e["seq"] > after],
@@ -127,26 +174,72 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             self.handle_request("POST")
 
+    def do_DELETE(self):
+        with lock:
+            self.handle_request("DELETE")
+
+
+class PairHandler(Handler):
+    """The pairing port: no client cert. Unlike the board it stays open after a request."""
+
+    def setup(self):
+        self.request = ctx_holder["pair_ctx"].wrap_socket(self.request, server_side=True)
+        BaseHTTPRequestHandler.setup(self)
+
+    def do_POST(self):
+        with lock:
+            if self.path != "/pair":
+                return self.reply(404, {"error": "not found"})
+            req = self.body()
+            if not isinstance(req, dict):
+                return None if req is None else self.reply(400, {"error": "bad body"})
+            name, csr = str(req.get("name", "")), str(req.get("csr", ""))
+            want = mac(f"pwvault-pair-req\n{pairing['server_fp']}\n{name}\n{csr}")
+            if not hmac.compare_digest(want, str(req.get("mac", ""))):
+                return self.reply(403, {"error": "wrong code (or someone is intercepting)"})
+            if not NAME.match(name):
+                return self.reply(400, {"error": "name: 1-20 chars of a-z 0-9 -"})
+            try:
+                cert = sign(name, base64.b64decode(csr))
+            except (ValueError, subprocess.CalledProcessError):
+                return self.reply(400, {"error": "bad csr"})
+            devices[name] = hashlib.sha256(cert).hexdigest()
+            print(f"[{name}] paired", flush=True)
+            cert_b64 = base64.b64encode(cert).decode()
+            return self.reply(200, {"cert": cert_b64,
+                                    "mac": mac(f"pwvault-pair-resp\n{pairing['server_fp']}\n{cert_b64}")})
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8443)
     ap.add_argument("--cert", required=True)
     ap.add_argument("--key", required=True)
-    ap.add_argument("--ca", required=True, help="device CA: only certificates it signed may connect")
-    ap.add_argument("--revoke", action="append", default=[])
+    ap.add_argument("--pair-port", type=int, help="default: --port + 1")
+    ap.add_argument("--ca-dir", required=True, help="the fake board's device CA (created if missing)")
+    ap.add_argument("--code", help="pairing code (16 chars); default: random, printed")
     a = ap.parse_args()
-    revoked.update(a.revoke)
+    make_ca(a.ca_dir)
+    alpha = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+    pairing.update(code=a.code or "".join(secrets.choice(alpha) for _ in range(16)), ca_dir=a.ca_dir,
+                   server_fp=hashlib.sha256(ssl.PEM_cert_to_DER_cert(open(a.cert).read())).hexdigest())
+    pair_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    pair_ctx.load_cert_chain(a.cert, a.key)
+    ctx_holder["pair_ctx"] = pair_ctx
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(a.cert, a.key)
-    ctx.load_verify_locations(a.ca)
+    ctx.load_verify_locations(f"{a.ca_dir}/ca.pem")
     ctx.verify_mode = ssl.CERT_REQUIRED  # no device certificate, no handshake
     # Threaded: clients keep connections open (keep-alive), and the board serves several sockets at once too.
     # The handshake runs per connection in its thread, so a client without a certificate can't stall the others.
     ctx_holder["ctx"] = ctx
     server = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
     server.daemon_threads = True
-    print(f"fake ESP32 on 127.0.0.1:{a.port}", flush=True)
+    pair_port = a.pair_port or a.port + 1
+    pair_server = ThreadingHTTPServer(("127.0.0.1", pair_port), PairHandler)
+    pair_server.daemon_threads = True
+    threading.Thread(target=pair_server.serve_forever, daemon=True).start()
+    print(f"fake ESP32 on 127.0.0.1:{a.port}, pairing on :{pair_port} with code {pairing['code']}", flush=True)
     server.serve_forever()
 
 

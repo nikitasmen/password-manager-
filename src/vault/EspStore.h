@@ -10,7 +10,7 @@ struct EspConfig {
     std::string host;      // IP or name; the cert is always verified as pwvault.local
     int port = 443;
     std::string certPath;    // pinned server cert, esp32/vault/cert.pem
-    std::string clientCert;  // this device's certificate (esp32/pki.sh enroll/install)
+    std::string clientCert;  // this device's certificate (esp32/pki.sh pair)
     std::string clientKey;   // ...and its private key (never leaves this machine)
 };
 

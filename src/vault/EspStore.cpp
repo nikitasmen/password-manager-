@@ -58,7 +58,7 @@ EspStore::Response EspStore::request(const std::string& method, const std::strin
                                  std::string(curl_easy_strerror(rc)) + ")");
     if (rc != CURLE_OK) throw std::runtime_error(std::string("ESP32: ") + curl_easy_strerror(rc));
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &res.status);
-    if (res.status == 403) throw std::runtime_error("ESP32: this device's certificate has been revoked");
+    if (res.status == 403) throw std::runtime_error("ESP32: this device was revoked or re-paired; pair it again (esp32/pki.sh pair)");
     return res;
 }
 

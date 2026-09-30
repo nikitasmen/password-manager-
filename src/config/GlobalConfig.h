@@ -38,7 +38,7 @@ struct AppConfig {
     std::string espHost;
     bool localCopy = true;  // false = device-only: the ESP32 is the only store, nothing kept on this machine
     int espPort = 443;
-    // Relative paths resolve against configDir(); `esp32/pki.sh install <name>` puts these files there.
+    // Relative paths resolve against configDir(); `esp32/pki.sh pair <name>` puts these files there.
     std::string espCert = "server.pem";        // the board's pinned server cert
     std::string espClientCert = "device.pem";  // this device's certificate
     std::string espClientKey = "device.key";   // ...and its private key

@@ -26,7 +26,7 @@ espHost=
 # false = device-only: every read goes to the ESP32, nothing is stored on this machine
 localCopy=true
 espPort=443
-# Device files, put here by `esp32/pki.sh install <name>`
+# Device files, put here by `esp32/pki.sh pair <name>`
 espCert=server.pem
 espClientCert=device.pem
 espClientKey=device.key
