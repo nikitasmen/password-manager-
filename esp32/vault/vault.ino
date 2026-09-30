@@ -37,6 +37,7 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/x509_csr.h>
+#include <qrcode.h>  // espressif__qrcode, bundled with the core
 
 #include <atomic>
 #include <mutex>
@@ -732,6 +733,16 @@ void startServer() {
 
 // ---- display ----
 
+// The pairing QR (PROTOCOL.md §9) at the right edge: lit background, dark modules, 2 px per module, 3 px quiet zone.
+// Called back by esp_qrcode_generate().
+void drawQr(esp_qrcode_handle_t qr) {
+    const int size = esp_qrcode_get_size(qr), box = size * 2 + 6, x0 = OLED_W - box, y0 = (OLED_H - box) / 2;
+    oled.fillRect(x0, y0, box, box, SSD1306_WHITE);
+    for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+            if (esp_qrcode_get_module(qr, x, y)) oled.fillRect(x0 + 3 + 2 * x, y0 + 3 + 2 * y, 2, 2, SSD1306_BLACK);
+}
+
 void draw() {
     oled.clearDisplay();
     oled.setTextColor(SSD1306_WHITE);
@@ -758,15 +769,23 @@ void draw() {
         oled.setCursor(0, 50);
         oled.println("BOOT = yes");
     } else if (pairServer) {
+        // Text on the left 72 px (12 characters), the QR on the right; the QR is drawn last, so it wins any overlap
+        // ponytail: an IP longer than 12 characters is cut off in the text; it's complete in the QR
         oled.setCursor(0, 0);
-        oled.printf("pairing  %lus", (unsigned long)(int32_t)(pairUntil - millis()) / 1000);
-        oled.drawFastHLine(0, 10, OLED_W, SSD1306_WHITE);
-        oled.setCursor(0, 20);
-        for (int i = 0; i < 16; i += 4) oled.print(pairCode.substring(i, i + 4) + (i < 12 ? "-" : ""));
-        oled.setCursor(0, 36);
-        oled.print("pki.sh pair <name>");
+        oled.printf("pairing %lus", (unsigned long)(int32_t)(pairUntil - millis()) / 1000);
+        oled.drawFastHLine(0, 10, 70, SSD1306_WHITE);
+        oled.setCursor(0, 18);
+        oled.print(pairCode.substring(0, 4) + "-" + pairCode.substring(4, 8));
+        oled.setCursor(0, 28);
+        oled.print(pairCode.substring(8, 12) + "-" + pairCode.substring(12));
+        oled.setCursor(0, 42);
+        oled.print("scan or type");
         oled.setCursor(0, 56);
         oled.print(WiFi.localIP());
+        esp_qrcode_config_t qr = ESP_QRCODE_CONFIG_DEFAULT();
+        qr.display_func = drawQr;
+        qr.max_qrcode_version = 3;  // <= 40 alphanumeric characters: version 2, 50 px
+        esp_qrcode_generate(&qr, ("PWVAULT:" + WiFi.localIP().toString() + ":" + pairCode).c_str());
     } else if ((int32_t)(event.until - millis()) > 0) {
         oled.setCursor(0, 0);
         oled.println(event.who);
