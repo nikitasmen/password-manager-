@@ -706,6 +706,9 @@ void startServer() {
     conf.user_cb = onSession;
     conf.httpd.stack_size = 16384;       // TLS + JSON
     conf.httpd.lru_purge_enable = true;  // clients keep connections open; evict the idlest instead of refusing
+    // Each TLS session holds ~40 KB (16 KB in + 16 KB out buffers in this core's mbedtls). The default 4 idle
+    // sessions don't fit in RAM, so the eviction above never got a chance before mbedtls_ssl_setup failed.
+    conf.httpd.max_open_sockets = 2;
     conf.httpd.uri_match_fn = httpd_uri_match_wildcard;
     conf.httpd.max_uri_handlers = 12;
     httpd_handle_t server;
@@ -859,6 +862,12 @@ void setup() {
 }
 
 void loop() {
+    static uint32_t heapAt = 0;  // DIAG: free heap, remove once the TLS allocation failures are understood
+    if (millis() - heapAt > 10000) {
+        heapAt = millis();
+        Serial.printf("heap free %u, largest block %u, min ever %u\n", (unsigned)ESP.getFreeHeap(),
+                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT), (unsigned)ESP.getMinFreeHeap());
+    }
     static uint32_t wifiLost = 0;  // unattended device: if Wi-Fi stays down, retry from scratch, like at boot
     if (WiFi.isConnected()) wifiLost = 0;
     else if (!wifiLost) wifiLost = millis() | 1;
