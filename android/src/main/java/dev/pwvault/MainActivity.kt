@@ -595,7 +595,7 @@ private fun EditSheet(c: Credential, close: () -> Unit) {
     var platform by remember { mutableStateOf(c.platform) }
     var username by remember { mutableStateOf(c.username) }
     var password by remember { mutableStateOf(c.password) }
-    var show by remember { mutableStateOf(isNew) }
+    val show = remember { mutableStateOf(false) } // hidden until asked, or until a password is generated
     // PROTOCOL.md §4: one account per platform, so adding an existing platform replaces it
     val replaces = isNew && App.items.any { it.platform.equals(platform.trim(), ignoreCase = true) }
     val ready = platform.isNotBlank() && username.isNotEmpty() && password.isNotEmpty()
@@ -606,9 +606,8 @@ private fun EditSheet(c: Credential, close: () -> Unit) {
         if (replaces) Text("You already have ${platform.trim()}. Saving replaces it: the vault keeps one account per site.",
             color = palette.danger, style = MaterialTheme.typography.bodySmall)
         Field(username, { username = it }, "Username or email")
-        Field(password, { password = it }, "Password", secret = true, shown = show, onDone = save,
-            trailing = { QuietButton(if (show) "Hide" else "Show", { show = !show }, color = palette.muted) })
-        QuietButton("Generate a strong password", { password = generatePassword(); show = true })
+        Field(password, { password = it }, "Password", secret = true, onDone = save, visible = show)
+        QuietButton("Generate a strong password", { password = generatePassword(); show.value = true })
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             QuietButton("Cancel", close, color = palette.muted)
             Spacer(Modifier.width(8.dp))

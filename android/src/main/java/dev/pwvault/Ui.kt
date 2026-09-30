@@ -27,6 +27,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
@@ -158,12 +161,31 @@ fun QuietButton(text: String, onClick: () -> Unit, color: Color = palette.accent
         Text(text, color = if (enabled) color else palette.muted, style = MaterialTheme.typography.labelLarge)
     }
 
-/** A text field in the house style. [secret] hides the value unless [shown]; [onDone] runs from the keyboard. */
+/**
+ * A text field in the house style; [onDone] runs from the keyboard's action key. A [secret] field is hidden, with
+ * its own Show/Hide toggle: each field starts hidden and is revealed on its own. Pass [visible] to control that
+ * state from outside (e.g. showing a generated password).
+ */
 @Composable
 fun Field(
     value: String, onChange: (String) -> Unit, label: String, modifier: Modifier = Modifier,
-    secret: Boolean = false, shown: Boolean = false, digits: Boolean = false, caps: Boolean = false,
-    enabled: Boolean = true, onDone: (() -> Unit)? = null, trailing: (@Composable () -> Unit)? = null,
+    secret: Boolean = false, digits: Boolean = false, caps: Boolean = false,
+    enabled: Boolean = true, onDone: (() -> Unit)? = null, visible: MutableState<Boolean>? = null,
+) {
+    val own = rememberSaveable { mutableStateOf(false) }
+    val show = visible ?: own
+    val shown = secret && show.value
+    TextField(value, onChange, label, modifier, secret, shown, digits, caps, enabled, onDone,
+        trailing = if (secret) ({
+            QuietButton(if (shown) "Hide" else "Show", { show.value = !show.value }, color = palette.muted,
+                modifier = Modifier.semantics { contentDescription = if (shown) "Hide $label" else "Show $label" })
+        }) else null)
+}
+
+@Composable
+private fun TextField(
+    value: String, onChange: (String) -> Unit, label: String, modifier: Modifier, secret: Boolean, shown: Boolean,
+    digits: Boolean, caps: Boolean, enabled: Boolean, onDone: (() -> Unit)?, trailing: (@Composable () -> Unit)?,
 ) = OutlinedTextField(
     value, onChange, modifier.fillMaxWidth().padding(vertical = 4.dp), enabled = enabled, singleLine = true,
     label = { Text(label) },
