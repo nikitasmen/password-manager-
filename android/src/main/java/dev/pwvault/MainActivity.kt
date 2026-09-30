@@ -13,30 +13,41 @@ import android.security.keystore.KeyProperties
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,16 +57,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import kotlinx.coroutines.delay
 import java.io.File
 import java.security.KeyPair
 import java.security.KeyPairGenerator
@@ -63,6 +74,9 @@ import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 private const val PAIR_PORT = 8444 // PROTOCOL.md §9
@@ -73,6 +87,9 @@ enum class Screen { Pair, Unlock, Vault }
  * App state lives here, not in the activity, so a rotation keeps it. Every vault call runs on one worker thread, in
  * order. Files (filesDir): vault.json, sync.json, pin.json, server.der (the pinned board cert), device.der; the
  * device key is in the Android Keystore and never leaves it.
+ *
+ * The demo build (applicationIdSuffix .demo) keeps a local-only vault of its own and allows screenshots, for
+ * working on the UI without the board or the real vault.
  */
 object App {
     private lateinit var dir: File
@@ -82,21 +99,30 @@ object App {
     private val worker = Executors.newSingleThreadExecutor()
     val pinFile get() = File(dir, "pin.json")
     val host get() = prefs.getString("host", "").orEmpty()
+    val deviceName get() = prefs.getString("name", "phone").orEmpty()
     val paired get() = vault != null
+    val hasBoard get() = board != null
 
     var screen by mutableStateOf(Screen.Pair)
     var hasVault by mutableStateOf<Boolean?>(null) // null = not checked yet
-    var reachable by mutableStateOf(false)
+    var sync by mutableStateOf(Vault.Sync.Disabled)
+    var syncedAt by mutableStateOf<Long?>(null)
+    var syncError by mutableStateOf("")
     var busy by mutableStateOf(false)
-    var message by mutableStateOf("")
-    var status by mutableStateOf("")
+    var syncing by mutableStateOf(false)
+    var pairing by mutableStateOf(false)
+    var message by mutableStateOf("") // what went wrong, and what to do about it
+    var notice by mutableStateOf("") // what just worked
     var items by mutableStateOf(listOf<Credential>())
 
     fun init(ctx: Context) {
         if (::dir.isInitialized) return
         dir = ctx.filesDir
         prefs = ctx.getSharedPreferences("pwvault", Context.MODE_PRIVATE)
-        load()
+        if (BuildConfig.DEMO) {
+            vault = Vault(LocalStore(File(dir, "vault.json")), null, File(dir, "sync.json"))
+            screen = Screen.Unlock
+        } else load()
     }
 
     private fun keystore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -128,6 +154,7 @@ object App {
     private fun run(task: () -> Unit) {
         busy = true
         message = ""
+        notice = ""
         worker.execute {
             try {
                 task()
@@ -135,19 +162,17 @@ object App {
                 message = e.message ?: e.toString()
             } finally {
                 busy = false
+                syncing = false
+                pairing = false
             }
         }
     }
 
     private fun showStatus() {
         val v = vault ?: return
-        reachable = v.status == Vault.Sync.Ok
-        status = when (v.status) {
-            Vault.Sync.Ok -> "Synced with the board"
-            Vault.Sync.Offline -> "Using this phone's copy. ${v.error}"
-            Vault.Sync.Error -> "Sync failed: ${v.error}"
-            Vault.Sync.Disabled -> ""
-        }
+        sync = v.status
+        syncError = v.error
+        if (v.status == Vault.Sync.Ok) syncedAt = System.currentTimeMillis()
     }
 
     private fun opened() {
@@ -162,56 +187,69 @@ object App {
         hasVault = exists
     }
 
-    fun pair(hostText: String, name: String, typed: String) = run {
-        val code = normalizePairCode(typed)
-        if (code.isEmpty()) throw PairError("The code on the board's screen has 16 characters.")
-        val alias = "device-${System.currentTimeMillis()}"
-        val keys = newDeviceKey(alias)
-        val p = try {
-            pairWithBoard(parseHost(hostText).first, PAIR_PORT, name, code, keys)
-        } catch (e: Exception) {
-            keystore().deleteEntry(alias)
-            throw e
+    fun pair(hostText: String, name: String, typed: String) {
+        pairing = true
+        run {
+            val code = normalizePairCode(typed)
+            if (code.isEmpty()) throw PairError("The code on the board has 16 characters. Check it and try again.")
+            val alias = "device-${System.currentTimeMillis()}"
+            val keys = newDeviceKey(alias)
+            val p = try {
+                pairWithBoard(parseHost(hostText).first, PAIR_PORT, name, code, keys)
+            } catch (e: Exception) {
+                keystore().deleteEntry(alias)
+                throw e
+            }
+            File(dir, "server.der").writeBytes(p.server.encoded)
+            File(dir, "device.der").writeBytes(p.cert.encoded)
+            prefs.getString("alias", null)?.let { keystore().deleteEntry(it) }
+            prefs.edit().putString("host", hostText.trim()).putString("alias", alias).putString("name", name).commit()
+            pinFile.delete() // re-pairing deleted this name's PIN on the board
+            load()
         }
-        File(dir, "server.der").writeBytes(p.server.encoded)
-        File(dir, "device.der").writeBytes(p.cert.encoded)
-        prefs.getString("alias", null)?.let { keystore().deleteEntry(it) }
-        prefs.edit().putString("host", hostText.trim()).putString("alias", alias).commit()
-        pinFile.delete() // re-pairing deleted this name's PIN on the board
-        load()
     }
 
     fun create(password: String, repeat: String) = run {
-        require(password.isNotEmpty() && password == repeat) { "The passwords are empty or don't match." }
+        require(password.isNotEmpty() && password == repeat) { "The two passwords don't match." }
         vault!!.create(password)
         opened()
     }
 
     fun unlock(password: String) = run {
-        if (!vault!!.unlock(password)) throw Exception("Wrong master password.")
+        if (!vault!!.unlock(password)) throw Exception("That master password doesn't open this vault.")
         opened()
     }
 
     fun unlockPin(pin: String) = run {
         when (val r = unlockWithPin(vault!!, board!!, pinFile, pin)) {
             PinResult.Unlocked -> opened()
-            is PinResult.Wrong -> message = "Wrong PIN: ${r.left} tries left."
-            PinResult.Removed -> message = "The PIN was removed (too many tries, or re-paired). Use the master password."
+            is PinResult.Wrong -> message = if (r.left == 1) "Wrong PIN. 1 try left before the PIN is deleted."
+                else "Wrong PIN. ${r.left} tries left."
+            PinResult.Removed -> message = "The PIN was deleted after too many tries, or when this phone was paired " +
+                "again. Unlock with the master password."
             is PinResult.Failed -> message = r.why
         }
     }
 
-    fun setPin(master: String, pin: String, repeat: String) = run {
+    fun setPin(master: String, pin: String, repeat: String, done: () -> Unit) = run {
+        require(validPin(pin)) { "A PIN is 4 to 32 digits." }
         require(pin == repeat) { "The two PINs don't match." }
         setPin(vault!!, board!!, pinFile, master, pin)
-        message = "PIN set."
+        notice = "PIN set. Next time, unlock with it while the board is reachable."
+        done()
     }
 
-    fun removePin() = pinFile.delete()
+    fun removePin() {
+        pinFile.delete()
+        notice = "PIN removed. Unlock with the master password."
+    }
 
-    fun sync() = run {
-        vault!!.sync()
-        opened()
+    fun syncNow() {
+        syncing = true
+        run {
+            vault!!.sync()
+            opened()
+        }
     }
 
     fun save(c: Credential) = run {
@@ -222,6 +260,7 @@ object App {
     fun delete(platform: String) = run {
         vault!!.remove(platform)
         opened()
+        notice = "Deleted $platform."
     }
 
     fun noteAccess(c: Credential) = worker.execute { vault?.takeIf { it.unlocked }?.noteAccess(c) }
@@ -230,19 +269,23 @@ object App {
     fun lock() = worker.execute {
         vault?.lock()
         items = emptyList()
+        message = ""
+        notice = ""
         if (screen == Screen.Vault) screen = Screen.Unlock
     }
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE) // no screenshots
+        if (!BuildConfig.DEMO) // no screenshots, no previews in the app switcher
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         App.init(this)
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp)) {
+            PwTheme {
+                Surface(Modifier.fillMaxSize(), color = palette.enclosure) {
+                    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
                         when (App.screen) {
                             Screen.Pair -> PairScreen()
                             Screen.Unlock -> UnlockScreen()
@@ -275,70 +318,94 @@ private fun generatePassword(): String {
     return (1..20).map { chars[rng.nextInt(chars.length)] }.joinToString("")
 }
 
-@Composable
-private fun Field(value: String, onChange: (String) -> Unit, label: String, enabled: Boolean = true, caps: Boolean = false) =
-    OutlinedTextField(
-        value, onChange, Modifier.fillMaxWidth().padding(vertical = 4.dp), enabled = enabled, singleLine = true,
-        label = { Text(label) },
-        keyboardOptions = KeyboardOptions(
-            capitalization = if (caps) KeyboardCapitalization.Characters else KeyboardCapitalization.None,
-            autoCorrectEnabled = false,
-        ),
-    )
+private fun clock(ms: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
 
-@Composable
-private fun Secret(value: String, onChange: (String) -> Unit, label: String, digits: Boolean = false, shown: Boolean = false) =
-    OutlinedTextField(
-        value, onChange, Modifier.fillMaxWidth().padding(vertical = 4.dp), singleLine = true, label = { Text(label) },
-        visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (digits) KeyboardType.NumberPassword else KeyboardType.Password, autoCorrectEnabled = false,
-        ),
-    )
+// ---- shared pieces ----
 
-@Composable
-private fun Feedback() {
-    if (App.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
-    if (App.message.isNotEmpty())
-        Text(App.message, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.error)
+/** The status of the board, in the board's own words and font, for the top of the unlock and vault screens. */
+private fun boardLine(): String = when {
+    !App.hasBoard -> "no board (demo)"
+    App.hasVault == null && App.busy -> "reaching board..."
+    App.sync == Vault.Sync.Ok -> "synced " + (App.syncedAt?.let(::clock) ?: "")
+    App.sync == Vault.Sync.Offline -> "board offline"
+    App.sync == Vault.Sync.Error -> "sync failed"
+    else -> "board not checked"
 }
 
 @Composable
-private fun Title(text: String) = Text(text, Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.headlineSmall)
+private fun Feedback() {
+    if (App.busy && !App.syncing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = palette.accent,
+        trackColor = palette.line)
+    if (App.message.isNotEmpty())
+        Text(App.message, Modifier.padding(top = 12.dp), color = palette.danger, style = MaterialTheme.typography.bodyMedium)
+    if (App.notice.isNotEmpty())
+        Text(App.notice, Modifier.padding(top = 12.dp), color = palette.muted, style = MaterialTheme.typography.bodyMedium)
+}
+
+@Composable
+private fun Prose(text: String, modifier: Modifier = Modifier) =
+    Text(text, modifier.padding(vertical = 8.dp), color = palette.muted, style = MaterialTheme.typography.bodyMedium)
+
+@Composable
+private fun Heading(text: String) =
+    Text(text, Modifier.padding(top = 24.dp, bottom = 4.dp), color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+
+// ---- pair ----
 
 @Composable
 private fun ColumnScope.PairScreen() {
     val ctx = LocalContext.current
     var host by rememberSaveable { mutableStateOf(App.host) }
-    var name by rememberSaveable { mutableStateOf("phone") }
+    var name by rememberSaveable { mutableStateOf(App.deviceName) }
     var code by rememberSaveable { mutableStateOf("") }
+    var typing by rememberSaveable { mutableStateOf(false) }
+    val nameOk = validDeviceName(name)
+
     fun scan() = GmsBarcodeScanning.getClient(ctx, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
         .startScan()
         .addOnSuccessListener { b ->
             val qr = parsePairQr(b.rawValue.orEmpty())
-            if (qr == null) App.message = "That isn't the board's pairing QR code."
+            if (qr == null) App.message = "That's not the board's pairing code. Press BOOT on the board and scan the code it shows."
             else {
                 host = qr.first
                 code = qr.second
-                App.pair(host, name, code) // the board then asks for the approving BOOT press
+                App.pair(host, name, code)
             }
         }
-        .addOnFailureListener { App.message = "Couldn't scan: ${it.message}" }
-    Title("Pair with the board")
-    Text("Press BOOT on the board: it shows a QR code and a 16-character code for 2 minutes. Scan it, or type the " +
-        "address and code and tap Pair. Then press BOOT again to approve.")
-    Button({ App.message = ""; scan() }, Modifier.fillMaxWidth().padding(vertical = 8.dp), enabled = !App.busy) {
-        Text("Scan the QR code")
+        .addOnFailureListener { App.message = "The scanner didn't open (${it.message}). Type the code instead." }
+
+    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { // the root's safeDrawingPadding already makes room for the keyboard
+        Spacer(Modifier.height(16.dp))
+        // The OLED shows the steps while waiting, then what to do on the board during the exchange
+        if (App.pairing) Oled(listOf(OledText("pairing"), OledText("press BOOT", y = 22, size = 2), OledText("on the board", y = 44),
+            OledText("to approve", y = 54)), rules = listOf(10))
+        else Oled(listOf(OledText("pair this phone"), OledText("1 press BOOT", y = 18), OledText("2 scan its code", y = 30),
+            OledText("3 press BOOT again", y = 42)), rules = listOf(10))
+        Heading("Pair with the board")
+        Prose("The board shows a code for 2 minutes after you press BOOT. Scan it, then press BOOT again to let this " +
+            "phone in.")
+        Field(name, { name = it.lowercase().trim() }, "Name for this phone")
+        if (!nameOk) Text("Use 1 to 20 lowercase letters, digits or dashes.", color = palette.danger,
+            style = MaterialTheme.typography.bodySmall)
+        AnimatedVisibility(typing) {
+            Column {
+                Field(host, { host = it }, "Board address, as shown on its screen")
+                Field(code, { code = it }, "Code", caps = true, onDone = { App.pair(host, name, code) })
+            }
+        }
+        Feedback()
     }
-    Field(host, { host = it }, "Board address (IP, or IP:port)")
-    Field(name, { name = it.lowercase() }, "Name for this phone")
-    Field(code, { code = it }, "Code from the board's screen", caps = true)
-    Button({ App.pair(host, name, code) }, Modifier.fillMaxWidth(), enabled = !App.busy && host.isNotBlank()) {
-        Text("Pair")
+    Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
+        if (typing) PrimaryButton("Pair", { App.pair(host, name, code) }, enabled = !App.busy && nameOk && host.isNotBlank())
+        else PrimaryButton("Scan the code", { App.message = ""; scan() }, enabled = !App.busy && nameOk)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            QuietButton(if (typing) "Scan instead" else "Type the code instead", { typing = !typing })
+            if (App.paired) QuietButton("Cancel", { App.message = ""; App.screen = Screen.Unlock }, color = palette.muted)
+        }
     }
-    if (App.paired) TextButton({ App.message = ""; App.screen = Screen.Unlock }) { Text("Cancel") }
-    Feedback()
 }
+
+// ---- unlock ----
 
 @Composable
 private fun ColumnScope.UnlockScreen() {
@@ -346,157 +413,231 @@ private fun ColumnScope.UnlockScreen() {
     var secret by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf("") }
     var usePin by remember { mutableStateOf(true) }
-    val ready = !App.busy && secret.isNotEmpty()
-    Title("pwvault")
-    if (App.status.isNotEmpty()) Text(App.status, style = MaterialTheme.typography.bodySmall)
-    when {
-        App.hasVault == null -> Text("Connecting to the board…")
-        App.hasVault == false && !App.reachable -> {
-            Text("There's no vault on this phone yet, and the board can't be reached. Join the board's Wi-Fi.")
-            Button({ App.check() }, enabled = !App.busy) { Text("Retry") }
+    val focus = remember { FocusRequester() }
+    val pinMode = usePin && App.hasBoard && App.pinFile.exists()
+    val creating = App.hasVault == false && (App.sync == Vault.Sync.Ok || !App.hasBoard)
+    val stranded = App.hasVault == false && !creating // no copy here, and the board can't be reached
+    val go = {
+        when {
+            creating -> App.create(secret, repeat)
+            pinMode -> App.unlockPin(secret)
+            else -> App.unlock(secret)
         }
-        App.hasVault == false -> {
-            Text("The board has no vault yet. Create one:")
-            Secret(secret, { secret = it }, "Master password")
-            Secret(repeat, { repeat = it }, "Repeat it")
-            Button({ App.create(secret, repeat) }, Modifier.fillMaxWidth(), enabled = ready) { Text("Create vault") }
+        secret = ""
+        repeat = ""
+    }
+
+    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { // the root's safeDrawingPadding already makes room for the keyboard
+        Spacer(Modifier.height(16.dp))
+        Oled(listOf(OledText("pwvault", x = 22, y = 14, size = 2), OledText(boardLine(), y = 42),
+            OledText(if (App.hasBoard) App.host else "local vault", y = 56)))
+        when {
+            App.hasVault == null -> Prose("Looking for the vault on the board.", Modifier.padding(top = 16.dp))
+            stranded -> {
+                Heading("Can't reach the board")
+                Prose("This phone doesn't have a copy of the vault yet, so it needs the board once. Join the Wi-Fi " +
+                    "the board is on and try again.")
+                if (App.syncError.isNotEmpty()) Text(App.syncError, color = palette.muted, style = MaterialTheme.typography.bodySmall)
+            }
+            creating -> {
+                Heading("Create your vault")
+                Prose("The master password is the only way into the vault. Nobody can reset it, so pick one you won't forget.")
+                Field(secret, { secret = it }, "Master password", Modifier.focusRequester(focus), secret = true)
+                Field(repeat, { repeat = it }, "Master password again", secret = true, onDone = go)
+            }
+            else -> {
+                Heading(if (pinMode) "Unlock with your PIN" else "Unlock")
+                if (App.sync == Vault.Sync.Offline && App.hasBoard)
+                    Prose(if (pinMode) "A PIN needs the board, which is offline. Use the master password instead."
+                        else "The board is offline, so this opens the copy on this phone. It syncs when the board is back.")
+                Field(secret, { secret = it }, if (pinMode) "PIN" else "Master password", Modifier.focusRequester(focus),
+                    secret = true, digits = pinMode, onDone = go)
+                LaunchedEffect(pinMode) { runCatching { focus.requestFocus() } }
+            }
         }
-        usePin && App.pinFile.exists() -> {
-            Secret(secret, { secret = it }, "PIN", digits = true)
-            Button({ App.unlockPin(secret); secret = "" }, Modifier.fillMaxWidth(), enabled = ready) { Text("Unlock") }
-            TextButton({ usePin = false; secret = "" }) { Text("Use the master password") }
+        Feedback()
+    }
+    Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
+        when {
+            stranded -> PrimaryButton("Try again", { App.check() }, enabled = !App.busy)
+            creating -> PrimaryButton("Create vault", go, enabled = !App.busy && secret.isNotEmpty() && repeat.isNotEmpty())
+            App.hasVault == true -> PrimaryButton("Unlock", go, enabled = !App.busy && secret.isNotEmpty())
         }
-        else -> {
-            Secret(secret, { secret = it }, "Master password")
-            Button({ App.unlock(secret); secret = "" }, Modifier.fillMaxWidth(), enabled = ready) { Text("Unlock") }
-            if (App.pinFile.exists()) TextButton({ usePin = true; secret = "" }) { Text("Use the PIN") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (App.hasVault == true && App.hasBoard && App.pinFile.exists())
+                QuietButton(if (pinMode) "Use the master password" else "Use the PIN", { usePin = !usePin; secret = "" })
+            else Spacer(Modifier.width(1.dp))
+            if (!BuildConfig.DEMO) QuietButton("Pair again", { App.message = ""; App.screen = Screen.Pair }, color = palette.muted)
         }
     }
-    Feedback()
-    TextButton({ App.message = ""; App.screen = Screen.Pair }) { Text("Pair again") }
 }
 
+// ---- vault ----
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ColumnScope.VaultScreen() {
     var query by remember { mutableStateOf("") }
     var open by remember { mutableStateOf<Credential?>(null) }
     var edit by remember { mutableStateOf<Credential?>(null) } // platform "" = a new entry
-    var pinDialog by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("pwvault", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-        TextButton({ App.sync() }, enabled = !App.busy) { Text("Sync") }
-        TextButton({ pinDialog = true }) { Text("PIN") }
-        TextButton({ App.lock() }) { Text("Lock") }
-    }
-    Text(App.status, style = MaterialTheme.typography.bodySmall)
-    Feedback()
-    Field(query, { query = it }, "Search")
+    var pinSheet by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     val shown = App.items.filter { it.platform.contains(query, true) || it.username.contains(query, true) }
-    LazyColumn(Modifier.weight(1f)) {
-        items(shown, key = { it.platform.lowercase() }) { c ->
-            ListItem(
-                headlineContent = { Text(c.platform) }, supportingContent = { Text(c.username) },
-                modifier = Modifier.clickable { open = c; App.noteAccess(c) },
-            )
-            HorizontalDivider()
+    val count = App.items.size
+
+    Spacer(Modifier.height(12.dp))
+    Oled(listOf(OledText(if (App.syncing) "syncing..." else boardLine()), OledText(App.deviceName, right = true),
+        OledText(if (count == 1) "1 entry" else "$count entries", y = 18, size = 1)), rows = 28, rules = listOf(10))
+    if (App.sync == Vault.Sync.Error && App.syncError.isNotEmpty())
+        Text(App.syncError, Modifier.padding(top = 8.dp), color = palette.danger, style = MaterialTheme.typography.bodySmall,
+            maxLines = 3, overflow = TextOverflow.Ellipsis)
+    if (count > 0) Field(query, { query = it }, "Search", Modifier.padding(top = 8.dp))
+    Feedback()
+
+    PullToRefreshBox(App.syncing, { App.syncNow() }, Modifier.weight(1f).padding(top = 8.dp)) {
+        LazyColumn(Modifier.fillMaxSize()) {
+            if (count == 0) item {
+                Heading("No entries yet")
+                Prose("Add the first one with the button below. It's saved on this phone and on the board.")
+            } else if (shown.isEmpty()) item {
+                Prose("Nothing matches “$query”.", Modifier.padding(top = 16.dp))
+            }
+            if (shown.isNotEmpty()) item {
+                // One quiet block, like the desktop's list: rows separated by 1 px lines
+                Column(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.surface).border(1.dp, palette.line, RoundedCornerShape(6.dp))) {
+                    shown.forEachIndexed { i, c ->
+                        if (i > 0) HorizontalDivider(color = palette.line)
+                        Column(Modifier.fillMaxWidth().clickable { open = c; App.noteAccess(c) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Text(c.platform, color = palette.ink, style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis)
+                            Text(c.username, color = palette.muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
         }
     }
-    Button({ edit = Credential("", "", "") }, Modifier.fillMaxWidth(), enabled = !App.busy) { Text("Add") }
 
-    open?.let { c -> DetailDialog(c, close = { open = null }, edit = { open = null; edit = c }) }
-    edit?.let { EditDialog(it) { edit = null } }
-    if (pinDialog) PinDialog { pinDialog = false }
+    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        QuietButton("Lock", { App.lock() }, color = palette.muted)
+        Box {
+            QuietButton("More", { menu = true }, color = palette.muted)
+            DropdownMenu(menu, { menu = false }, containerColor = palette.surface) {
+                DropdownMenuItem({ Text("Sync now") }, { menu = false; App.syncNow() }, enabled = App.hasBoard && !App.busy)
+                if (App.hasBoard) DropdownMenuItem({ Text(if (App.pinFile.exists()) "Change or remove PIN" else "Set a PIN") },
+                    { menu = false; pinSheet = true })
+                if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Pair again") }, { menu = false; App.screen = Screen.Pair })
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        PrimaryButton("Add entry", { edit = Credential("", "", "") }, enabled = !App.busy, modifier = Modifier.weight(1f))
+    }
+
+    open?.let { c -> EntrySheet(c, close = { open = null }, edit = { open = null; edit = c }) }
+    edit?.let { EditSheet(it) { edit = null } }
+    if (pinSheet) PinSheet { pinSheet = false }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DetailDialog(c: Credential, close: () -> Unit, edit: () -> Unit) {
+private fun Sheet(close: () -> Unit, content: @Composable ColumnScope.() -> Unit) =
+    ModalBottomSheet(close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = palette.surface, shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp).navigationBarsPadding().imePadding(), content = content)
+    }
+
+/** A value with its own actions; "Copy" answers with "Copied" for a moment. */
+@Composable
+private fun ValueRow(label: String, value: String, secret: Boolean = false) {
     val ctx = LocalContext.current
     var show by remember { mutableStateOf(false) }
-    var confirm by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = close,
-        title = { Text(c.platform) },
-        text = {
-            Column {
-                Text("Username", style = MaterialTheme.typography.labelMedium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(c.username, Modifier.weight(1f))
-                    TextButton({ copy(ctx, c.username) }) { Text("Copy") }
-                }
-                Text("Password", style = MaterialTheme.typography.labelMedium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (show) c.password else "••••••••", Modifier.weight(1f), fontFamily = FontFamily.Monospace)
-                    TextButton({ show = !show }) { Text(if (show) "Hide" else "Show") }
-                    TextButton({ copy(ctx, c.password) }) { Text("Copy") }
-                }
-            }
-        },
-        confirmButton = { TextButton(edit) { Text("Edit") } },
-        dismissButton = {
-            TextButton({ if (confirm) { App.delete(c.platform); close() } else confirm = true }) {
-                Text(if (confirm) "Really delete" else "Delete", color = MaterialTheme.colorScheme.error)
-            }
-        },
-    )
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
+    Text(label, Modifier.padding(top = 16.dp), color = palette.muted, style = MaterialTheme.typography.bodySmall)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(if (secret && !show) "•".repeat(12) else value, Modifier.weight(1f),
+            color = palette.ink, style = if (secret) Mono else MaterialTheme.typography.bodyLarge)
+        if (secret) QuietButton(if (show) "Hide" else "Show", { show = !show }, color = palette.muted)
+        QuietButton(if (copied) "Copied" else "Copy", { copy(ctx, value); copied = true })
+    }
 }
 
 @Composable
-private fun EditDialog(c: Credential, close: () -> Unit) {
+private fun EntrySheet(c: Credential, close: () -> Unit, edit: () -> Unit) {
+    var confirm by remember { mutableStateOf(false) }
+    Sheet(close) {
+        Text(c.platform, color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+        ValueRow("Username", c.username)
+        ValueRow("Password", c.password, secret = true)
+        Text("Copied values are cleared from the clipboard after 30 seconds.", Modifier.padding(top = 12.dp),
+            color = palette.muted, style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider(Modifier.padding(vertical = 16.dp), color = palette.line)
+        if (confirm) {
+            Text("Delete ${c.platform}? It's removed from the board and every device on their next sync.",
+                color = palette.ink, style = MaterialTheme.typography.bodyMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                QuietButton("Keep it", { confirm = false }, color = palette.muted)
+                QuietButton("Delete", { App.delete(c.platform); close() }, color = palette.danger)
+            }
+        } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            QuietButton("Delete", { confirm = true }, color = palette.danger)
+            QuietButton("Edit", edit)
+        }
+    }
+}
+
+@Composable
+private fun EditSheet(c: Credential, close: () -> Unit) {
     val isNew = c.platform.isEmpty()
     var platform by remember { mutableStateOf(c.platform) }
     var username by remember { mutableStateOf(c.username) }
     var password by remember { mutableStateOf(c.password) }
-    var show by remember { mutableStateOf(false) }
+    var show by remember { mutableStateOf(isNew) }
     // PROTOCOL.md §4: one account per platform, so adding an existing platform replaces it
     val replaces = isNew && App.items.any { it.platform.equals(platform.trim(), ignoreCase = true) }
-    AlertDialog(
-        onDismissRequest = close,
-        title = { Text(if (isNew) "Add" else "Edit") },
-        text = {
-            Column {
-                Field(platform, { platform = it }, "Platform", enabled = isNew)
-                if (replaces) Text("This replaces the existing ${platform.trim()} entry.", color = MaterialTheme.colorScheme.error)
-                Field(username, { username = it }, "Username")
-                Secret(password, { password = it }, "Password", shown = show)
-                Row {
-                    TextButton({ show = !show }) { Text(if (show) "Hide" else "Show") }
-                    TextButton({ password = generatePassword(); show = true }) { Text("Generate") }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                { App.save(Credential(platform.trim(), username, password, c.alg)); close() },
-                enabled = platform.isNotBlank() && username.isNotEmpty() && password.isNotEmpty(),
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(close) { Text("Cancel") } },
-    )
+    val ready = platform.isNotBlank() && username.isNotEmpty() && password.isNotEmpty()
+    val save = { if (ready) { App.save(Credential(platform.trim(), username, password, c.alg)); close() } }
+    Sheet(close) {
+        Text(if (isNew) "New entry" else "Edit ${c.platform}", color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+        if (isNew) Field(platform, { platform = it }, "Site or app", Modifier.padding(top = 8.dp))
+        if (replaces) Text("You already have ${platform.trim()}. Saving replaces it: the vault keeps one account per site.",
+            color = palette.danger, style = MaterialTheme.typography.bodySmall)
+        Field(username, { username = it }, "Username or email")
+        Field(password, { password = it }, "Password", secret = true, shown = show, onDone = save,
+            trailing = { QuietButton(if (show) "Hide" else "Show", { show = !show }, color = palette.muted) })
+        QuietButton("Generate a strong password", { password = generatePassword(); show = true })
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            QuietButton("Cancel", close, color = palette.muted)
+            Spacer(Modifier.width(8.dp))
+            PrimaryButton(if (isNew) "Add entry" else "Save changes", save, enabled = ready, modifier = Modifier.weight(1f))
+        }
+    }
 }
 
 @Composable
-private fun PinDialog(close: () -> Unit) {
+private fun PinSheet(close: () -> Unit) {
     var master by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf("") }
     val has = App.pinFile.exists()
-    AlertDialog(
-        onDismissRequest = close,
-        title = { Text(if (has) "Change the PIN" else "Set a PIN") },
-        text = {
-            Column {
-                Text("A PIN unlocks this phone only while the board is reachable. 5 wrong tries delete it.")
-                Secret(master, { master = it }, "Master password")
-                Secret(pin, { pin = it }, "New PIN (4-32 digits)", digits = true)
-                Secret(repeat, { repeat = it }, "Repeat the PIN", digits = true)
-            }
-        },
-        confirmButton = { TextButton({ App.setPin(master, pin, repeat); close() }, enabled = master.isNotEmpty()) { Text("Save") } },
-        dismissButton = {
-            Row {
-                if (has) TextButton({ App.removePin(); close() }) { Text("Remove PIN") }
-                TextButton(close) { Text("Cancel") }
-            }
-        },
-    )
+    Sheet(close) {
+        Text(if (has) "Change your PIN" else "Set a PIN", color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+        Prose("A PIN unlocks this phone while the board is reachable. After 5 wrong tries the board deletes it, and " +
+            "you unlock with the master password again.")
+        Field(master, { master = it }, "Master password", secret = true)
+        Field(pin, { pin = it }, "New PIN, 4 to 32 digits", secret = true, digits = true)
+        Field(repeat, { repeat = it }, "New PIN again", secret = true, digits = true,
+            onDone = { App.setPin(master, pin, repeat, close) })
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (has) QuietButton("Remove PIN", { App.removePin(); close() }, color = palette.danger)
+            else QuietButton("Cancel", close, color = palette.muted)
+            Spacer(Modifier.width(8.dp))
+            PrimaryButton("Save PIN", { App.setPin(master, pin, repeat, close) },
+                enabled = !App.busy && master.isNotEmpty() && pin.isNotEmpty(), modifier = Modifier.weight(1f))
+        }
+        Feedback()
+    }
 }

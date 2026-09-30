@@ -16,7 +16,20 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    buildTypes {
+        all { buildConfigField("boolean", "DEMO", "false") }
+        // A second app for UI work: its own local-only vault, no board, screenshots allowed
+        create("demo") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".demo"
+            buildConfigField("boolean", "DEMO", "true")
+            matchingFallbacks += "debug"
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
