@@ -6,6 +6,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.0"
 }
 
+// The newest v* tag in the repo, or v0.0 outside a git checkout
+val releaseTag: String = providers.exec {
+    commandLine("git", "describe", "--tags", "--abbrev=0", "--match", "v*")
+    isIgnoreExitValue = true
+}.standardOutput.asText.get().trim().ifEmpty { "v0.0" }
+
 android {
     namespace = "dev.pwvault"
     compileSdk = 35
@@ -13,10 +19,12 @@ android {
         applicationId = "dev.pwvault"
         minSdk = 28 // ChaCha20-Poly1305
         targetSdk = 35
-        // The version is the release tag without its "v", shared with the desktop release; the updater compares the two.
+        // The version is the latest release tag (v2.1 -> 2.1), shared with the desktop release, so tagging is the
+        // only version step: tag, then build the APK for that release. The updater compares it with GitHub's latest tag.
         // versionCode must grow with every release for Android to install it over the old one.
-        versionName = "2.0"
-        versionCode = versionName!!.split(".").map(String::toInt).let { v -> v[0] * 10000 + v.getOrElse(1) { 0 } * 100 + v.getOrElse(2) { 0 } }
+        versionName = releaseTag.removePrefix("v")
+        versionCode = versionName!!.split(".").map { it.toIntOrNull() ?: 0 }
+            .let { v -> v[0] * 10000 + v.getOrElse(1) { 0 } * 100 + v.getOrElse(2) { 0 } }
         buildConfigField("String", "UPDATE_REPO", "\"nikitasmen/password-manager-\"")
     }
     buildFeatures {

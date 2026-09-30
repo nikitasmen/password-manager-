@@ -30,7 +30,10 @@ class FingerprintsChanged : Exception(
 object Biometric {
     private const val ALIAS = "pwvault-bio"
 
-    fun available(ctx: Context): Boolean = when {
+    /** Can this phone do a strong biometric check right now? Never throws: a vendor quirk just means "no". */
+    fun available(ctx: Context): Boolean = runCatching { check(ctx) }.getOrDefault(false)
+
+    private fun check(ctx: Context): Boolean = when {
         Build.VERSION.SDK_INT >= 30 -> ctx.getSystemService(BiometricManager::class.java)
             .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
         Build.VERSION.SDK_INT == 29 -> @Suppress("DEPRECATION")
