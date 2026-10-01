@@ -94,7 +94,7 @@ Settings → **Set PIN** (TUI: `k`) lets this computer unlock with a PIN of at l
 
 ### Using it away from home
 
-**Don't port-forward the ESP32 to the internet.** Its TLS stack never gets security updates, and it's easy to knock offline. Instead, reach your home network over a VPN: a [Tailscale subnet router](https://tailscale.com/kb/1019/subnets) on any always-on home machine, or WireGuard on your router. The app config stays the same (use the board's LAN IP), and only your own devices can reach it.
+**Don't port-forward the ESP32 to the internet.** Its TLS stack never gets security updates, and it's easy to knock offline. Instead, reach your home network over a VPN: [docs/REMOTE_ACCESS.md](docs/REMOTE_ACCESS.md) sets up WireGuard on an always-on home machine such as a Raspberry Pi (`esp32/wg-setup.sh`), with Tailscale and other mesh VPNs as the fallback behind CGNAT. The app config stays the same (use the board's LAN IP), and only your own devices can reach it.
 
 ## Configuration
 
@@ -190,6 +190,7 @@ A phone running a debug build (signed with the build machine's debug key) can't 
 
 ```
 docs/PROTOCOL.md        the contract: crypto format, ESP32 API, sync
+docs/REMOTE_ACCESS.md   using the vault away from home (WireGuard)
 src/vault/              client-side vault, no UI code
   Crypto.*                ICipher + AES-GCM / ChaCha20 (OpenSSL), PBKDF2, HMAC
   VaultFormat.*           meta, entry records, merge rule, key wrapping
@@ -200,6 +201,7 @@ src/core/UIManager.*    base class for front ends; talks only to VaultService
 src/gui/, src/cli/      FLTK GUI and terminal UI
 esp32/vault/            ESP32 firmware (store + OLED)
 esp32/pki.sh            server cert; pair, list and revoke devices
+esp32/wg-setup.sh       WireGuard server for remote access (docs/REMOTE_ACCESS.md)
 android/                Android app (Kotlin): same protocol, own implementation
 tests/                  vault_test.cpp, protocol vectors, fake_esp.py (stand-in board)
 ```
