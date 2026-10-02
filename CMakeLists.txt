@@ -1,6 +1,19 @@
 cmake_minimum_required(VERSION 3.10)
 project(password_manager)
 
+# The version is the newest v* tag, like the Android build: tagging is the only release step, and the updater
+# compares it with GitHub's latest tag. Builds without git history (e.g. Homebrew's tarball) pass -DPWVAULT_VERSION.
+if(NOT PWVAULT_VERSION)
+    execute_process(COMMAND git describe --tags --abbrev=0 --match "v*"
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                    OUTPUT_VARIABLE PWVAULT_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT PWVAULT_VERSION)
+        set(PWVAULT_VERSION "v0.0")
+    endif()
+endif()
+message(STATUS "pwvault version ${PWVAULT_VERSION}")
+add_compile_definitions(PWVAULT_VERSION="${PWVAULT_VERSION}")
+
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

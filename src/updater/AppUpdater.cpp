@@ -27,6 +27,9 @@
 #include <unistd.h>
 #define PATH_SEPARATOR "/"
 #endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 using json = nlohmann::json;
 
@@ -370,10 +373,47 @@ void AppUpdater::checkForUpdates(std::function<void(bool, const std::string&, co
     }
 }
 
+std::string AppUpdater::executablePath() {
+#ifdef _WIN32
+    char buffer[MAX_PATH];
+    DWORD len = GetModuleFileNameA(nullptr, buffer, MAX_PATH);
+    return len ? std::string(buffer, len) : "";
+#elif defined(__APPLE__)
+    char buffer[4096];
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) != 0) return "";
+    std::error_code ec;
+    auto resolved = fs::canonical(buffer, ec);
+    return ec ? std::string(buffer) : resolved.string();
+#else
+    std::error_code ec;
+    auto resolved = fs::read_symlink("/proc/self/exe", ec);
+    return ec ? "" : resolved.string();
+#endif
+}
+
+std::string AppUpdater::packageManagerUpgradeCommand() {
+    // Homebrew owns everything under its Cellar (macOS and Linuxbrew); overwriting the binary there would
+    // desync brew's records, so it has to upgrade the app itself.
+    if (executablePath().find("/Cellar/") != std::string::npos) return "brew upgrade password-manager";
+    return "";
+}
+
 void AppUpdater::downloadUpdate(const VersionInfo& versionInfo,
                                 ProgressCallback progressCallback,
                                 CompletionCallback completionCallback) {
     try {
+        const std::string managed = packageManagerUpgradeCommand();
+        if (!managed.empty()) {
+            completionCallback(false, "Installed by a package manager. Update with: " + managed);
+            return;
+        }
+
+        if (versionInfo.downloadUrl.empty()) {
+            completionCallback(false, "This release has no " + getPlatformBinaryName() + " download.");
+            return;
+        }
+
         // Create unique temporary download directory
         std::string tempDir = createUniqueDirectory("password_manager_update");
 
@@ -408,14 +448,13 @@ void AppUpdater::downloadUpdate(const VersionInfo& versionInfo,
 }
 
 std::string AppUpdater::getPlatformBinaryName() {
+    // Must match the asset names uploaded to the GitHub release (only Linux is published today).
 #ifdef _WIN32
-    return "password_manager_gui.exe";
+    return "password_manager.exe";
 #elif defined(__APPLE__)
-    return "password_manager_gui";
-#elif defined(__linux__)
-    return "password_manager_gui";
+    return "password_manager-macos";
 #else
-    return "password_manager_gui";
+    return "password_manager";
 #endif
 }
 
@@ -535,17 +574,11 @@ const VersionInfo AppUpdater::parseReleaseInfo(const std::string& jsonResponse) 
         if (releaseData.contains("assets") && releaseData["assets"].is_array()) {
             for (const auto& asset : releaseData["assets"]) {
                 std::string assetName = asset["name"];
-                if (assetName.find(platformBinary) != std::string::npos || assetName == platformBinary) {
+                if (assetName == platformBinary) {
                     info.downloadUrl = asset["browser_download_url"];
                     break;
                 }
             }
-        }
-
-        // If no specific asset found, try to construct download URL
-        if (info.downloadUrl.empty()) {
-            info.downloadUrl = "https://github.com/" + githubOwner + "/" + githubRepo + "/releases/download/" +
-                               info.version + "/" + platformBinary;
         }
 
         return info;
@@ -557,82 +590,37 @@ const VersionInfo AppUpdater::parseReleaseInfo(const std::string& jsonResponse) 
 }
 
 bool AppUpdater::installUpdate(const std::string& downloadedPath) {
-    try {
-        // Get current executable path
-        std::string currentPath;
-
-#ifdef _WIN32
-        char buffer[MAX_PATH];
-        GetModuleFileNameA(nullptr, buffer, MAX_PATH);
-        currentPath = buffer;
-#else
-        char buffer[1024];
-        ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
-        if (len != -1) {
-            buffer[len] = '\0';
-            currentPath = buffer;
-        } else {
-            // Fallback for macOS - try to get from argv[0] or environment
-            std::cerr << "Could not determine executable path on macOS" << std::endl;
-            return false;
-        }
-#endif
-
-        if (currentPath.empty()) {
-            std::cerr << "Could not determine current executable path" << std::endl;
-            return false;
-        }
-
-        // Create backup of current executable
-        std::string backupPath = currentPath + ".backup";
-
-        // Copy current file to backup using safe file operations
-        if (!copyFile(currentPath, backupPath)) {
-            std::cerr << "Failed to create backup" << std::endl;
-            return false;
-        }
-
-        // Replace current executable with downloaded one
-        if (!copyFile(downloadedPath, currentPath)) {
-            std::cerr << "Failed to replace executable, attempting rollback..." << std::endl;
-
-            // Rollback: restore from backup if replacement failed
-            std::error_code rollbackEc;
-            if (fs::exists(backupPath)) {
-                if (copyFile(backupPath, currentPath)) {
-                    std::cerr << "Rollback successful - original executable restored" << std::endl;
-                } else {
-                    std::cerr << "Critical error: Both update and rollback failed!" << std::endl;
-                }
-                // Clean up backup file after rollback attempt
-                fs::remove(backupPath, rollbackEc);
-            }
-            return false;
-        }
-
-        // Update was successful, clean up temporary files
-        std::error_code ec;
-
-        // Clean up downloaded file
-        fs::remove(downloadedPath, ec);
-        if (ec) {
-            std::cerr << "Warning: Failed to remove downloaded file: " << downloadedPath << " (Error: " << ec.message()
-                      << ")" << std::endl;
-        }
-
-        // Clean up backup file after successful update
-        fs::remove(backupPath, ec);
-        if (ec) {
-            std::cerr << "Warning: Failed to remove backup file: " << backupPath << " (Error: " << ec.message() << ")"
-                      << std::endl;
-        } else {
-            std::cout << "Update completed successfully, backup file removed" << std::endl;
-        }
-
-        return true;
-
-    } catch (const std::exception& e) {
-        std::cerr << "Error installing update: " << e.what() << std::endl;
+    const std::string currentPath = executablePath();
+    if (currentPath.empty()) {
+        std::cerr << "Could not determine current executable path" << std::endl;
         return false;
     }
+
+    // Stage next to the executable so the final rename stays on one filesystem (and is atomic).
+    const std::string stagedPath = currentPath + ".new";
+    if (!copyFile(downloadedPath, stagedPath)) return false;
+
+    std::error_code ec;
+#ifdef _WIN32
+    // Windows can't replace a running exe, but it can rename it out of the way.
+    const std::string oldPath = currentPath + ".old";
+    fs::remove(oldPath, ec);
+    fs::rename(currentPath, oldPath, ec);
+    if (ec) {
+        std::cerr << "Failed to move current executable aside: " << ec.message() << std::endl;
+        fs::remove(stagedPath, ec);
+        return false;
+    }
+#endif
+    fs::rename(stagedPath, currentPath, ec);
+    if (ec) {
+        std::cerr << "Failed to replace executable: " << ec.message() << std::endl;
+#ifdef _WIN32
+        std::error_code restoreEc;
+        fs::rename(oldPath, currentPath, restoreEc);
+#endif
+        fs::remove(stagedPath, ec);
+        return false;
+    }
+    return true;
 }

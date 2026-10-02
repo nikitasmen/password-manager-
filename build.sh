@@ -138,12 +138,15 @@ build_with_cmake() {
     # Configure CMake
     echo -e "${YELLOW}Configuring build with CMake...${NC}"
 
-    # Drop the cache if its compiler path vanished (e.g. nix store path GC'd after a toolchain bump)
-    cached_cxx=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' CMakeCache.txt 2>/dev/null)
-    if [ -n "$cached_cxx" ] && [ ! -x "$cached_cxx" ]; then
-        echo -e "${YELLOW}Cached compiler $cached_cxx is gone, resetting CMake cache${NC}"
-        rm -rf CMakeCache.txt CMakeFiles
-    fi
+    # Drop the cache if a cached tool path vanished (e.g. nix store path GC'd after a toolchain bump)
+    for var in CMAKE_CXX_COMPILER CMAKE_MAKE_PROGRAM; do
+        cached=$(sed -n "s/^$var:[A-Z]*=//p" CMakeCache.txt 2>/dev/null)
+        if [ -n "$cached" ] && [ ! -x "$cached" ]; then
+            echo -e "${YELLOW}Cached $var $cached is gone, resetting CMake cache${NC}"
+            rm -rf CMakeCache.txt CMakeFiles
+            break
+        fi
+    done
 
     if [ "$DEBUG" = true ]; then
         cmake -DCMAKE_BUILD_TYPE=Debug .

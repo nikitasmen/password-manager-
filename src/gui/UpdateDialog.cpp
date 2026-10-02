@@ -139,7 +139,13 @@ void UpdateDialog::showUpdateAvailableState(const VersionInfo& versionInfo) {
     }
 
     checkButton->activate();
-    downloadButton->activate();
+    const std::string managed = AppUpdater::packageManagerUpgradeCommand();
+    if (managed.empty()) {
+        downloadButton->activate();
+    } else {
+        statusLabel->copy_label((statusText + " - run: " + managed).c_str());
+        downloadButton->deactivate();
+    }
     updateAvailable = true;
     latestVersion = versionInfo;
 

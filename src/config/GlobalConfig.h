@@ -14,8 +14,8 @@ const int kMaxLoginAttempts = 3;  // Maximum allowed login attempts before exiti
 // Encryption algorithm options
 // Configuration structure for file-based settings
 struct AppConfig {
-    // Application version
-    std::string version = "v2.0.0";
+    // Application version, from project(VERSION) in CMakeLists.txt; must match the release tag
+    std::string version = PWVAULT_VERSION;
 
     // Core settings
     std::string dataPath;  // empty = ConfigManager::dataDir()

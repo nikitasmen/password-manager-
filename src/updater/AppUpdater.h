@@ -75,6 +75,16 @@ class AppUpdater {
      */
     static std::string getPlatformBinaryName();
 
+    /**
+     * @brief Resolved path of the running executable, or empty if it can't be determined
+     */
+    static std::string executablePath();
+
+    /**
+     * @brief Command that upgrades this install when a package manager owns it (Homebrew), else empty
+     */
+    static std::string packageManagerUpgradeCommand();
+
    private:
     std::string githubOwner;
     std::string githubRepo;

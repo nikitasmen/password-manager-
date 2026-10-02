@@ -1,0 +1,62 @@
+# Pushing a v* tag builds both apps from that tag and publishes them as the GitHub release the updaters read.
+# Asset names are part of the updater contract: `password_manager` (AppUpdater::getPlatformBinaryName) and an `.apk`.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    # Built outside nix so it runs on ordinary distros; 22.04 keeps the glibc floor at 2.34.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake g++ libfltk1.3-dev libfontconfig-dev libssl-dev libcurl4-openssl-dev
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DPWVAULT_VERSION=${{ github.ref_name }}
+      - run: cmake --build build -j
+      - run: build/vault_test && build/base64_test
+      - uses: actions/upload-artifact@v4
+        with: { name: desktop, path: build/password_manager }
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: android }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }  # versionName comes from `git describe --tags`
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.14.4' }
+      - name: Release key
+        env: { KEYSTORE_B64: '${{ secrets.ANDROID_KEYSTORE_B64 }}' }
+        run: |
+          # An unsigned or differently signed APK can't update installed copies, so never publish one.
+          [ -n "$KEYSTORE_B64" ] || { echo "::error::ANDROID_KEYSTORE_B64 secret is not set"; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+      - run: gradle testDebugUnitTest assembleRelease
+        env:
+          ORG_GRADLE_PROJECT_pwvaultKeystore: ${{ runner.temp }}/release.jks
+          ORG_GRADLE_PROJECT_pwvaultKeystorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_pwvaultKeyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_pwvaultKeyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with: { name: android, path: android/build/outputs/apk/release/pwvault-release.apk }
+
+  publish:
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { merge-multiple: true }
+      - env: { GH_TOKEN: '${{ github.token }}', TAG: '${{ github.ref_name }}' }
+        run: |
+          # Keep a release drafted by hand (its notes); otherwise create one.
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber password_manager pwvault-release.apk
