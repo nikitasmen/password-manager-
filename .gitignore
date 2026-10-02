@@ -93,3 +93,7 @@ __pycache__/
 .gradle/
 .kotlin/
 local.properties
+
+# Android release signing key (never commit)
+*.jks
+*.b64
