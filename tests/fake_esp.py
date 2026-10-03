@@ -6,7 +6,9 @@ Its device CA lives in --ca-dir (made on first use, with openssl). Pairing is al
 printed code, and the "BOOT press" is automatic: pair and revoke requests are approved at once.
 
   python3 tests/fake_esp.py --port 8443 --cert esp32/vault/cert.pem --key esp32/vault/key.pem \
-      --ca-dir <dir> [--code 0123456789ABCDEF]
+      --ca-dir <dir> [--code 0123456789ABCDEF] [--role dedicated|server|peer]
+--role plays another kind of host (§6): anything but dedicated answers 404 to /pin, as §11 requires. Two fakes
+need two server certs: the cert's SHA-256 is the host id.
 Pair a sandboxed client (XDG_CONFIG_HOME, espHost=127.0.0.1, espPort=8443) with
   PWVAULT_PAIR_PORT=8444 PWVAULT_CODE=<code> esp32/pki.sh pair <name>
 """
@@ -48,6 +50,7 @@ pairing = {}  # code, server_fp, ca_dir
 
 
 def make_ca(d):
+    os.makedirs(d, exist_ok=True)  # "created if missing": the folder too, not just the files in it
     if not os.path.exists(f"{d}/ca.pem"):
         subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
                         "-nodes", "-days", "3650", "-subj", "/CN=pwvault device CA", "-keyout", f"{d}/ca.key",
@@ -127,6 +130,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/devices"):
             used = sum(len(json.dumps(e)) for e in state["entries"].values())  # roughly what LittleFS would hold
             return self.reply(200, {"devices": [{"name": n, "seen": seen.get(n, 0)} for n in devices], "you": who,
+                                    "role": pairing["role"],
                                     "storage": {"used": used, "total": 1408 * 1024, "records": len(state["entries"])}})
         if method == "DELETE" and url.path.startswith("/devices/"):
             name = url.path[len("/devices/"):]
@@ -140,16 +144,18 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[{who}] opened pairing", flush=True)
             return self.reply(200, {"code": pairing["code"], "qr": f"PWVAULT:127.0.0.1:{pairing['code']}", "seconds": 120})
         if route in (("PUT", "/pin"), ("POST", "/pin")):
-            req = self.body()
+            req = self.body()  # read even when refusing: the connection is reused
+            if pairing["role"] != "dedicated":
+                return self.reply(404, {"error": "PIN unlock needs a dedicated host"})
             if not isinstance(req, dict):
                 return None if req is None else self.reply(400, {"error": "bad body"})
             if route == ("PUT", "/pin"):
-                if not HEX64.match(str(req.get("verifier"))):
+                if not HEX64.fullmatch(str(req.get("verifier"))):
                     return self.reply(400, {"error": "need {verifier: 64 hex}"})
                 pins[who] = {"secret": secrets.token_hex(32), "verifier": req["verifier"], "fails": 0}
                 print(f"[{who}] PIN set", flush=True)
                 return self.reply(200, {"secret": pins[who]["secret"]})
-            if not HEX64.match(str(req.get("proof"))):
+            if not HEX64.fullmatch(str(req.get("proof"))):
                 return self.reply(400, {"error": "need {proof: 64 hex}"})
             rec = pins.get(who)
             if not rec:
@@ -164,7 +170,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(410, {"error": "too many wrong PINs; the PIN was removed", "left": 0})
             return self.reply(403, {"error": "wrong PIN", "left": PIN_TRIES - rec["fails"]})
         if route == ("GET", "/entries"):
-            after = int(parse_qs(url.query).get("after", ["0"])[0])
+            after = parse_qs(url.query).get("after", ["0"])[0]
+            after = int(after) if after.isdigit() else 0  # like the board's strtoull: not a number = from 0
             return self.reply(200, {"entries": [e for e in state["entries"].values() if e["seq"] > after],
                                     "seq": state["seq"]})
         if route in (("PUT", "/meta"), ("POST", "/entries"), ("POST", "/access")):
@@ -172,6 +179,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(req, dict):
                 return None if req is None else self.reply(400, {"error": "bad body"})
             if route == ("PUT", "/meta"):
+                if not isinstance(req.get("meta"), dict) or type(req.get("if_rev")) is not int:
+                    return self.reply(400, {"error": "need {meta, if_rev}"})
                 current = state["meta"]["rev"] if state["meta"] else 0
                 if req.get("if_rev") != current:
                     return self.reply(409, {"error": "rev changed"})
@@ -181,7 +190,7 @@ class Handler(BaseHTTPRequestHandler):
             if route == ("POST", "/entries"):
                 entries = req.get("entries")
                 if not isinstance(entries, list) or len(entries) > MAX_BATCH or not all(
-                        isinstance(e, dict) and ID.match(str(e.get("id"))) and isinstance(e.get("updated"), int)
+                        isinstance(e, dict) and ID.fullmatch(str(e.get("id"))) and type(e.get("updated")) is int
                         and isinstance(e.get("deleted"), bool) and isinstance(e.get("alg"), str)
                         and isinstance(e.get("data"), str) for e in entries):
                     return self.reply(400, {"error": "bad entry record"})
@@ -235,7 +244,7 @@ class PairHandler(Handler):
             want = mac(f"pwvault-pair-req\n{pairing['server_fp']}\n{name}\n{csr}")
             if not hmac.compare_digest(want, str(req.get("mac", ""))):
                 return self.reply(403, {"error": "wrong code (or someone is intercepting)"})
-            if not NAME.match(name):
+            if not NAME.fullmatch(name):
                 return self.reply(400, {"error": "name: 1-20 chars of a-z 0-9 -"})
             try:
                 cert = sign(name, base64.b64decode(csr))
@@ -257,10 +266,11 @@ def main():
     ap.add_argument("--pair-port", type=int, help="default: --port + 1")
     ap.add_argument("--ca-dir", required=True, help="the fake board's device CA (created if missing)")
     ap.add_argument("--code", help="pairing code (16 chars); default: random, printed")
+    ap.add_argument("--role", default="dedicated", choices=["dedicated", "server", "peer"])
     a = ap.parse_args()
     make_ca(a.ca_dir)
     alpha = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-    pairing.update(code=a.code or "".join(secrets.choice(alpha) for _ in range(16)), ca_dir=a.ca_dir,
+    pairing.update(code=a.code or "".join(secrets.choice(alpha) for _ in range(16)), ca_dir=a.ca_dir, role=a.role,
                    server_fp=hashlib.sha256(ssl.PEM_cert_to_DER_cert(open(a.cert).read())).hexdigest())
     pair_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     pair_ctx.load_cert_chain(a.cert, a.key)

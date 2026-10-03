@@ -45,6 +45,22 @@ else()
     include_directories(${JSON_INCLUDE_DIR})
 endif()
 
+# HTTPS server for --serve (src/serve/): cpp-httplib, one pinned header, downloaded once and checked by hash
+set(HTTPLIB_DIR ${CMAKE_CURRENT_BINARY_DIR}/include/httplib)
+if(NOT EXISTS ${HTTPLIB_DIR}/httplib.h)
+    file(DOWNLOAD
+        https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.3/httplib.h
+        ${HTTPLIB_DIR}/httplib.h.part
+        EXPECTED_HASH SHA256=a0a0c13dc086663863dbe6730a19716f7d3744904b6205496e8301750814dbd5
+        STATUS httplib_status)
+    list(GET httplib_status 0 httplib_rc)
+    if(NOT httplib_rc EQUAL 0)
+        file(REMOVE ${HTTPLIB_DIR}/httplib.h.part)
+        message(FATAL_ERROR "Downloading httplib.h failed (${httplib_status}); needs network once")
+    endif()
+    file(RENAME ${HTTPLIB_DIR}/httplib.h.part ${HTTPLIB_DIR}/httplib.h)
+endif()
+
 # --- Find FLTK ---
 find_package(FLTK REQUIRED)
 
@@ -92,6 +108,9 @@ set(VAULT_SOURCES
 set(CLI_SOURCES
     src/cli/TerminalUIManager.cpp
 )
+if(NOT WIN32)  # --serve: POSIX sockets, poll, getifaddrs
+    list(APPEND CLI_SOURCES src/serve/Serve.cpp)
+endif()
 
 set(GUI_SOURCES
     src/gui/GuiUIManager.cpp
@@ -177,6 +196,7 @@ endif()
 
 # Include directories for both GUI and CLI
 link_common(password_manager ${CMAKE_CURRENT_SOURCE_DIR}/src/gui ${CMAKE_CURRENT_SOURCE_DIR}/src/cli)
+target_include_directories(password_manager SYSTEM PRIVATE ${HTTPLIB_DIR})  # SYSTEM: its warnings aren't ours
 
 # --- Create data directory (only once per build) ---
 add_custom_target(create_data_dir ALL

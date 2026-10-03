@@ -85,11 +85,11 @@ Fl_Choice* choice(int x, int y, int w, int h, const char* label) {
 }
 
 // Where this machine's vault lives, in one sentence for the unlock screen
-std::string whereText() {
-    const AppConfig& c = ConfigManager::getInstance().getConfig();
-    if (c.espHost.empty()) return "Your vault is stored on this computer.";
-    if (!c.localCopy) return "Your vault lives on the ESP32 at " + c.espHost + ". Nothing is stored on this computer.";
-    return "Your vault is on this computer and syncs with the ESP32 at " + c.espHost + ".";
+std::string whereText(const std::string& host) {
+    if (host.empty()) return "Your vault is stored on this computer.";
+    if (!ConfigManager::getInstance().getConfig().localCopy)
+        return "Your vault lives on the host at " + host + ". Nothing is stored on this computer.";
+    return "Your vault is on this computer and syncs with " + host + ".";
 }
 
 // Replace a window we may be inside the callback of: FLTK deletes the old one once that callback returns
@@ -172,7 +172,7 @@ void GuiUIManager::buildUnlockWindow(bool create) {
     int y = 244;
     text(x, y, fw, 30, create ? "Create your vault" : "Unlock your vault", kSansBold, kTitle, ink());
     y += 34;
-    text(x, y, fw, 40, whereText(), kSans, kBody, muted());
+    text(x, y, fw, 40, whereText(boardAddress()), kSans, kBody, muted());
     y += 64;
     pass1_ = field<Fl_Secret_Input>(x, y, fw, 38, pin ? "PIN" : "Master password");
     y += 60;
@@ -289,16 +289,14 @@ void GuiUIManager::buildVaultWindow() {
     w->color(enclosure());
 
     // The strip redraws every second (clock), so nothing may overlap it: the buttons get their own black area.
-    const int kActionsW = board_ ? 292 : 200;
+    const int kActionsW = 292;
     strip_ = new OledPanel(0, 0, kVaultW - kActionsW, kStripH, 2);
     auto* actions = new Fl_Box(kVaultW - kActionsW, 0, kActionsW, kStripH);
     actions->box(FL_FLAT_BOX);
     actions->color(oledOff());
-    if (board_) {
-        Fl_Button* devices = button(kVaultW - 284, 6, 84, 28, "Devices", Kind::OnOled);
-        devices->tooltip("Devices paired with the ESP32");
-        on(devices, [this] { openDevices(); });
-    }
+    Fl_Button* devices = button(kVaultW - 284, 6, 84, 28, "Devices", Kind::OnOled);
+    devices->tooltip("The hosts this computer syncs with, and the devices paired with each");
+    on(devices, [this] { openDevices(); });
     Fl_Button* settings = button(kVaultW - 192, 6, 84, 28, "Settings", Kind::OnOled);
     Fl_Button* lock = button(kVaultW - 100, 6, 84, 28, "Lock", Kind::OnOled);
     lock->tooltip("Lock the vault: the master password is needed again");
@@ -490,13 +488,13 @@ void GuiUIManager::drawStrip() {
         const AppConfig& c = ConfigManager::getInstance().getConfig();
         auto s = vault->lastSyncStatus();
         if (!c.localCopy)
-            status = s == VaultService::SyncStatus::Offline ? "esp32 unreachable" : "device-only, on the esp32";
-        else if (c.espHost.empty())
+            status = s == VaultService::SyncStatus::Offline ? "host unreachable" : "device-only, on the host";
+        else if (boardAddress().empty())
             status = "on this computer";
         else if (s == VaultService::SyncStatus::Ok)
-            status = "synced with esp32";
+            status = "synced with " + lower(boardAddress());
         else if (s == VaultService::SyncStatus::Offline)
-            status = "esp32 offline, local copy";
+            status = "hosts offline, local copy";
         else
             status = "sync error: " + lower(vault->lastSyncError()).substr(0, 40);
     }
@@ -571,17 +569,18 @@ void GuiUIManager::openSettings() {
     const size_t mark = callbacks_.size();
     const AppConfig& c = ConfigManager::getInstance().getConfig();
     const int W = 520, x = 28, fw = W - 2 * x;
-    const int pinRow = board_ ? 56 : 0;  // PIN unlock needs the board
+    const int pinRow = pinHost() ? 56 : 0;  // PIN unlock needs a dedicated host
     auto* w = new Fl_Double_Window(W, 640 + pinRow);
     w->copy_label("Settings");
     w->color(enclosure());
     text(x, 22, fw, 30, "Settings", kSansBold, 20, ink());
 
-    text(x, 70, fw, 22, "ESP32", kSansBold, kBody, ink());
-    auto* host = field<Fl_Input>(x, 118, fw - 116, 36, "Address (empty keeps the vault on this computer only)");
-    host->value(c.espHost.c_str());
-    auto* port = field<Fl_Int_Input>(x + fw - 100, 118, 100, 36, "Port");
-    port->value(std::to_string(c.espPort).c_str());
+    text(x, 70, fw, 22, "Hosts", kSansBold, kBody, ink());
+    text(x, 96, fw, 66,
+         hosts_.empty() ? "None: the vault is on this computer only. Add one in Devices."
+                        : "Synced with " + boardAddress() + (hosts_.size() > 1 ? " and others" : "") +
+                              ". Add or forget hosts in Devices.",
+         kSans, kSmall, muted());
     auto* localCopy = new Fl_Check_Button(x, 166, fw, 28, " Keep a copy of the vault on this computer");
     localCopy->value(c.localCopy);
     text(x + 26, 192, fw - 26, 40,
@@ -613,7 +612,7 @@ void GuiUIManager::openSettings() {
     text(x, 534, fw - 230, 36, "Master password", kSansBold, kBody, ink());
     Fl_Button* master = button(x + fw - 220, 534, 220, 36, "Change master password");
     on(master, [this] { changeMasterPassword(); });
-    if (board_) {
+    if (pinHost()) {
         Fl_Box* pinText = text(x, 590, fw - 230, 36, "", kSansBold, kBody, ink());
         Fl_Button* setPin = button(x + fw - 220, 590, 106, 36, "");
         Fl_Button* removePin = button(x + fw - 106, 590, 106, 36, "Remove PIN");
@@ -646,22 +645,20 @@ void GuiUIManager::openSettings() {
     on(cancel, [w] { w->hide(); });
     on(save, [&] {
         AppConfig n = c;
-        n.espHost = host->value();
-        n.espPort = std::atoi(port->value()) > 0 ? std::atoi(port->value()) : 443;
         n.localCopy = localCopy->value();
         n.defaultCipher = encryption_utils::fromDropdownIndex(cipher->value());
         n.showEncryptionInCredentials = showAlg->value();
         n.autoClipboardClear = autoClear->value();
         n.clipboardTimeoutSeconds = std::max(1, std::atoi(clearAfter->value()));
         n.defaultUIMode = mode->value() == 0 ? "gui" : mode->value() == 1 ? "tui" : "auto";
-        const bool restart = n.espHost != c.espHost || n.espPort != c.espPort || n.localCopy != c.localCopy;
+        const bool restart = n.localCopy != c.localCopy;
         ConfigManager::getInstance().updateConfig(n);
         if (!ConfigManager::getInstance().saveConfig()) {
             fl_alert("Couldn't write %s", ConfigManager::configFile().c_str());
             return;
         }
         w->hide();
-        flash(restart ? "saved, restart for esp32 changes" : "settings saved");
+        flash(restart ? "saved, restart to switch modes" : "settings saved");
         showDetail(current_);  // e.g. the encryption row
     });
     runModal(w);
@@ -746,85 +743,50 @@ void GuiUIManager::setPinDialog() {
 }
 
 void GuiUIManager::runConnector() {
-    std::string detail;
-    BoardState state = checkBoard(detail);
-    if (state == BoardState::Connected) return;
+    std::string detail, address;
+    if (checkBoard(detail, address) == BoardState::Connected) return;
 
     const size_t mark = callbacks_.size();
-    const int W = 520, H = 540, x = 28, fw = W - 2 * x;
+    const int W = 520, H = 300, x = 28, fw = W - 2 * x;
     auto* w = new Fl_Double_Window(W, H);
-    w->copy_label("Connect to the ESP32");
+    w->copy_label("Pair with your host");
     w->color(enclosure());
-    text(x, 22, fw, 30, "Connect to your ESP32", kSansBold, 20, ink());
-    Fl_Box* status = text(x, 58, fw, 48, "", kSans, kSmall, muted());
-    auto* host = field<Fl_Input>(x, 132, fw - 130, 36, "Board address (the IP on its screen)");
-    host->value(ConfigManager::getInstance().getConfig().espHost.c_str());
-    Fl_Button* retry = button(x + fw - 120, 132, 120, 36, "Check again");
-
-    text(x, 190, fw, 22, "Pair this computer", kSansBold, kBody, ink());
-    text(x, 214, fw, 66,
-         "1. Press BOOT on the board. It shows a code for 2 minutes.\n2. Type the code below and press Pair.\n"
-         "3. Press BOOT again when the board asks.",
-         kSans, kSmall, muted());
-    auto* name = field<Fl_Input>(x, 312, 190, 36, "Name for this computer");
-    name->value(defaultDeviceName().c_str());
-    auto* code = field<Fl_Input>(x + 206, 312, fw - 206, 36, "Code on the board");
-    Fl_Box* error = text(x, 360, fw, 60, "", kSans, kSmall, danger());
+    text(x, 22, fw, 30, "Pair with your host", kSansBold, 20, ink());
+    Fl_Box* status = text(x, 58, fw, 64, "", kSans, kSmall, muted());
+    text(x,
+         128,
+         fw,
+         40,
+         "To pair: open pairing on the host (BOOT on the board), then press Pair.",
+         kSans,
+         kSmall,
+         muted());
     text(x, H - 118, fw, 40,
          ConfigManager::getInstance().getConfig().localCopy
-             ? "Without the board, the app uses this computer's copy and syncs later."
-             : "Device-only mode: without the board there's no vault to open.",
+             ? "Without it, the app uses this computer's copy and syncs with any other host."
+             : "Device-only mode: without the host there's no vault to open.",
          kSans, kSmall, muted());
     Fl_Button* skip = button(x, H - 58, 190, 38, "Continue without it");
-    Fl_Button* pair = button(W - x - 100, H - 58, 100, 38, "Pair", Kind::Primary);
-    pair->shortcut(FL_Enter);
+    Fl_Button* retry = button(W - x - 120 - 12 - 130, H - 58, 130, 38, "Check again");
+    Fl_Button* pair = button(W - x - 120, H - 58, 120, 38, "Pair...", Kind::Primary);
     w->end();
 
-    auto show = [&] {
-        status->labelcolor(state == BoardState::Unreachable ? danger() : muted());
-        status->copy_label(literal(detail).c_str());
-        w->redraw();
-    };
-    auto busy = [&](const std::string& msg) {  // before a blocking call: show why the window stops responding
-        error->labelcolor(muted());
-        error->copy_label(literal(msg).c_str());
+    auto recheck = [&] {
         w->cursor(FL_CURSOR_WAIT);
         Fl::flush();
-    };
-    auto done = [&] {
+        const bool done = checkBoard(detail, address) == BoardState::Connected;
         w->cursor(FL_CURSOR_DEFAULT);
-        error->labelcolor(danger());
-    };
-    auto recheck = [&] {
-        setBoardHost(host->value());
-        busy("Checking the board...");
-        state = checkBoard(detail);
-        done();
-        error->copy_label("");
-        if (state == BoardState::Connected) return w->hide();
-        show();
+        if (done) return w->hide();
+        status->copy_label(literal(detail).c_str());
+        w->redraw();
     };
     on(retry, recheck);
     on(skip, [w] { w->hide(); });
     on(pair, [&] {
-        const std::string c = normalizePairCode(code->value());
-        if (!validDeviceName(name->value())) return error->copy_label("Use 1-20 characters of a-z, 0-9 and - for the name.");
-        if (c.empty()) return error->copy_label("The code on the board has 16 characters.");
-        setBoardHost(host->value());
-        busy("Now press BOOT on the board to approve '" + std::string(name->value()) + "' (within a minute)...");
-        // ponytail: blocks the window until the board answers (<= 90 s); a worker thread if that ever matters
-        std::string why;
-        try {
-            if (!savePairing(pairWithBoard(host->value(), kPairPort, name->value(), c), why)) throw PairError(why);
-        } catch (const std::exception& e) {
-            done();
-            return error->copy_label(literal(e.what()).c_str());
-        }
-        done();
-        recheck();  // closes the window once the board accepts the new certificate
+        if (!addHostDialog(address).empty()) recheck();  // closes the window once every host takes us
     });
-    show();
-    (state == BoardState::NotPaired ? static_cast<Fl_Widget*>(code) : host)->take_focus();
+    status->copy_label(literal(detail).c_str());
+    pair->take_focus();
     runModal(w);
     delete w;
     callbacks_.resize(mark);
@@ -832,38 +794,99 @@ void GuiUIManager::runConnector() {
 
 void GuiUIManager::openDevices() {
     const size_t mark = callbacks_.size();
-    const int W = 520, H = 470, x = 28, fw = W - 2 * x;
+    const int W = 560, H = 540, x = 28, fw = W - 2 * x;
     auto* w = new Fl_Double_Window(W, H);
     w->copy_label("Devices");
     w->color(enclosure());
-    text(x, 22, fw, 30, "Devices", kSansBold, 20, ink());
+    text(x, 22, fw, 30, "Hosts and devices", kSansBold, 20, ink());
     text(x, 56, fw, 44,
-         "Everything paired with the ESP32. To add a phone, click Add a device and scan the code with the pwvault "
-         "app. On a computer, run esp32/pki.sh pair <name> instead.",
+         "Hosts keep a copy of the vault for your devices: the ESP32 board, or a computer running pwvault --serve. "
+         "This computer syncs with whichever it can reach.",
          kSans, kSmall, muted());
-    auto* list = new EntryList(x, 108, fw, 230);
-    Fl_Box* status = text(x, 346, fw, 44, "", kSans, kSmall, muted());
+    Fl_Choice* pick = choice(x, 124, fw - 232, 36, "Host");
+    Fl_Button* forget = button(x + fw - 220, 124, 100, 36, "Forget");
+    Fl_Button* addHost = button(x + fw - 108, 124, 108, 36, "Add host");
+    Fl_Box* hostState = text(x, 162, fw - 150, 24, "", kSans, kSmall, muted());
+    Fl_Button* move = button(x + fw - 140, 162, 140, 26, "Change address");
+    text(x, 190, fw, 22, "Devices paired with this host", kSansBold, kBody, ink());
+    auto* list = new EntryList(x, 216, fw, 180);
+    Fl_Box* status = text(x, 402, fw, 60, "", kSans, kSmall, muted());
     Fl_Button* revoke = button(x, H - 58, 120, 38, "Revoke", Kind::Danger);
     Fl_Button* add = button(W - x - 100 - 12 - 140, H - 58, 140, 38, "Add a device");
     Fl_Button* close = button(W - x - 100, H - 58, 100, 38, "Close", Kind::Primary);
     w->end();
+    if (deviceOnly_) addHost->deactivate();
 
     std::vector<EspStore::Device> devices;
     auto say = [&](const std::string& msg, bool bad) {
         status->labelcolor(bad ? danger() : muted());
         status->copy_label(literal(msg).c_str());
     };
+    auto host = [&]() -> const PairedHost* {
+        return pick->value() >= 0 && pick->value() < static_cast<int>(hosts_.size()) ? &hosts_[pick->value()] : nullptr;
+    };
     auto reload = [&] {
         list->clear();
+        devices.clear();
+        revoke->deactivate();
+        const PairedHost* h = host();
+        for (Fl_Widget* b :
+             {static_cast<Fl_Widget*>(forget), static_cast<Fl_Widget*>(add), static_cast<Fl_Widget*>(move)})
+            h ? b->activate() : b->deactivate();
+        hostState->copy_label(h ? literal(std::string(hostRoleName(h->role)) + " host, " + hostStatusText(*h)).c_str()
+                                : "No hosts yet: this computer keeps the vault on its own. Add one to sync.");
+        if (!h) return say("", false), w->redraw();
         std::string error;
         EspStore::Storage storage;
-        auto got = safeListDevices(error, &storage);
+        auto got = safeListDevices(*h->store, error, &storage);
         devices = got ? *got : std::vector<EspStore::Device>{};
         for (const auto& d : devices)
             list->add((d.name + (d.thisDevice ? "  (this computer)" : "") + "   " + lastSeenText(d.lastSeen)).c_str());
         got ? say(storageText(storage), false) : say(error, true);
-        revoke->deactivate();
+        w->redraw();
     };
+    auto fillHosts = [&](const std::string& select) {  // select: a host id; "" or unknown = the first
+        pick->clear();
+        int at = hosts_.empty() ? -1 : 0;
+        for (size_t i = 0; i < hosts_.size(); i++) {
+            pick->add(literal(hosts_[i].address).c_str());  // literal: no FLTK symbols
+            if (hosts_[i].id == select) at = static_cast<int>(i);
+        }
+        pick->value(at);
+        reload();
+    };
+    on(pick, reload);
+    on(addHost, [&] {
+        const std::string id = addHostDialog();
+        if (!id.empty()) fillHosts(id);  // hosts are in role order, so the new one isn't necessarily last
+    });
+    on(move, [&] {
+        const PairedHost* h = host();
+        if (!h) return;
+        const char* to = fl_input("It joined another network? Type the address it shows now.", h->address.c_str());
+        std::string error;
+        if (!to || !*to) return;
+        const std::string id = h->id;
+        if (!safeSetHostAddress(id, to, error)) return say(error, true);
+        fillHosts(id);
+    });
+    on(forget, [&] {
+        const PairedHost* h = host();
+        if (!h) return;
+        const std::string q = "Forget " + h->address + "? This computer stops syncing with it and deletes its "
+                              "certificate for it. The vault on this computer stays.\n\nAsking the host to revoke "
+                              "this computer first needs an approval there (BOOT on the board).";
+        const int how = fl_choice("%s", "Cancel", "Forget", "Revoke, then forget", literal(q).c_str());
+        if (how == 0) return;
+        say(how == 2 ? "Approve the revoke on the host (BOOT on the board), within a minute..." : "", false);
+        w->cursor(FL_CURSOR_WAIT);
+        Fl::flush();
+        std::string error;
+        const bool ok = safeForgetHost(h->id, how == 2, error);
+        w->cursor(FL_CURSOR_DEFAULT);
+        fillHosts("");
+        if (!ok) say(error, true);
+    });
     on(list, [&] { list->value() ? revoke->activate() : revoke->deactivate(); });
     on(revoke, [&] {
         if (!list->value()) return;
@@ -876,23 +899,71 @@ void GuiUIManager::openDevices() {
         Fl::flush();  // the call below blocks until the press
         // ponytail: blocks the UI up to a minute; a worker thread if that ever matters
         std::string error;
-        const bool ok = safeRevokeDevice(d.name, error);
+        const bool ok = host() && safeRevokeDevice(*host()->store, d.name, error);
         w->cursor(FL_CURSOR_DEFAULT);
         reload();
         ok ? say("Revoked " + d.name + ".", false) : say(error, true);
     });
     on(add, [&] {
         std::string error;
-        const auto invite = safeOpenPairing(error);
+        const auto invite = host() ? safeOpenPairing(*host()->store, error) : std::nullopt;
         if (!invite) return say(error, true);
         showPairingCode(*invite);
         reload();  // the new device, if it was approved
     });
     on(close, [w] { w->hide(); });
-    reload();
+    fillHosts("");
     runModal(w);
     delete w;
     callbacks_.resize(mark);
+}
+
+std::string GuiUIManager::addHostDialog(const std::string& at) {
+    const size_t mark = callbacks_.size();
+    const int W = 520, H = 420, x = 28, fw = W - 2 * x;
+    auto* w = new Fl_Double_Window(W, H);
+    w->copy_label("Add a host");
+    w->color(enclosure());
+    text(x, 22, fw, 30, "Add a host", kSansBold, 20, ink());
+    text(x, 56, fw, 66,
+         "1. On the host, open pairing: press BOOT on the board. It shows a code for 2 minutes.\n"
+         "2. Type its address and the code below, and press Pair.\n3. Approve this computer on the host (BOOT again).",
+         kSans, kSmall, muted());
+    auto* address = field<Fl_Input>(x, 150, fw, 36, "Host address (the IP it shows; add :port if it isn't the board)");
+    address->value(at.c_str());
+    auto* name = field<Fl_Input>(x, 214, 190, 36, "Name for this computer");
+    name->value(defaultDeviceName().c_str());
+    auto* code = field<Fl_Input>(x + 206, 214, fw - 206, 36, "Code on the host");
+    Fl_Box* error = text(x, 262, fw, 80, "", kSans, kSmall, danger());
+    Fl_Button* cancel = button(x, H - 58, 100, 38, "Cancel");
+    Fl_Button* pair = button(W - x - 100, H - 58, 100, 38, "Pair", Kind::Primary);
+    pair->shortcut(FL_Enter);
+    w->end();
+    std::string paired;  // its id
+    on(cancel, [w] { w->hide(); });
+    on(pair, [&] {
+        const std::string c = normalizePairCode(code->value());
+        if (!validDeviceName(name->value()))
+            return error->copy_label("Use 1-20 characters of a-z, 0-9 and - for the name.");
+        if (c.empty()) return error->copy_label("The code has 16 characters.");
+        error->labelcolor(muted());
+        error->copy_label(literal("Now approve '" + std::string(name->value()) + "' on the host (BOOT on the board), "
+                                  "within a minute...").c_str());
+        w->cursor(FL_CURSOR_WAIT);
+        Fl::flush();
+        // ponytail: blocks the window until the host answers (<= 90 s), like the connector
+        std::string why;
+        safeAddHost(address->value(), name->value(), c, why, &paired);
+        w->cursor(FL_CURSOR_DEFAULT);
+        error->labelcolor(danger());
+        if (!paired.empty()) return w->hide();
+        error->copy_label(literal(why).c_str());
+    });
+    (at.empty() ? static_cast<Fl_Widget*>(address) : code)->take_focus();
+    runModal(w);
+    delete w;
+    callbacks_.resize(mark);
+    return paired;
 }
 
 void GuiUIManager::showPairingCode(const EspStore::PairInvite& invite) {

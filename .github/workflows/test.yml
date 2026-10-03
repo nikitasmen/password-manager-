@@ -1,0 +1,97 @@
+# Every test suite, on pull requests, on main, and before a release (release.yml calls it and waits for it).
+# All of it is sandboxed: fakes and --serve on localhost, temp config folders, never a real board.
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    # The release's own build (ubuntu-22.04, apt), then every suite against it
+    runs-on: ubuntu-22.04
+    env:
+      PWVAULT_BUILD: ${{ github.workspace }}/build  # where tests/harness.py finds password_manager and vault_test
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake g++ libfltk1.3-dev libfontconfig-dev libssl-dev libcurl4-openssl-dev openssl curl python3
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j
+      - name: vault_test, base64_test
+        run: build/vault_test && build/base64_test
+      - name: api_test (host API and security, fake and --serve)
+        run: python3 tests/api_test.py
+      - name: e2e_test (business flows through the TUI)
+        run: python3 tests/e2e_test.py
+      - name: serve_test (--serve with pki.sh, vault_test, stand-down)
+        run: python3 tests/serve_test.py
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: android }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }  # versionName comes from `git describe --tags`
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.14.4' }
+      - name: A fake board for the pairing test
+        run: |
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=pwvault.local \
+            -addext subjectAltName=DNS:pwvault.local -keyout "$RUNNER_TEMP/key.pem" -out "$RUNNER_TEMP/cert.pem"
+          python3 ../tests/fake_esp.py --port 18443 --cert "$RUNNER_TEMP/cert.pem" --key "$RUNNER_TEMP/key.pem" \
+            --ca-dir "$RUNNER_TEMP/ca" --code ABCD0123EFGH4567 > "$RUNNER_TEMP/fake.log" 2>&1 &
+          for _ in $(seq 30); do grep -q "fake ESP32 on" "$RUNNER_TEMP/fake.log" && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/fake.log"; exit 1
+      - name: JVM tests (protocol vectors, sync, merge, pairing with the fake)
+        run: gradle testDebugUnitTest
+        env: { PWVAULT_TEST_PAIR: '127.0.0.1:18443:18444,ABCD0123EFGH4567' }
+
+  android-emulator:
+    # The instrumented tests (src/androidTest): App with Keystore keys, and the Compose screens
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.14.4' }
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 tests/android_test.py  # sees the running emulator, starts the fakes, runs the tests
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: android-test-report, path: android/build/reports/androidTests }
+
+  firmware:
+    # Compiles, so a change can't break the board's build or overflow its nearly full app partition unseen
+    runs-on: ubuntu-latest
+    env:
+      CORE: esp32:esp32@3.3.12  # the same pins as shell.nix and release.yml
+      CORE_URL: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - run: |
+          arduino-cli core update-index --additional-urls "$CORE_URL"
+          arduino-cli core install "$CORE" --additional-urls "$CORE_URL"
+          arduino-cli lib install "Adafruit SSD1306@2.5.17" "Adafruit GFX Library@1.12.6" "Adafruit BusIO@1.17.4" "ArduinoJson@7.4.3"
+      - run: arduino-cli compile -b esp32:esp32:esp32 esp32/vault

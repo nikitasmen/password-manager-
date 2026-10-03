@@ -26,7 +26,12 @@ android {
         versionCode = versionName!!.split(".").map { it.toIntOrNull() ?: 0 }
             .let { v -> v[0] * 10000 + v.getOrElse(1) { 0 } * 100 + v.getOrElse(2) { 0 } }
         buildConfigField("String", "UPDATE_REPO", "\"nikitasmen/password-manager-\"")
+        // Instrumented tests (src/androidTest, tests/android_test.py): each in a fresh process with empty app data,
+        // since App initializes once per process and the old-pairing move runs on a first start
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
     }
+    testOptions { execution = "ANDROIDX_TEST_ORCHESTRATOR" }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -69,4 +74,10 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517") // Android's org.json is a stub in JVM tests
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.06.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestUtil("androidx.test:orchestrator:1.5.1")
 }

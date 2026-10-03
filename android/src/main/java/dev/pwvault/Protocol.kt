@@ -196,8 +196,10 @@ fun validDeviceName(n: String) = Regex("[a-z0-9][a-z0-9-]{0,19}").matches(n)
 /** The board's pairing QR, `PWVAULT:<ip>:<code>`, as (host, code); null if it isn't one. */
 fun parsePairQr(text: String): Pair<String, String>? {
     val parts = text.trim().split(":")
-    if (parts.size != 3 || parts[0] != "PWVAULT" || parts[1].isEmpty()) return null
-    return normalizePairCode(parts[2]).ifEmpty { return null }.let { parts[1] to it }
+    if (parts.size !in 3..4 || parts[0] != "PWVAULT" || parts[1].isEmpty()) return null
+    // §9: a host off the board's ports appends its main port; the address then carries it, "ip:port"
+    val port = parts.getOrNull(3)?.let { it.toIntOrNull()?.takeIf { p -> p in 1..65535 } ?: return null }
+    return normalizePairCode(parts[2]).ifEmpty { return null }.let { (if (port != null) "${parts[1]}:$port" else parts[1]) to it }
 }
 
 /** What the user typed, as the 16-character code, or "" if it isn't one. */

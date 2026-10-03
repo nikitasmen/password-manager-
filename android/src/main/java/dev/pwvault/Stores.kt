@@ -26,6 +26,8 @@ import javax.net.ssl.X509TrustManager
 class StoreUnavailable(message: String, cause: Throwable? = null) : IOException(message, cause)
 class VaultMismatch(message: String) : Exception(message)
 class PairError(message: String) : Exception(message)
+/** The host refused this phone's certificate: revoked, or replaced by a newer pairing (403 "device revoked"). */
+class DeviceRevoked : IOException("This phone was revoked or re-paired on the host. Pair it again.")
 
 class Changes(val entries: List<Record>, val seq: Long)
 
@@ -37,7 +39,7 @@ interface Store {
 }
 
 /** `vault.json`: {"seq":N,"meta":{…},"entries":{"<id>":{record}}}, replaced atomically on every write. */
-class LocalStore(private val file: File) : Store {
+class LocalStore(val file: File) : Store {
     // ponytail: in-process lock only, since this app is the file's one writer; add a file lock if that changes
     private fun load() =
         if (file.exists()) JSONObject(file.readText()) else JSONObject().put("seq", 0).put("entries", JSONObject())
@@ -175,8 +177,7 @@ class EspStore(
                     "${device.asked.trim().ifEmpty { "never asked" }}; key: ${device.selfTest()}. Pair again if it persists.", e)
             throw StoreUnavailable("The board is unreachable at $host:$port (${e.javaClass.simpleName}: ${e.message})", e)
         }
-        if (r.status == 403 && r.body.contains("device revoked"))
-            throw IOException("This phone was revoked or re-paired on the board. Pair it again.")
+        if (r.status == 403 && r.body.contains("device revoked")) throw DeviceRevoked()
         return r
     }
 
@@ -206,10 +207,35 @@ class EspStore(
         request("POST", "/access", JSONObject().put("platform", c.platform).put("username", c.username))
     }
 
-    /** §7: the board's flash for the vault, from GET /devices. */
-    fun storage(): Storage {
-        val s = ok(request("GET", "/devices"), "GET /devices").json().optJSONObject("storage")
-        return Storage(s?.optLong("used") ?: 0, s?.optLong("total") ?: 0, s?.optLong("records") ?: 0)
+    /** §7 GET /devices: this phone's name there, the paired names, the host's role (older firmware: dedicated), storage. */
+    class Info(val you: String, val names: List<String>, val role: Role, val storage: Storage)
+
+    fun info(): Info {
+        val j = ok(request("GET", "/devices"), "GET /devices").json()
+        val d = j.optJSONArray("devices") ?: JSONArray()
+        val s = j.optJSONObject("storage")
+        return Info(j.optString("you"), (0 until d.length()).map { d.getJSONObject(it).getString("name") },
+            roleOf(j.optString("role", "dedicated")),
+            Storage(s?.optLong("used") ?: 0, s?.optLong("total") ?: 0, s?.optLong("records") ?: 0))
+    }
+
+    fun storage() = info().storage
+
+    /** §10: asks the host to revoke this phone, then waits (up to 65 s) for the approval there. */
+    fun revokeSelf() {
+        val me = info().you
+        val r = request("DELETE", "/devices/$me")
+        if (r.status != 200 && r.status != 202) throw IOException("The host didn't revoke this phone: ${r.error()}")
+        val until = System.currentTimeMillis() + 65_000
+        while (System.currentTimeMillis() < until) {
+            try {
+                if (me !in info().names) return
+            } catch (e: DeviceRevoked) {
+                return // the host refuses this phone now, which is what we asked for
+            }
+            Thread.sleep(1000)
+        }
+        throw IOException("It wasn't approved on the host in time, so this phone still has access there.")
     }
 
     /** §11: the board's secret for this device's new PIN verifier. */
@@ -289,13 +315,14 @@ fun pairWithBoard(host: String, pairPort: Int, name: String, code: String, keys:
 fun parseCert(der: ByteArray) = java.security.cert.CertificateFactory.getInstance("X.509")
     .generateCertificate(der.inputStream()) as X509Certificate
 
-// §8. The cursors live in [state]: {"vault_id":…,"local_seq":L,"remote_seq":R}.
+// §8. The cursors live in [state], one pair per host: {"vault_id":…,"hosts":{"<host id>":{"local_seq":L,"remote_seq":R}}}.
+// A host missing from it (or a v1 file, which has no "hosts") syncs everything, which §5 makes harmless.
 private const val BATCH_COUNT = 32
 private const val BATCH_BYTES = 12 * 1024
 
 private fun metaWins(a: Meta, b: Meta) = if (a.rev != b.rev) a.rev > b.rev else compareBytes(a.key, b.key) > 0
 
-private fun push(to: Store, entries: List<Record>) {
+fun push(to: Store, entries: List<Record>) {
     val batch = mutableListOf<Record>()
     var bytes = 0
     for (e in entries) {
@@ -311,21 +338,35 @@ private fun push(to: Store, entries: List<Record>) {
     if (batch.isNotEmpty()) to.putEntries(batch)
 }
 
+private fun writeState(state: File, doc: JSONObject) {
+    val tmp = File(state.path + ".tmp")
+    tmp.writeText(doc.toString())
+    if (!tmp.renameTo(state)) throw IOException("cannot replace $state")
+}
+
+/** Drops a host's cursors (forget host, §10). */
+fun forgetCursors(state: File, hostId: String) {
+    val doc = runCatching { JSONObject(state.readText()) }.getOrNull() ?: return
+    if (doc.optJSONObject("hosts")?.remove(hostId) != null) writeState(state, doc)
+}
+
 /** Returns whether the local store changed. */
-fun syncStores(local: Store, remote: Store, state: File): Boolean {
+
+fun syncStores(local: Store, remote: Store, state: File, hostId: String): Boolean {
     var localChanged = false
     val lm = local.getMeta()
     val rm = remote.getMeta()
     if (lm == null && rm == null) return false
     if (lm != null && rm != null && lm.vaultId != rm.vaultId)
-        throw VaultMismatch("The board holds a different vault (vault_id ${rm.vaultId}).")
+        throw VaultMismatch("The host holds a different vault (vault_id ${rm.vaultId}).")
     if (lm != null && (rm == null || metaWins(lm, rm))) remote.putMeta(lm, rm?.rev ?: 0) // a lost CAS race: next sync
     else if (rm != null && (lm == null || metaWins(rm, lm))) localChanged = local.putMeta(rm, lm?.rev ?: 0)
 
     val vaultId = (lm ?: rm)!!.vaultId
     val saved = runCatching { JSONObject(state.readText()) }.getOrNull() // missing or corrupt: sync everything
-    var localSeq = saved?.optLong("local_seq") ?: 0
-    var remoteSeq = saved?.optLong("remote_seq") ?: 0
+    val mineSaved = saved?.optJSONObject("hosts")?.optJSONObject(hostId)
+    var localSeq = mineSaved?.optLong("local_seq") ?: 0
+    var remoteSeq = mineSaved?.optLong("remote_seq") ?: 0
     // A side that had no vault before this sync has none of the other side's history
     if (saved?.optString("vault_id") != vaultId || lm == null || rm == null) { localSeq = 0; remoteSeq = 0 }
 
@@ -341,8 +382,11 @@ fun syncStores(local: Store, remote: Store, state: File): Boolean {
         localChanged = true
     }
     // mine.seq, not the post-pull seq: pulled records echo back once, which §5 ignores (PROTOCOL.md §8 step 6)
-    val tmp = File(state.path + ".tmp")
-    tmp.writeText(JSONObject().put("vault_id", vaultId).put("local_seq", mine.seq).put("remote_seq", theirs.seq).toString())
-    if (!tmp.renameTo(state)) throw IOException("cannot replace $state")
+    // Re-read, so other hosts' cursors saved meanwhile survive; another vault's don't
+    val doc = runCatching { JSONObject(state.readText()) }.getOrNull()
+        ?.takeIf { it.optString("vault_id") == vaultId && it.optJSONObject("hosts") != null }
+        ?: JSONObject().put("vault_id", vaultId).put("hosts", JSONObject())
+    doc.getJSONObject("hosts").put(hostId, JSONObject().put("local_seq", mine.seq).put("remote_seq", theirs.seq))
+    writeState(state, doc)
     return localChanged
 }

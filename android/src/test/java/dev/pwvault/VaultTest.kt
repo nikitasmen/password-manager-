@@ -52,11 +52,48 @@ class VaultTest {
         assertTrue(compareBytes("é", "z") > 0) // unsigned bytes, not signed
     }
 
+    // Forgetting or re-pairing a host deletes pin.json only if the PIN is that host's (§11)
+    @Test fun pinOwnership() {
+        val f = File(dir, "pin-owner.json")
+        assertFalse(pinBelongsTo(f, "board", "board")) // no PIN at all
+        f.writeText("""{"salt":"","iter":1,"blob":""}""") // from before hosts: the PIN host's alone
+        assertTrue(pinBelongsTo(f, "board", "board"))
+        assertFalse(pinBelongsTo(f, "laptop", "board")) // re-pairing the laptop must keep the board's PIN
+        assertFalse(pinBelongsTo(f, "laptop", null))
+        f.writeText("""{"salt":"","iter":1,"blob":"","host":"board"}""")
+        assertTrue(pinBelongsTo(f, "board", "other"))
+        assertFalse(pinBelongsTo(f, "laptop", "laptop"))
+    }
+
+    // Same-role hosts sort by id; PIN unlock goes to the host pin.json names; forgetting a host updates the status
+    @Test fun hostOrderPinHostAndStatus() {
+        val v = Vault(LocalStore(File(dir, "o-local.json")), listOf(
+            Host("bbbb", Role.Dedicated, LocalStore(File(dir, "o-1.json"))),
+            Host("cccc", Role.Server, LocalStore(File(dir, "o-2.json"))),
+            Host("aaaa", Role.Dedicated, LocalStore(File(dir, "o-3.json")))), File(dir, "o.sync"))
+        assertEquals(listOf("aaaa", "bbbb", "cccc"), v.hostStatus.map { it.host.id })
+
+        val f = File(dir, "o-pin.json")
+        assertNull(pinHostId(f, listOf("aaaa", "bbbb"))) // no PIN
+        f.writeText("""{"host":"bbbb"}""")
+        assertEquals("bbbb", pinHostId(f, listOf("aaaa", "bbbb"))) // the one it names, not the first
+        assertNull(pinHostId(f, listOf("aaaa"))) // its host was forgotten
+        f.writeText("""{"salt":""}""")
+        assertEquals("aaaa", pinHostId(f, listOf("aaaa", "bbbb"))) // from before: the best one
+
+        v.create("m", iterations = 1000)
+        assertEquals(Vault.Sync.Ok, v.status)
+        listOf("aaaa", "bbbb", "cccc").forEach(v::removeHost)
+        assertEquals(Vault.Sync.Disabled, v.status) // not a stale Ok (or Mismatch, offering a merge) for no host
+    }
+
     @Test fun pairingHelpers() {
         assertEquals("ABCD0123EFGH4567", normalizePairCode("abcd-o123-efgh-4567"))
         assertEquals("", normalizePairCode("short"))
         assertEquals("192.168.2.5" to "ABCD0123EFGH4567", parsePairQr("PWVAULT:192.168.2.5:ABCD0123EFGH4567"))
         assertNull(parsePairQr("PWVAULT:192.168.2.5:SHORT"))
+        assertEquals("192.168.2.5:8443" to "ABCD0123EFGH4567", parsePairQr("PWVAULT:192.168.2.5:ABCD0123EFGH4567:8443"))
+        assertNull(parsePairQr("PWVAULT:192.168.2.5:ABCD0123EFGH4567:x"))
         assertNull(parsePairQr("https://example.com"))
         assertTrue(validDeviceName("phone-2") && !validDeviceName("-x") && !validDeviceName("Phone") && !validDeviceName(""))
         assertTrue(validPin("1234") && !validPin("123") && !validPin("12a4"))
@@ -69,7 +106,7 @@ class VaultTest {
 
     @Test fun twoPhonesSyncThroughOneStore() {
         val board = LocalStore(File(dir, "board.json"))
-        fun phone(n: String) = Vault(LocalStore(File(dir, "$n.json")), board, File(dir, "$n-sync.json"))
+        fun phone(n: String) = Vault(LocalStore(File(dir, "$n.json")), listOf(Host("board", Role.Dedicated, board)), File(dir, "$n-sync.json"))
         val a = phone("a")
         a.create("master", iterations = 1000)
         a.put(Credential("GitHub", "nik", "v1"))
@@ -88,14 +125,136 @@ class VaultTest {
         assertEquals(emptyList<Credential>(), b.credentials())
         assertEquals(Vault.Sync.Ok, b.status)
 
-        val other = Vault(LocalStore(File(dir, "other.json")), null, File(dir, "x"))
+        val other = Vault(LocalStore(File(dir, "other.json")), emptyList(), File(dir, "x"))
         other.create("m", iterations = 1000)
-        val mixed = Vault(LocalStore(File(dir, "other.json")), board, File(dir, "mixed-sync.json"))
-        assertEquals(Vault.Sync.Error, mixed.sync()) // a different vault_id is never merged
+        val mixed = Vault(LocalStore(File(dir, "other.json")), listOf(Host("board", Role.Dedicated, board)), File(dir, "mixed-sync.json"))
+        assertEquals(Vault.Sync.Mismatch, mixed.sync()) // a different vault_id is never merged by sync
     }
 
     // PWVAULT_TEST_BOARD="host:port,server.pem,device.pem,device.key" (e.g. the desktop's files): read-only, safe on
     // the real board. 30 rounds must reuse one connection; a new TLS session per request ran the board out of RAM.
+    /** A host that can go away. */
+    private class Flaky(private val inner: Store) : Store {
+        var online = true
+        private fun up() { if (!online) throw StoreUnavailable("offline") }
+        override fun getMeta() = up().let { inner.getMeta() }
+        override fun putMeta(meta: Meta, ifRev: Int) = up().let { inner.putMeta(meta, ifRev) }
+        override fun changesAfter(seq: Long) = up().let { inner.changesAfter(seq) }
+        override fun putEntries(records: List<Record>) = up().let { inner.putEntries(records) }
+    }
+
+    // §8, several hosts: a board and a laptop. The phone has both, the desktop only the board, the pi only the laptop.
+    @Test fun severalHosts() {
+        val board = LocalStore(File(dir, "h-board.json"))
+        val laptop = LocalStore(File(dir, "h-laptop.json"))
+        fun device(n: String, vararg to: Pair<String, Store>) = Vault(LocalStore(File(dir, "h-$n.json")),
+            to.map { (id, s) -> Host(id, if (id == "board") Role.Dedicated else Role.Peer, s) }, File(dir, "h-$n.sync"))
+        val phoneLaptop = Flaky(laptop)
+        val phoneBoard = Flaky(board)
+        val phone = device("phone", "laptop" to phoneLaptop, "board" to phoneBoard) // worst first
+        val desk = device("desk", "board" to board)
+        val pi = device("pi", "laptop" to laptop)
+
+        phone.create("master", iterations = 1000)
+        assertTrue(board.getMeta() != null && laptop.getMeta() != null)
+        assertEquals(listOf("board", "laptop"), phone.hostStatus.map { it.host.id }) // best role first
+
+        assertTrue(pi.unlock("master"))
+        pi.put(Credential("Pi", "u", "from-pi"))
+        assertTrue(desk.unlock("master"))
+        assertTrue(phone.unlock("master"))
+        phone.sync() // the board gets what the phone pulled from the laptop after it
+        desk.sync()
+        assertEquals("from-pi", desk.credentials().single().password)
+
+        phoneLaptop.online = false
+        phoneBoard.online = false
+        assertEquals(Vault.Sync.Offline, phone.sync())
+        phoneLaptop.online = true
+        assertEquals(Vault.Sync.Ok, phone.sync())
+        assertEquals(listOf(Vault.Sync.Offline, Vault.Sync.Ok), phone.hostStatus.map { it.status })
+        phoneBoard.online = true // back on its network: skipped while the laptop answers...
+        phone.sync()
+        assertEquals(Vault.Sync.Offline, phone.hostStatus[0].status)
+        phoneLaptop.online = false // ...and tried at once when nothing else does
+        assertEquals(Vault.Sync.Ok, phone.sync())
+        assertEquals(Vault.Sync.Ok, phone.hostStatus[0].status)
+        phoneLaptop.online = true
+
+        // a host holding another vault is skipped and reported; the round is still Ok
+        val stranger = LocalStore(File(dir, "h-stranger.json"))
+        Vault(stranger, emptyList(), File(dir, "h-x")).create("x", iterations = 1000)
+        File(dir, "h-phone.json").copyTo(File(dir, "h-phone2.json"))
+        val phone2 = device("phone2", "board" to board, "stranger" to stranger)
+        assertTrue(phone2.unlock("master"))
+        assertEquals(Vault.Sync.Ok, phone2.status)
+        assertEquals(Vault.Sync.Mismatch, phone2.hostStatus[1].status)
+        assertTrue(runCatching { phone2.planMerge("x") }.isFailure) // merging is only for a phone no host takes
+
+        // one cursor pair per host; a v1 cursor file reads as "sync everything"
+        val hosts = JSONObject(File(dir, "h-phone.sync").readText()).getJSONObject("hosts")
+        assertTrue(hosts.has("board") && hosts.has("laptop"))
+        File(dir, "h-desk.sync").writeText("""{"vault_id":"x","local_seq":99,"remote_seq":99}""")
+        assertEquals(Vault.Sync.Ok, desk.sync())
+        assertTrue(JSONObject(File(dir, "h-desk.sync").readText()).getJSONObject("hosts").has("board"))
+
+        // hosts come and go at runtime: a new one slots in by role, a forgotten one loses its cursors
+        val server = LocalStore(File(dir, "h-server.json"))
+        desk.addHost(Host("server", Role.Server, server))
+        assertEquals(listOf("board", "server"), desk.hostStatus.map { it.host.id })
+        assertEquals(Vault.Sync.Ok, desk.sync())
+        assertTrue(server.getMeta() != null)
+        desk.removeHost("server")
+        val left = JSONObject(File(dir, "h-desk.sync").readText()).getJSONObject("hosts")
+        assertTrue(desk.hostStatus.size == 1 && !left.has("server") && left.has("board"))
+    }
+
+    @Test fun mergeStandalonePhoneIntoBoardVault() {
+        val phoneFile = File(dir, "m-phone.json")
+        val boardFile = File(dir, "m-board.json")
+        Vault(LocalStore(phoneFile), emptyList(), File(dir, "m-s1")).apply {
+            create("phone", iterations = 1000)
+            put(Credential("a", "u", "p"))
+            put(Credential("b", "u", "phone-b"))
+            put(Credential("d", "u", "p"))
+            put(Credential("x", "u", "p"))
+        }
+        Thread.sleep(5) // the board's b and x tombstone are newer than the phone's
+        val board = Vault(LocalStore(boardFile), emptyList(), File(dir, "m-s2")).apply {
+            create("board", iterations = 1000)
+            put(Credential("A", "u", "p")) // platforms match ignoring case
+            put(Credential("b", "u", "board-b"))
+            put(Credential("c", "u", "p"))
+            put(Credential("x", "u", "old"))
+            remove("x")
+        }
+        val boardId = board.vaultId()
+
+        val phone = Vault(LocalStore(phoneFile), listOf(Host("board", Role.Dedicated, LocalStore(boardFile))), File(dir, "m-sync"))
+        assertTrue(phone.unlock("phone"))
+        assertEquals(Vault.Sync.Mismatch, phone.status)
+        assertNull(phone.planMerge("phone"))
+
+        val plan = phone.planMerge("board")!!
+        assertEquals(1, plan.same)
+        assertEquals(listOf("b"), plan.conflicts.map { it.phone.platform })
+        assertEquals("board-b", plan.conflicts[0].board.password)
+        assertTrue(plan.conflicts[0].boardUpdated > plan.conflicts[0].phoneUpdated)
+        assertEquals(listOf("d", "x"), plan.add.map { it.first.platform })
+
+        phone.applyMerge(plan, plan.conflicts) // keep the phone's b although the board's is newer
+        assertEquals(Vault.Sync.Ok, phone.status)
+        assertEquals(boardId, phone.vaultId())
+        assertTrue(File(dir, "vault.pre-merge.json").exists())
+        val expect = listOf("A" to "p", "b" to "phone-b", "c" to "p", "d" to "p", "x" to "p")
+        assertEquals(expect, phone.credentials().map { it.platform to it.password })
+        assertEquals(Vault.Sync.Ok, phone.sync())
+        assertTrue(board.unlock("board")) // the board itself has them too, x not lost to its tombstone
+        assertEquals(expect, board.credentials().map { it.platform to it.password })
+        phone.lock()
+        assertTrue(phone.unlock("board")) // the board's password opens this phone now
+    }
+
     @Test fun readOnlyAgainstBoard() {
         val spec = System.getenv("PWVAULT_TEST_BOARD")
         assumeTrue("set PWVAULT_TEST_BOARD to run read-only checks against a board", spec != null)
@@ -125,15 +284,23 @@ class VaultTest {
 
         val esp = EspStore(host, port.toInt(), p.server, keys.private, p.cert)
         esp.getMeta() // throws unless the board accepts the cert it just issued
-        val storage = esp.storage()
+        val info = esp.info()
+        assertTrue("phone-test" in info.names && info.you == "phone-test")
+        val storage = info.storage
         assertTrue(storage.total > 0 && storage.used <= storage.total && storage.text().contains(" KB of "))
-        val phone = Vault(LocalStore(File(dir, "p.json")), esp, File(dir, "p-sync.json"))
+        if (info.role != Role.Dedicated) { // §11: only a dedicated host offers PINs
+            assertTrue(runCatching { esp.setPin("a".repeat(64)) }.isFailure)
+            esp.revokeSelf()
+            assertTrue(runCatching { esp.getMeta() }.exceptionOrNull() is DeviceRevoked)
+            return
+        }
+        val phone = Vault(LocalStore(File(dir, "p.json")), listOf(Host("esp", Role.Dedicated, esp)), File(dir, "p-sync.json"))
         if (!phone.exists()) phone.create("master", iterations = 1000) // a fresh fake; else the vault is someone's
         assertEquals(Vault.Sync.Ok, phone.sync())
         if (!phone.unlock("master")) return // an existing vault with another password: pairing and auth were enough
 
         phone.put(Credential("phone-test.example", "nik", "s3cret"))
-        val second = Vault(LocalStore(File(dir, "p2.json")), esp, File(dir, "p2-sync.json"))
+        val second = Vault(LocalStore(File(dir, "p2.json")), listOf(Host("esp", Role.Dedicated, esp)), File(dir, "p2-sync.json"))
         assertTrue(second.unlock("master"))
         assertEquals("s3cret", second.credentials().first { it.platform == "phone-test.example" }.password)
 
@@ -144,5 +311,7 @@ class VaultTest {
         assertEquals(PinResult.Unlocked, unlockWithPin(phone, esp, pinFile, "2468"))
         assertTrue(phone.unlocked)
         phone.remove("phone-test.example")
+        esp.revokeSelf() // §10: returns once the host refuses this phone
+        assertTrue(runCatching { esp.getMeta() }.exceptionOrNull() is DeviceRevoked)
     }
 }

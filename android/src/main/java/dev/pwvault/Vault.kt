@@ -6,9 +6,46 @@ package dev.pwvault
 import org.json.JSONObject
 import java.io.File
 
-class Vault(private val local: Store, private val remote: Store?, private val syncState: File) {
-    enum class Sync { Disabled, Ok, Offline, Error }
+/** A host's role (PROTOCOL.md §6), best first: it decides the sync order and which host gets PINs. */
+enum class Role { Dedicated, Server, Peer }
 
+/** As GET /devices says it; unknown = the least trusted. */
+fun roleOf(wire: String) = when (wire) { "dedicated" -> Role.Dedicated; "server" -> Role.Server; else -> Role.Peer }
+
+/** Sync order, and which dedicated host is "the" PIN host: best role first, then by id, the same on every start. */
+val hostOrder: Comparator<Host> = compareBy<Host>({ it.role }, { it.id })
+
+/** One host this phone syncs with. [id]: hex SHA-256 of its pinned server cert, which keys its sync cursors. */
+class Host(val id: String, val role: Role, val store: Store)
+
+class Vault(private val local: Store, initialHosts: List<Host>, private val syncState: File) {
+    // Mismatch: no host synced, and one holds another vault (see planMerge)
+    enum class Sync { Disabled, Ok, Offline, Error, Mismatch }
+
+    /** Each host's result in the last sync. */
+    class HostStatus(val host: Host, var status: Sync = Sync.Disabled, var error: String = "", var triedAt: Long = 0)
+
+    private val hosts = mutableListOf<Host>() // best role first
+    val hostStatus = mutableListOf<HostStatus>() // parallel to hosts
+
+    init {
+        initialHosts.forEach(::addHost)
+    }
+
+    /** Pairing with another host: after the hosts with the same or a better role. */
+    @Synchronized fun addHost(h: Host) {
+        val at = hosts.indexOfFirst { hostOrder.compare(h, it) < 0 }.let { if (it < 0) hosts.size else it }
+        hosts.add(at, h)
+        hostStatus.add(at, HostStatus(h))
+    }
+
+    /** Forgetting a host (§10), with its cursors. */
+    @Synchronized fun removeHost(id: String) {
+        val i = hosts.indexOfFirst { it.id == id }
+        if (i >= 0) { hosts.removeAt(i); hostStatus.removeAt(i) }
+        forgetCursors(syncState, id)
+        summarize() // e.g. forgetting the board that held another vault must stop offering a merge into it
+    }
     var status = Sync.Disabled
         private set
     var error = ""
@@ -70,13 +107,15 @@ class Vault(private val local: Store, private val remote: Store?, private val sy
 
     @Synchronized fun credentials(): List<Credential> {
         requireKey()
-        if (remote != null && System.currentTimeMillis() - lastSync > 30_000) sync()
+        if (hosts.isNotEmpty() && System.currentTimeMillis() - lastSync > 30_000) sync()
         return index.values.sortedBy { it.platform.lowercase() }
     }
 
     /** Tells the board's OLED who read what (display only, never blocks a read). */
     @Synchronized fun noteAccess(c: Credential) {
-        if (status == Sync.Ok) runCatching { (remote as? EspStore)?.noteAccess(c) }
+        // to the best dedicated host that answered: the hint is in the clear, and only the board shows it (§7, §12)
+        val to = hostStatus.firstOrNull { it.status == Sync.Ok && it.host.role == Role.Dedicated }?.host?.store as? EspStore
+        runCatching { to?.noteAccess(c) }
     }
 
     private fun nextTimestamp(id: String) = maxOf(System.currentTimeMillis(), (updatedOf[id] ?: 0) + 1)
@@ -133,25 +172,106 @@ class Vault(private val local: Store, private val remote: Store?, private val sy
         return true
     }
 
-    @Synchronized fun sync(): Sync {
-        if (remote == null) return Sync.Disabled.also { status = it }
-        lastSync = System.currentTimeMillis()
-        status = try {
-            val changed = syncStores(local, remote, syncState)
-            if (changed && unlocked) reindex()
-            error = ""
-            Sync.Ok
-        } catch (e: StoreUnavailable) {
-            error = e.message.orEmpty()
-            Sync.Offline
-        } catch (e: Exception) { // VaultMismatch, a revoked cert, ...: keep working locally, surface it
-            error = e.message ?: e.toString()
-            Sync.Error
+    /**
+     * The board holds another vault (a phone used standalone, then paired). Reads the board's entries with its
+     * password and sorts this phone's against them; writes nothing. null = wrong password.
+     */
+    @Synchronized fun planMerge(boardPassword: String): MergePlan? {
+        requireKey()
+        val r = mismatched() ?: throw IllegalStateException("No host holds another vault.")
+        val meta = r.getMeta() ?: throw IllegalStateException("The board has no vault yet: a sync copies this one there.")
+        val k = unwrapVaultKey(boardPassword, meta) ?: return null
+        val board = r.changesAfter(0).entries.associateBy { it.id }
+        val add = mutableListOf<Pair<Credential, Long>>()
+        val conflicts = mutableListOf<Conflict>()
+        var same = 0
+        for ((id, c) in index.entries.sortedBy { it.value.platform.lowercase() }) {
+            val mine = updatedOf.getValue(id)
+            val theirs = board[entryId(k, c.platform)]
+            val bc = theirs?.let { runCatching { openEntry(k, it) }.getOrNull() }
+            when {
+                // Only here (or deleted, or unreadable, there): dated past the board's record, or §5 would drop it
+                bc == null -> add += c to maxOf(mine, (theirs?.updated ?: 0) + 1)
+                bc.username == c.username && bc.password == c.password -> same++
+                else -> conflicts += Conflict(c, mine, bc, theirs.updated)
+            }
         }
-        if (error.isNotEmpty()) System.err.println("pwvault: sync $status: $error") // logcat, tag System.err
+        return MergePlan(k, add, conflicts, same)
+    }
+
+    /**
+     * Pushes the plan, with [keepPhone] (conflicts where this phone's copy wins), to the board; only once the board
+     * has it all, swaps this phone's vault for the board's (the old file stays as vault.pre-merge.json) and opens it.
+     */
+    @Synchronized fun applyMerge(plan: MergePlan, keepPhone: List<Conflict>) {
+        val r = mismatched() ?: throw IllegalStateException("No host holds another vault.")
+        val now = System.currentTimeMillis()
+        push(r, plan.add.map { (c, t) -> sealEntry(plan.boardKey, c, t) } +
+            keepPhone.map { sealEntry(plan.boardKey, it.phone, maxOf(now, it.boardUpdated + 1)) }) // a choice, made now
+        val file = (local as LocalStore).file
+        if (!file.renameTo(File(file.parentFile, "vault.pre-merge.json"))) throw java.io.IOException("cannot move $file")
+        syncState.delete()
+        lock()
+        if (sync() != Sync.Ok) throw IllegalStateException("The entries are on the board, but this phone couldn't fetch " +
+            "its vault yet ($error). Unlock with the board vault's password once it's reachable.")
+        useKey(plan.boardKey.copyOf())
+    }
+
+    /** The host to merge into: one holding another vault, when none synced (a phone used standalone, then paired). */
+    private fun mismatched() = hostStatus.takeIf { s -> s.none { it.status == Sync.Ok } }
+        ?.firstOrNull { it.status == Sync.Mismatch }?.host?.store
+
+    /**
+     * §8, several hosts: each in turn, best role first, with its own cursors. A change pulled from one host is pushed
+     * to the hosts after it in this round, and to the ones before it in the next.
+     */
+    @Synchronized fun sync(): Sync {
+        if (hosts.isEmpty()) return Sync.Disabled.also { status = it }
+        val now = System.currentTimeMillis()
+        lastSync = now
+        var changed = false
+        fun syncWith(s: HostStatus) {
+            s.triedAt = now
+            try {
+                changed = syncStores(local, s.host.store, syncState, s.host.id) || changed
+                s.status = Sync.Ok
+                s.error = ""
+            } catch (e: StoreUnavailable) {
+                s.status = Sync.Offline
+                s.error = e.message.orEmpty()
+            } catch (e: VaultMismatch) { // keep working locally until the user merges or forgets the host
+                s.status = Sync.Mismatch
+                s.error = e.message.orEmpty()
+            } catch (e: Exception) { // a revoked cert, ...: keep working locally, surface it
+                s.status = Sync.Error
+                s.error = e.message ?: e.toString()
+            }
+            if (s.error.isNotEmpty()) System.err.println("pwvault: sync ${s.host.id.take(8)} ${s.status}: ${s.error}") // logcat
+        }
+        // One active host per network (§6): one that didn't answer a moment ago is probably elsewhere. Skip it for
+        // 5 minutes, unless nothing else syncs (maybe we just came back to its network).
+        val (away, here) = hostStatus.partition { it.status == Sync.Offline && now - it.triedAt < 5 * 60_000 }
+        here.forEach(::syncWith)
+        for (s in away) if (hostStatus.none { it.status == Sync.Ok }) syncWith(s)
+        if (changed && unlocked) reindex()
+        summarize()
         return status
     }
+
+    /** What the hosts' last results add up to, best first: Ok if any synced. No hosts: Disabled. */
+    private fun summarize() {
+        val worst = listOf(Sync.Ok, Sync.Mismatch, Sync.Error, Sync.Offline)
+            .firstOrNull { st -> hostStatus.any { it.status == st } } ?: Sync.Disabled
+        status = worst
+        error = if (worst == Sync.Ok || worst == Sync.Disabled) "" else hostStatus.first { it.status == worst }.error
+    }
 }
+
+/** The same platform in both vaults, with different values. */
+class Conflict(val phone: Credential, val phoneUpdated: Long, val board: Credential, val boardUpdated: Long)
+
+/** [add]: only on this phone, with the `updated` to write. [same]: identical in both, left as the board has it. */
+class MergePlan(val boardKey: ByteArray, val add: List<Pair<Credential, Long>>, val conflicts: List<Conflict>, val same: Int)
 
 // §11: PIN unlock. `pin.json` = {"salt":…,"iter":…,"blob":…}, next to the vault.
 sealed interface PinResult {
@@ -161,19 +281,43 @@ sealed interface PinResult {
     class Failed(val why: String) : PinResult
 }
 
-fun setPin(vault: Vault, board: EspStore, pinFile: File, master: String, pin: String) {
+/**
+ * Is pin.json the host's (§11), so forgetting or re-pairing it must delete the PIN? Its `host` names it; a file
+ * without one is from before there were several hosts and belongs to the PIN host, [pinHostId], alone.
+ */
+fun pinBelongsTo(pinFile: File, hostId: String, pinHostId: String?): Boolean {
+    val owner = runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull() ?: return false
+    return if (owner.isEmpty()) hostId == pinHostId else owner == hostId
+}
+
+/**
+ * The host a PIN unlocks with: the one pin.json names, if it's still among the [dedicated] hosts (their ids, best
+ * first); for a file without `host`, the best dedicated host. null: no PIN to offer.
+ */
+fun pinHostId(pinFile: File, dedicated: List<String>): String? {
+    val owner = runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull() ?: return null
+    return if (owner.isEmpty()) dedicated.firstOrNull() else owner.takeIf { it in dedicated }
+}
+
+/** [hostId]: the host holding the secret, recorded in pin.json (§11). */
+fun setPin(vault: Vault, board: EspStore, pinFile: File, master: String, pin: String, hostId: String = "") {
     require(vault.verifyMasterPassword(master)) { "Wrong master password." }
     require(validPin(pin)) { "Use 4-32 digits." }
     val salt = randomBytes(16)
     val proof = pinProof(pin, salt, DEFAULT_ITERATIONS)
     val blob = vault.sealKeyForPin(pinWrapKey(board.setPin(pinVerifier(proof)), proof))
     val tmp = File(pinFile.path + ".tmp")
-    tmp.writeText(JSONObject().put("salt", salt.b64()).put("iter", DEFAULT_ITERATIONS).put("blob", blob).toString())
+    val j = JSONObject().put("salt", salt.b64()).put("iter", DEFAULT_ITERATIONS).put("blob", blob)
+    if (hostId.isNotEmpty()) j.put("host", hostId)
+    tmp.writeText(j.toString())
     check(tmp.renameTo(pinFile)) { "cannot write $pinFile" }
 }
 
-fun unlockWithPin(vault: Vault, board: EspStore, pinFile: File, pin: String): PinResult {
+fun unlockWithPin(vault: Vault, board: EspStore, pinFile: File, pin: String, hostId: String = ""): PinResult {
     val f = runCatching { JSONObject(pinFile.readText()) }.getOrNull() ?: return PinResult.Failed("No PIN is set.")
+    val owner = f.optString("host")
+    if (owner.isNotEmpty() && hostId.isNotEmpty() && owner != hostId)
+        return PinResult.Failed("This PIN belongs to another host. Use the master password.")
     val proof = pinProof(pin, f.getString("salt").unb64(), f.getInt("iter"))
     return when (val r = try { board.tryPin(proof) } catch (e: StoreUnavailable) {
         return PinResult.Failed("The board is unreachable; a PIN needs it. Use the master password.")

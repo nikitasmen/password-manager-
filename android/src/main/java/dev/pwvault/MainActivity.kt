@@ -52,6 +52,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +71,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 import java.io.File
+import org.json.JSONObject
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -82,29 +85,40 @@ import java.util.concurrent.Executors
 
 private const val PAIR_PORT = 8444 // PROTOCOL.md §9
 
-enum class Screen { Pair, Unlock, Vault }
+enum class Screen { Pair, Unlock, Vault, Merge }
+
+/**
+ * A host this phone is paired with (PROTOCOL.md §6): server.der, device.der and host.json (address, role, the
+ * Keystore alias of this phone's key for it) in filesDir/hosts/<id prefix>/.
+ */
+data class PhoneHost(val id: String, val address: String, val role: Role, val dir: File, val alias: String, val store: EspStore)
 
 /**
  * App state lives here, not in the activity, so a rotation keeps it. Every vault call runs on one worker thread, in
- * order. Files (filesDir): vault.json, sync.json, pin.json, server.der (the pinned board cert), device.der; the
- * device key is in the Android Keystore and never leaves it.
+ * order. Files (filesDir): vault.json, sync.json, pin.json, bio.json, and hosts/ (PhoneHost); each host's device
+ * key is in the Android Keystore and never leaves it.
  *
- * The demo build (applicationIdSuffix .demo) keeps a local-only vault of its own and allows screenshots, for
- * working on the UI without the board or the real vault.
+ * Standalone (off by default, chosen on the pair screen) is a local-only vault with no board; pairing later syncs
+ * it to the board. The demo build (applicationIdSuffix .demo) is always standalone, with its own vault, and allows
+ * screenshots, for working on the UI without the board or the real vault.
  */
 object App {
     private lateinit var dir: File
     private lateinit var prefs: SharedPreferences
     private var vault: Vault? = null
-    private var board: EspStore? = null
     private val worker = Executors.newSingleThreadExecutor()
     val pinFile get() = File(dir, "pin.json")
     val bioFile get() = File(dir, "bio.json")
     private val main = Handler(Looper.getMainLooper())
-    val host get() = prefs.getString("host", "").orEmpty()
     val deviceName get() = prefs.getString("name", "phone").orEmpty()
     val paired get() = vault != null
-    val hasBoard get() = board != null
+    val hasBoard get() = hosts.isNotEmpty()
+    val pinHost get() = hosts.firstOrNull { it.role == Role.Dedicated } // the only kind that offers PINs (§11)
+    /** The host pin.json's PIN unlocks with (not necessarily the best one); null: no PIN to offer. */
+    val pinHostOfFile get() = pinHostId(pinFile, hosts.filter { it.role == Role.Dedicated }.map { it.id })
+        ?.let { id -> hosts.find { it.id == id } }
+    var hosts by mutableStateOf(listOf<PhoneHost>()) // best role first
+    var hostStatus by mutableStateOf(mapOf<String, Vault.Sync>()) // host id -> its last sync
 
     var screen by mutableStateOf(Screen.Pair)
     var hasVault by mutableStateOf<Boolean?>(null) // null = not checked yet
@@ -121,21 +135,20 @@ object App {
     var update by mutableStateOf<Release?>(null) // a newer release with an APK
     var updating by mutableStateOf<Int?>(null) // download progress, %
     var storage by mutableStateOf("") // the board's flash use, for Settings
+    var merge by mutableStateOf<MergePlan?>(null) // read from the board, being reviewed on the Merge screen
+    val keepPhone = mutableStateListOf<Boolean>() // one per merge conflict decided so far: true = this phone's copy
 
     fun init(ctx: Context) {
         if (::dir.isInitialized) return
         dir = ctx.filesDir
         prefs = ctx.getSharedPreferences("pwvault", Context.MODE_PRIVATE)
         bioOn = bioFile.exists()
-        if (BuildConfig.DEMO) {
-            vault = Vault(LocalStore(File(dir, "vault.json")), null, File(dir, "sync.json"))
-            screen = Screen.Unlock
-        } else load()
+        load()
     }
 
-    private fun keystore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    internal fun keystore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
-    private fun newDeviceKey(alias: String): KeyPair =
+    internal fun newDeviceKey(alias: String): KeyPair =
         KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
             initialize(
                 KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
@@ -147,14 +160,54 @@ object App {
             generateKeyPair()
         }
 
-    private fun load() {
-        val key = prefs.getString("alias", null)?.let { keystore().getKey(it, null) as? PrivateKey }
+    private fun keyOf(alias: String?) = alias?.let { keystore().getKey(it, null) as? PrivateKey }
+
+    private fun saveHost(d: File, server: ByteArray, cert: ByteArray, address: String, role: Role, alias: String) {
+        d.mkdirs()
+        File(d, "server.der").writeBytes(server)
+        File(d, "device.der").writeBytes(cert)
+        File(d, "host.json").writeText(JSONObject().put("address", address).put("role", role.name.lowercase())
+            .put("alias", alias).toString())
+    }
+
+    /** A pairing from before hosts/ (at the top of filesDir, prefs "host"/"alias") moves there once. */
+    private fun moveFirstHost() {
+        val alias = prefs.getString("alias", null) ?: return
         val server = File(dir, "server.der")
         val cert = File(dir, "device.der")
-        if (key == null || !server.exists() || !cert.exists()) return
-        val (h, p) = parseHost(host)
-        board = EspStore(h, p, parseCert(server.readBytes()), key, parseCert(cert.readBytes()))
-        vault = Vault(LocalStore(File(dir, "vault.json")), board, File(dir, "sync.json"))
+        if (!server.exists() || !cert.exists()) return
+        saveHost(File(dir, "hosts/${sha256(server.readBytes()).hex().take(16)}"), server.readBytes(), cert.readBytes(),
+            prefs.getString("host", "").orEmpty(), Role.Dedicated, alias)
+        prefs.edit().remove("alias").remove("host").commit()
+        server.delete()
+        cert.delete()
+    }
+
+    private fun load() {
+        val found = mutableListOf<PhoneHost>()
+        if (!BuildConfig.DEMO) {
+            moveFirstHost()
+            File(dir, "hosts").listFiles()?.forEach { d ->
+                runCatching { // one broken folder must not hide the others
+                    val j = JSONObject(File(d, "host.json").readText())
+                    val key = keyOf(j.getString("alias")) ?: return@runCatching
+                    val (h, p) = parseHost(j.getString("address"))
+                    val server = File(d, "server.der").readBytes()
+                    found += PhoneHost(sha256(server).hex(), j.getString("address"), roleOf(j.getString("role")), d,
+                        j.getString("alias"), EspStore(h, p, parseCert(server), key, parseCert(File(d, "device.der").readBytes())))
+                }
+            }
+        }
+        hosts = found.sortedWith(compareBy({ it.role }, { it.id }))
+        // A pin.json from before PINs named their host is today's PIN host's: say so, so a second board can't change that
+        pinHost?.let { h ->
+            runCatching {
+                val j = JSONObject(pinFile.readText())
+                if (j.optString("host").isEmpty()) pinFile.writeText(j.put("host", h.id).toString())
+            }
+        }
+        if (hosts.isEmpty() && !BuildConfig.DEMO && !prefs.getBoolean("standalone", false)) return
+        vault = Vault(LocalStore(File(dir, "vault.json")), hosts.map { Host(it.id, it.role, it.store) }, File(dir, "sync.json"))
         hasVault = null
         screen = Screen.Unlock
     }
@@ -180,10 +233,12 @@ object App {
         val v = vault ?: return
         sync = v.status
         syncError = v.error
+        hostStatus = v.hostStatus.associate { it.host.id to it.status }
         if (v.status == Vault.Sync.Ok) syncedAt = System.currentTimeMillis()
     }
 
     private fun opened() {
+        hasVault = true // open now, whatever the last check said (a vault just created was "none" before)
         items = vault!!.credentials()
         showStatus()
         screen = Screen.Vault
@@ -241,19 +296,84 @@ object App {
             if (code.isEmpty()) throw PairError("The code on the board has 16 characters. Check it and try again.")
             val alias = "device-${System.currentTimeMillis()}"
             val keys = newDeviceKey(alias)
+            val (h, port) = parseHost(hostText)
             val p = try {
-                pairWithBoard(parseHost(hostText).first, PAIR_PORT, name, code, keys)
+                pairWithBoard(h, if (port == 443) PAIR_PORT else port + 1, name, code, keys) // other hosts: port + 1
             } catch (e: Exception) {
                 keystore().deleteEntry(alias)
                 throw e
             }
-            File(dir, "server.der").writeBytes(p.server.encoded)
-            File(dir, "device.der").writeBytes(p.cert.encoded)
-            prefs.getString("alias", null)?.let { keystore().deleteEntry(it) }
-            prefs.edit().putString("host", hostText.trim()).putString("alias", alias).putString("name", name).commit()
-            pinFile.delete() // re-pairing deleted this name's PIN on the board
-            load()
+            prefs.edit().putString("name", name).apply()
+            addHost(hostText.trim(), alias, keys, p)
         }
+    }
+
+    /** §9's result, in hosts/<id prefix>/. Pairing a host again replaces this phone's key and files for it. */
+    private fun addHost(address: String, alias: String, keys: KeyPair, p: Paired) {
+        val id = sha256(p.server.encoded).hex()
+        val (h, port) = parseHost(address)
+        val store = EspStore(h, port, p.server, keys.private, p.cert)
+        val role = try {
+            store.info().role // also proves the host accepts the cert it just issued, before anything is saved
+        } catch (e: Exception) {
+            keystore().deleteEntry(alias)
+            throw e
+        }
+        hosts.find { it.id == id }?.let { old -> // its PIN record went with the old pairing (§9)
+            if (pinBelongsTo(pinFile, id, pinHost?.id)) pinFile.delete()
+            keystore().deleteEntry(old.alias)
+            vault?.removeHost(id)
+            hosts = hosts - old
+        }
+        val d = File(dir, "hosts/${id.take(16)}")
+        saveHost(d, p.server.encoded, p.cert.encoded, address, role, alias)
+        hosts = (hosts + PhoneHost(id, address, role, d, alias, store)).sortedWith(compareBy({ it.role }, { it.id }))
+        val v = vault ?: return load() // the first pairing: the vault comes with it
+        v.addHost(Host(id, role, store))
+        v.sync()
+        if (v.unlocked) opened() else { showStatus(); screen = Screen.Unlock }
+        notice = "Paired with $address."
+    }
+
+    /**
+     * §10: this phone's files for the host, its cursors, and pin.json if the PIN is its. [revoke]: ask the host to
+     * revoke this phone first (approved there); if that fails, nothing is forgotten.
+     */
+    fun forgetHost(h: PhoneHost, revoke: Boolean, done: () -> Unit) = run {
+        if (revoke) try {
+            h.store.revokeSelf()
+        } catch (e: DeviceRevoked) { // it already refuses this phone: nothing left to revoke
+        } catch (e: StoreUnavailable) {
+            throw Exception("The host isn't reachable, so it can't revoke this phone. Forget it without revoking, " +
+                "or try again on its network.")
+        }
+        if (pinBelongsTo(pinFile, h.id, pinHost?.id)) pinFile.delete()
+        vault!!.removeHost(h.id)
+        keystore().deleteEntry(h.alias)
+        h.dir.deleteRecursively()
+        hosts = hosts - h
+        if (hosts.isEmpty()) prefs.edit().putBoolean("standalone", true).apply() // keeps working here, unpaired
+        showStatus()
+        notice = "Forgot ${h.address}."
+        main.post(done)
+    }
+
+    fun startPair() {
+        message = ""
+        screen = Screen.Pair
+    }
+
+    /** Back from the Pair screen without pairing: to the vault if it's open. */
+    fun leavePair() {
+        message = ""
+        screen = if (vault?.unlocked == true) Screen.Vault else Screen.Unlock
+    }
+
+    /** No board: the vault stays on this phone until it's paired. */
+    fun useStandalone() {
+        prefs.edit().putBoolean("standalone", true).apply()
+        message = ""
+        load()
     }
 
     fun create(password: String, repeat: String) = run {
@@ -268,7 +388,8 @@ object App {
     }
 
     fun unlockPin(pin: String) = run {
-        when (val r = unlockWithPin(vault!!, board!!, pinFile, pin)) {
+        val h = pinHostOfFile ?: throw Exception("PIN unlock isn't set up here. Use the master password.")
+        when (val r = unlockWithPin(vault!!, h.store, pinFile, pin, h.id)) {
             PinResult.Unlocked -> opened()
             is PinResult.Wrong -> message = if (r.left == 1) "Wrong PIN. 1 try left before the PIN is deleted."
                 else "Wrong PIN. ${r.left} tries left."
@@ -281,7 +402,8 @@ object App {
     fun setPin(master: String, pin: String, repeat: String, done: () -> Unit) = run {
         require(validPin(pin)) { "A PIN is 4 to 32 digits." }
         require(pin == repeat) { "The two PINs don't match." }
-        setPin(vault!!, board!!, pinFile, master, pin)
+        val h = pinHost ?: throw Exception("PIN unlock needs a dedicated host, like the board.")
+        setPin(vault!!, h.store, pinFile, master, pin, h.id)
         notice = "PIN set. Next time, unlock with it while the board is reachable."
         done()
     }
@@ -332,18 +454,59 @@ object App {
     }
 
     /** The board joined another network: same pairing, new address. Re-pairing would also delete the PIN. */
-    fun setHost(text: String, close: () -> Unit) {
+    fun setHost(host: PhoneHost, text: String, close: () -> Unit) {
         val (h, p) = parseHost(text)
-        board!!.host = h
-        board!!.port = p
-        prefs.edit().putString("host", text.trim()).apply()
+        host.store.host = h
+        host.store.port = p
+        File(host.dir, "host.json").let { it.writeText(JSONObject(it.readText()).put("address", text.trim()).toString()) }
+        hosts = hosts.map { if (it.id == host.id) it.copy(address = text.trim()) else it }
         close()
         syncNow()
     }
 
-    fun loadStorage() = run {
+    fun startMerge() {
+        message = ""
+        notice = ""
+        screen = Screen.Merge
+    }
+
+    fun planMerge(boardPassword: String) = run {
+        merge = vault!!.planMerge(boardPassword) ?: throw Exception("That password doesn't open the board's vault.")
+        keepPhone.clear()
+    }
+
+    fun cancelMerge() {
+        merge?.boardKey?.fill(0)
+        merge = null
+        keepPhone.clear()
+        message = ""
+        if (screen == Screen.Merge) screen = Screen.Vault
+    }
+
+    fun applyMerge() = run {
+        val plan = merge!!
+        try {
+            vault!!.applyMerge(plan, plan.conflicts.filterIndexed { i, _ -> keepPhone[i] })
+        } catch (e: Exception) {
+            if (!vault!!.unlocked) { merge = null; hasVault = null; screen = Screen.Unlock } // the vault was swapped
+            throw e
+        }
+        plan.boardKey.fill(0)
+        merge = null
+        keepPhone.clear()
+        val hadFingerprint = bioOn
+        Biometric.disable(bioFile) // both sealed the old vault's key
+        bioOn = false
+        pinFile.delete()
+        opened()
+        notice = "Merged. From now on, unlock with the board vault's master password." +
+            if (hadFingerprint) " Set up fingerprint unlock again in Settings." else ""
+    }
+
+    fun loadStorage(h: PhoneHost) = run {
+        storage = ""
         storage = try {
-            board!!.storage().text().removePrefix("Board storage: ")
+            h.store.storage().text().removePrefix("Board storage: ")
         } catch (e: StoreUnavailable) {
             "Unknown while the board is offline"
         }
@@ -373,10 +536,11 @@ object App {
     // Queued behind any running unlock, so a vault opened while going to the background is locked again too
     fun lock() = worker.execute {
         vault?.lock()
+        main.post { cancelMerge() }
         items = emptyList()
         message = ""
         notice = ""
-        if (screen == Screen.Vault) screen = Screen.Unlock
+        if (screen == Screen.Vault || screen == Screen.Merge) screen = Screen.Unlock
     }
 }
 
@@ -395,6 +559,7 @@ class MainActivity : ComponentActivity() {
                             Screen.Pair -> PairScreen()
                             Screen.Unlock -> UnlockScreen()
                             Screen.Vault -> VaultScreen()
+                            Screen.Merge -> MergeScreen()
                         }
                     }
                 }
@@ -428,12 +593,13 @@ private fun clock(ms: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).for
 // ---- shared pieces ----
 
 /** The status of the board, in the board's own words and font, for the top of the unlock and vault screens. */
-private fun boardLine(): String = when {
-    !App.hasBoard -> "no board (demo)"
+private fun boardLine(time: Boolean = true): String = when {
+    !App.hasBoard -> if (BuildConfig.DEMO) "no board (demo)" else "no board"
     App.hasVault == null && App.busy -> "reaching board..."
-    App.sync == Vault.Sync.Ok -> "synced " + (App.syncedAt?.let(::clock) ?: "")
+    App.sync == Vault.Sync.Ok -> if (time) "synced " + (App.syncedAt?.let(::clock) ?: "") else "synced"
     App.sync == Vault.Sync.Offline -> "board offline"
     App.sync == Vault.Sync.Error -> "sync failed"
+    App.sync == Vault.Sync.Mismatch -> "other vault"
     else -> "board not checked"
 }
 
@@ -460,7 +626,7 @@ private fun Heading(text: String) =
 @Composable
 private fun ColumnScope.PairScreen() {
     val ctx = LocalContext.current
-    var host by rememberSaveable { mutableStateOf(App.host) }
+    var host by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf(App.deviceName) }
     var code by rememberSaveable { mutableStateOf("") }
     var typing by rememberSaveable { mutableStateOf(false) }
@@ -486,9 +652,11 @@ private fun ColumnScope.PairScreen() {
             OledText("to approve", y = 54)), rules = listOf(10))
         else Oled(listOf(OledText("pair this phone"), OledText("1 press BOOT", y = 18), OledText("2 scan its code", y = 30),
             OledText("3 press BOOT again", y = 42)), rules = listOf(10))
-        Heading("Pair with the board")
+        Heading(if (App.hasBoard) "Add a host" else "Pair with the board")
         Prose("The board shows a code for 2 minutes after you press BOOT. Scan it, then press BOOT again to let this " +
             "phone in.")
+        if (App.paired && !App.hasBoard) Prose("If the board already has a vault, you'll be asked for its master " +
+            "password to merge this phone's entries into it.")
         Field(name, { name = it.lowercase().trim() }, "Name for this phone")
         if (!nameOk) Text("Use 1 to 20 lowercase letters, digits or dashes.", color = palette.danger,
             style = MaterialTheme.typography.bodySmall)
@@ -505,7 +673,8 @@ private fun ColumnScope.PairScreen() {
         else PrimaryButton("Scan the code", { App.message = ""; scan() }, enabled = !App.busy && nameOk)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             QuietButton(if (typing) "Scan instead" else "Type the code instead", { typing = !typing })
-            if (App.paired) QuietButton("Cancel", { App.message = ""; App.screen = Screen.Unlock }, color = palette.muted)
+            if (!App.paired) QuietButton("Use without a board", { App.useStandalone() }, color = palette.muted)
+            else QuietButton("Cancel", { App.leavePair() }, color = palette.muted)
         }
     }
 }
@@ -524,7 +693,7 @@ private fun ColumnScope.UnlockScreen() {
     // What's set up on this phone, best first. A PIN needs the board; a fingerprint doesn't.
     val methods = listOfNotNull(
         Method.Fingerprint.takeIf { App.bioOn && Biometric.available(ctx) },
-        Method.Pin.takeIf { App.hasBoard && App.pinFile.exists() },
+        Method.Pin.takeIf { App.pinHostOfFile != null },
         Method.Password,
     )
     var chosen by remember { mutableStateOf<Method?>(null) }
@@ -545,7 +714,7 @@ private fun ColumnScope.UnlockScreen() {
     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { // the root's safeDrawingPadding already makes room for the keyboard
         Spacer(Modifier.height(16.dp))
         Oled(listOf(OledText("pwvault", x = 22, y = 14, size = 2), OledText(boardLine(), y = 42),
-            OledText(if (App.hasBoard) App.host else "local vault", y = 56)))
+            OledText(App.hosts.firstOrNull()?.address ?: "local vault", y = 56)))
         when {
             App.hasVault == null -> Prose("Looking for the vault on the board.", Modifier.padding(top = 16.dp))
             stranded -> {
@@ -592,7 +761,8 @@ private fun ColumnScope.UnlockScreen() {
                         Method.Password -> "Master password"
                     }, { chosen = m; secret = ""; App.message = "" })
             }
-            if (!BuildConfig.DEMO) QuietButton("Pair again", { App.message = ""; App.screen = Screen.Pair }, color = palette.muted)
+            if (!BuildConfig.DEMO) QuietButton(if (App.hasBoard) "Pair a host" else "Pair with a board", { App.startPair() },
+                color = palette.muted)
         }
     }
 }
@@ -607,19 +777,23 @@ private fun ColumnScope.VaultScreen() {
     var edit by remember { mutableStateOf<Credential?>(null) } // platform "" = a new entry
     var pinSheet by remember { mutableStateOf(false) }
     var bioSheet by remember { mutableStateOf(false) }
-    var hostSheet by remember { mutableStateOf(false) }
+    var hostSheet by remember { mutableStateOf<PhoneHost?>(null) }
     var settings by remember { mutableStateOf(false) }
     val shown = App.items.filter { it.platform.contains(query, true) || it.username.contains(query, true) }
     val count = App.items.size
 
     Spacer(Modifier.height(12.dp))
     // One line of the board's screen: how the vault stands, and how big it is
-    Oled(listOf(OledText(if (App.syncing) "syncing..." else boardLine(), y = 2),
-        OledText(if (count == 1) "1 entry" else "$count entries", y = 2, right = true)), rows = 11)
+    val state = if (App.syncing) "syncing..." else boardLine(time = false)
+    val size = (if (count == 1) "1 entry" else "$count entries").let { if ((state.length + it.length + 1) * 6 > 128) "$count" else it }
+    Oled(listOf(OledText(state, y = 2), OledText(size, y = 2, right = true)), rows = 11)
     if (App.sync == Vault.Sync.Error && App.syncError.isNotEmpty())
         Text(App.syncError, Modifier.padding(top = 8.dp), color = palette.danger, style = MaterialTheme.typography.bodySmall,
             maxLines = 3, overflow = TextOverflow.Ellipsis)
     App.update?.let { r -> UpdateBanner(r) }
+    if (App.sync == Vault.Sync.Mismatch) Banner("The board holds a different vault. Move this phone's entries into it?") {
+        QuietButton("Merge", { App.startMerge() }, enabled = !App.busy)
+    }
     if (count > 0) Field(query, { query = it }, "Search", Modifier.padding(top = 8.dp))
     Feedback()
 
@@ -627,7 +801,8 @@ private fun ColumnScope.VaultScreen() {
         LazyColumn(Modifier.fillMaxSize()) {
             if (count == 0) item {
                 Heading("No entries yet")
-                Prose("Add the first one with the button below. It's saved on this phone and on the board.")
+                Prose("Add the first one with the button below. It's saved on this phone" +
+                    if (App.hasBoard) " and on the board." else ".")
             } else if (shown.isEmpty()) item {
                 Prose("Nothing matches “$query”.", Modifier.padding(top = 16.dp))
             }
@@ -661,10 +836,10 @@ private fun ColumnScope.VaultScreen() {
     edit?.let { EditSheet(it) { edit = null } }
     if (pinSheet) PinSheet { pinSheet = false }
     if (bioSheet) FingerprintSheet { bioSheet = false }
-    if (hostSheet) HostSheet { hostSheet = false }
+    hostSheet?.let { h -> HostSheet(h) { hostSheet = null } }
     // One sheet at a time: a setting that needs its own sheet closes Settings first
     if (settings) SettingsSheet(close = { settings = false }, pin = { settings = false; pinSheet = true },
-        fingerprint = { settings = false; bioSheet = true }, host = { settings = false; hostSheet = true })
+        fingerprint = { settings = false; bioSheet = true }, host = { settings = false; hostSheet = it })
 }
 
 /**
@@ -672,15 +847,14 @@ private fun ColumnScope.VaultScreen() {
  * the setting is now, and its button says what tapping does.
  */
 @Composable
-private fun SettingsSheet(close: () -> Unit, pin: () -> Unit, fingerprint: () -> Unit, host: () -> Unit) {
+private fun SettingsSheet(close: () -> Unit, pin: () -> Unit, fingerprint: () -> Unit, host: (PhoneHost) -> Unit) {
     val ctx = LocalContext.current
-    LaunchedEffect(Unit) { if (App.hasBoard) App.loadStorage() }
     Sheet(close) { Column(Modifier.verticalScroll(rememberScrollState())) { // taller than a small phone
         Text("Settings", color = palette.ink, style = MaterialTheme.typography.headlineSmall)
 
         Group("This phone")
         Setting("Name", App.deviceName)
-        if (App.hasBoard) Setting("PIN unlock", if (App.pinFile.exists()) "On, while the board is reachable" else "Off") {
+        if (App.pinHost != null) Setting("PIN unlock", if (App.pinFile.exists()) "On, while the board is reachable" else "Off") {
             QuietButton(if (App.pinFile.exists()) "Change" else "Set up", pin)
         }
         if (App.bioOn || Biometric.available(ctx)) Setting("Fingerprint unlock", if (App.bioOn) "On" else "Off") {
@@ -688,15 +862,19 @@ private fun SettingsSheet(close: () -> Unit, pin: () -> Unit, fingerprint: () ->
                 colors = SwitchDefaults.colors(checkedTrackColor = palette.accent, checkedThumbColor = palette.onAccent))
         }
 
-        if (App.hasBoard) {
-            Group("Board")
-            Setting("Sync", boardLine().replaceFirstChar { it.uppercase() }) {
+        if (!BuildConfig.DEMO) {
+            // §6: the board, or a computer running pwvault --serve; this phone syncs with whichever it can reach
+            Group("Hosts")
+            if (App.hasBoard) Setting("Sync", boardLine().replaceFirstChar { it.uppercase() }) {
                 QuietButton("Sync now", { App.syncNow() }, enabled = !App.busy)
             }
-            Setting("Storage", App.storage.ifEmpty { "Checking..." })
-            Setting("Address", App.host) { QuietButton("Change", host) }
-            Setting("Pairing", "Paired as ${App.deviceName}") {
-                QuietButton("Pair again", { close(); App.message = ""; App.screen = Screen.Pair }, color = palette.muted)
+            for (h in App.hosts) Setting(h.address, "${h.role.name.lowercase()} host, ${hostLine(h)}") {
+                QuietButton("Manage", { host(h) })
+            }
+            if (!App.hasBoard) Setting("Pairing", "None: the vault is only on this phone") {
+                QuietButton("Pair", { close(); App.startPair() })
+            } else Setting("Add a host", "Another board, or a computer that hosts the vault") {
+                QuietButton("Add", { close(); App.startPair() })
             }
         }
 
@@ -731,34 +909,173 @@ private fun Setting(name: String, value: String, action: (@Composable () -> Unit
     HorizontalDivider(color = palette.line)
 }
 
+private fun hostLine(h: PhoneHost) = when (App.hostStatus[h.id]) {
+    Vault.Sync.Ok -> "synced"
+    Vault.Sync.Offline -> "not reachable from here"
+    Vault.Sync.Mismatch -> "holds another vault"
+    Vault.Sync.Error -> "sync failed"
+    else -> "not checked yet"
+}
+
+/** One host: its address (it may move network), storage, pairing, and forgetting it (§10). */
 @Composable
-private fun HostSheet(close: () -> Unit) {
-    var host by remember { mutableStateOf(App.host) }
-    val go = { if (host.isNotBlank()) App.setHost(host, close) }
-    Sheet(close) {
-        Text("Board address", color = palette.ink, style = MaterialTheme.typography.headlineSmall)
-        Prose("If the board joined another network, type the IP its screen shows now. The pairing and PIN stay.")
-        Field(host, { host = it }, "Board address", onDone = go)
+private fun HostSheet(h: PhoneHost, close: () -> Unit) {
+    LaunchedEffect(h.id) { App.loadStorage(h) }
+    var address by remember { mutableStateOf(h.address) }
+    var forgetting by remember { mutableStateOf(false) }
+    val go = { if (address.isNotBlank()) App.setHost(h, address, close) }
+    Sheet(close) { Column(Modifier.verticalScroll(rememberScrollState())) {
+        Text(h.address, color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+        Prose("A ${h.role.name.lowercase()} host, ${hostLine(h)}. Storage: ${App.storage.ifEmpty { "checking..." }}")
+        Field(address, { address = it }, "Address", onDone = go)
+        Text("If it joined another network, type the IP it shows now. The pairing and PIN stay.",
+            color = palette.muted, style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            QuietButton("Cancel", close, color = palette.muted)
-            Spacer(Modifier.width(8.dp))
-            PrimaryButton("Save", go, enabled = !App.busy && host.isNotBlank(), modifier = Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
+            PrimaryButton("Save address", go, enabled = !App.busy && address.isNotBlank() && address != h.address,
+                modifier = Modifier.width(160.dp))
         }
+        HorizontalDivider(Modifier.padding(vertical = 16.dp), color = palette.line)
+        if (forgetting) {
+            Text("Forget ${h.address}? This phone stops syncing with it and deletes its certificate for it. The vault on " +
+                "this phone stays. Asking the host to revoke this phone first needs an approval there (BOOT on the board).",
+                color = palette.ink, style = MaterialTheme.typography.bodyMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                QuietButton("Keep it", { forgetting = false }, color = palette.muted)
+                QuietButton("Forget", { App.forgetHost(h, revoke = false, close) }, color = palette.danger, enabled = !App.busy)
+                QuietButton("Revoke, then forget", { App.forgetHost(h, revoke = true, close) }, color = palette.danger,
+                    enabled = !App.busy)
+            }
+        } else QuietButton("Forget this host", { forgetting = true }, color = palette.danger)
         Feedback()
-    }
+    } }
 }
 
 @Composable
 private fun UpdateBanner(r: Release) {
     val ctx = LocalContext.current
+    val p = App.updating
+    Banner(if (p == null) "pwvault ${r.version.trimStart('v')} is available." else "Downloading the update, $p%") {
+        QuietButton("Update", { App.installUpdate(ctx) }, enabled = p == null)
+    }
+}
+
+@Composable
+private fun Banner(text: String, action: @Composable () -> Unit) =
     Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(6.dp)).background(palette.surface)
         .border(1.dp, palette.line, RoundedCornerShape(6.dp)).padding(start = 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        val p = App.updating
-        Text(if (p == null) "pwvault ${r.version.trimStart('v')} is available." else "Downloading the update, $p%",
-            Modifier.weight(1f), color = palette.ink, style = MaterialTheme.typography.bodyMedium)
-        QuietButton("Update", { App.installUpdate(ctx) }, enabled = p == null)
+        Text(text, Modifier.weight(1f), color = palette.ink, style = MaterialTheme.typography.bodyMedium)
+        action()
     }
+
+// ---- merge ----
+
+/**
+ * This phone's vault into the board's, when they differ (a phone used standalone, then paired): the board vault's
+ * password, then each conflict, then a summary. Nothing is written before Merge.
+ */
+@Composable
+private fun ColumnScope.MergeScreen() {
+    val plan = App.merge
+    val step = App.keepPhone.size // conflicts decided so far
+    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        Spacer(Modifier.height(16.dp))
+        when {
+            plan == null -> MergePassword()
+            step < plan.conflicts.size -> MergeConflict(plan.conflicts[step], step, plan.conflicts.size)
+            else -> MergeSummary(plan)
+        }
+        Feedback()
+    }
+    Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
+        when {
+            plan == null -> {}
+            step < plan.conflicts.size -> {
+                val left = plan.conflicts.size - step
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PrimaryButton("Keep phone's", { App.keepPhone += true }, modifier = Modifier.weight(1f))
+                    PrimaryButton("Keep board's", { App.keepPhone += false }, modifier = Modifier.weight(1f))
+                }
+                if (left >= 2) QuietButton("Use the newer one for the rest", {
+                    plan.conflicts.drop(step).forEach { App.keepPhone += it.phoneUpdated > it.boardUpdated }
+                }, color = palette.muted, modifier = Modifier.fillMaxWidth())
+            }
+            else -> PrimaryButton("Merge", { App.applyMerge() }, enabled = !App.busy)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            QuietButton("Cancel", { App.cancelMerge() }, color = palette.muted, enabled = !App.busy)
+            if (plan != null && step > 0) QuietButton("Back", { App.keepPhone.removeAt(step - 1) }, enabled = !App.busy)
+        }
+    }
+}
+
+@Composable
+private fun MergePassword() {
+    var secret by remember { mutableStateOf("") }
+    val go = { if (secret.isNotEmpty()) { App.planMerge(secret); secret = "" } }
+    Heading("Merge into the board's vault")
+    Prose("The board holds a different vault. Its entries stay; this phone's are added to it, and you choose where " +
+        "both have the same site. Afterwards this phone uses the board's vault and its master password.")
+    Field(secret, { secret = it }, "The board vault's master password", secret = true, onDone = go)
+    PrimaryButton("Continue", go, enabled = !App.busy && secret.isNotEmpty(), modifier = Modifier.padding(top = 8.dp))
+}
+
+@Composable
+private fun MergeConflict(c: Conflict, i: Int, n: Int) {
+    Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(c.board.platform, Modifier.weight(1f), color = palette.ink, style = MaterialTheme.typography.headlineSmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${i + 1} of $n", color = palette.muted, style = MaterialTheme.typography.bodyMedium)
+    }
+    val user = c.phone.username != c.board.username
+    val pass = c.phone.password != c.board.password
+    Prose(when {
+        user && pass -> "The username and the password differ."
+        user -> "The usernames differ; the passwords are the same."
+        else -> "The passwords differ; the usernames are the same."
+    })
+    key(c) { // each conflict starts with its passwords hidden
+        MergeCard("This phone", c.phone, c.phoneUpdated, c.phoneUpdated > c.boardUpdated, user)
+        MergeCard("Board", c.board, c.boardUpdated, c.boardUpdated > c.phoneUpdated, user)
+    }
+}
+
+/** One side of a conflict. The dates come from each device's clock: "newer" is a hint. */
+@Composable
+private fun MergeCard(title: String, c: Credential, updated: Long, newer: Boolean, userDiffers: Boolean) {
+    var show by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(6.dp)).background(palette.surface)
+        .border(1.dp, palette.line, RoundedCornerShape(6.dp)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), color = palette.accent, style = MaterialTheme.typography.titleMedium)
+            if (newer) Text("newer", color = palette.accent, style = MaterialTheme.typography.labelLarge)
+        }
+        Text(c.username, Modifier.padding(top = 4.dp), color = if (userDiffers) palette.ink else palette.muted,
+            style = MaterialTheme.typography.bodyLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (show) c.password else "•".repeat(12), Modifier.weight(1f), color = palette.ink, style = Mono)
+            QuietButton(if (show) "Hide" else "Show", { show = !show }, color = palette.muted)
+        }
+        Text("Changed " + SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()).format(Date(updated)),
+            color = palette.muted, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun MergeSummary(plan: MergePlan) {
+    val phone = App.keepPhone.count { it }
+    val board = plan.conflicts.size - phone
+    Heading("Ready to merge")
+    val lines = listOfNotNull(
+        plan.add.size.takeIf { it > 0 }?.let { "Adds $it from this phone." },
+        phone.takeIf { it > 0 }?.let { "Replaces $it on the board with this phone's." },
+        board.takeIf { it > 0 }?.let { "Keeps the board's for $it." },
+        plan.same.takeIf { it > 0 }?.let { "$it already match." },
+    ).ifEmpty { listOf("Nothing to add: the board already has everything.") }
+    for (l in lines) Prose(l)
+    Prose("From now on, unlock with the board vault's master password." +
+        if (App.bioOn || App.pinFile.exists()) " Fingerprint and PIN unlock need setting up again." else "")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

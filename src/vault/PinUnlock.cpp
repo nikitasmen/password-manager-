@@ -18,10 +18,24 @@ std::optional<PinFile> loadPinFile(const std::string& path) {
     nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
     if (!in || !j.is_object()) return std::nullopt;
     try {
-        return PinFile{j.at("salt"), j.at("iter"), j.at("blob")};
+        return PinFile{j.at("salt"), j.at("iter"), j.at("blob"), j.value("host", "")};
     } catch (const nlohmann::json::exception&) {
         return std::nullopt;
     }
+}
+
+std::string readFile(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), {}};
+}
+
+bool pinBelongsTo(const PinFile& f, const std::string& hostId, const std::string& pinHostId) {
+    return f.host.empty() ? hostId == pinHostId : f.host == hostId;
+}
+
+std::string pinHostId(const PinFile& f, const std::vector<std::string>& dedicated) {
+    if (f.host.empty()) return dedicated.empty() ? "" : dedicated.front();
+    return std::find(dedicated.begin(), dedicated.end(), f.host) != dedicated.end() ? f.host : "";
 }
 
 void writePrivateTmp(const std::string& path, const std::string& content) {
@@ -37,7 +51,9 @@ void writePrivateTmp(const std::string& path, const std::string& content) {
 }
 
 void savePinFile(const std::string& path, const PinFile& f) {
-    writePrivateTmp(path, nlohmann::json{{"salt", f.salt}, {"iter", f.iterations}, {"blob", f.blob}}.dump());
+    nlohmann::json j{{"salt", f.salt}, {"iter", f.iterations}, {"blob", f.blob}};
+    if (!f.host.empty()) j["host"] = f.host;
+    writePrivateTmp(path, j.dump());
     std::filesystem::rename(path + ".tmp", path);
 }
 

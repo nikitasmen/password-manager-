@@ -11,32 +11,23 @@
 
 #include "../core/base64.h"
 #include "Crypto.h"
+#include "OpenSsl.h"
 
 namespace {
 
 constexpr const char* kCertName = "pwvault.local";  // name baked into the ESP32's cert
 
-template <class T, void (*Free)(T*)>
-using Owned = std::unique_ptr<T, std::integral_constant<decltype(Free), Free>>;
-using Pkey = Owned<EVP_PKEY, EVP_PKEY_free>;
-using Cert = Owned<X509, X509_free>;
-using Req = Owned<X509_REQ, X509_REQ_free>;
-using Bio = Owned<BIO, BIO_free_all>;
 using Curl = Owned<CURL, curl_easy_cleanup>;
 using Slist = Owned<curl_slist, curl_slist_free_all>;
 
-std::string bioString(BIO* b) {
-    char* p = nullptr;
-    long n = BIO_get_mem_data(b, &p);
-    return std::string(p, n);
+}  // namespace
+
+std::string certFingerprint(const std::string& pem) {
+    Cert x = readCert(pem);
+    return x ? vaultcrypto::sha256Hex(der(x.get())) : "";
 }
 
-std::string der(X509* x) {
-    std::string out(i2d_X509(x, nullptr), '\0');
-    auto* p = reinterpret_cast<unsigned char*>(out.data());
-    i2d_X509(x, &p);
-    return out;
-}
+namespace {
 
 size_t collect(char* data, size_t size, size_t n, void* out) {
     static_cast<std::string*>(out)->append(data, size * n);
@@ -93,8 +84,7 @@ PairedFiles pairWithBoard(const std::string& host, int pairPort, const std::stri
     if (code.size() != 16) throw PairError("The code on the OLED has 16 characters.");
     PairedFiles out;
     out.serverPem = fetchServerCert(host, pairPort);
-    Bio serverBio(BIO_new_mem_buf(out.serverPem.data(), static_cast<int>(out.serverPem.size())));
-    Cert server(PEM_read_bio_X509(serverBio.get(), nullptr, nullptr, nullptr));
+    Cert server = readCert(out.serverPem);
     if (!server) throw PairError("The board's certificate couldn't be read.");
     const std::string fp = vaultcrypto::sha256Hex(der(server.get()));
 

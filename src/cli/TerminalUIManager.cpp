@@ -7,7 +7,6 @@
 
 #include "../config/GlobalConfig.h"
 #include "../core/clipboard.h"
-#include "../core/qrcodegen.hpp"
 #include "../core/terminal_ui.h"
 #include "../updater/AppUpdater.h"
 #include "../utils/EncryptionUtils.h"
@@ -73,24 +72,6 @@ CipherAlg askCipher(CipherAlg current) {
     return i >= 1 && i <= static_cast<int>(all.size()) ? all[i - 1] : current;
 }
 
-// A QR code in half blocks (two modules per character row), black on white with a 4-module quiet zone.
-// Colours are set explicitly so it scans on dark terminal themes too.
-std::string qrText(const std::string& text) {
-    const auto qr = qrcodegen::QrCode::encodeText(text.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
-    const int n = qr.getSize();
-    auto dark = [&](int x, int y) { return x >= 0 && y >= 0 && x < n && y < n && qr.getModule(x, y); };
-    std::string out;
-    for (int y = -4; y < n + 4; y += 2) {
-        out += "\033[30;47m";
-        for (int x = -4; x < n + 4; x++) {
-            const bool top = dark(x, y), bottom = dark(x, y + 1);
-            out += top && bottom ? "\u2588" : top ? "\u2580" : bottom ? "\u2584" : " ";
-        }
-        out += "\033[0m\n";
-    }
-    return out;
-}
-
 }  // namespace
 
 TerminalUIManager::TerminalUIManager(const std::string& dataPath) : UIManager(dataPath) {
@@ -102,50 +83,41 @@ void TerminalUIManager::initialize() {
 }
 
 void TerminalUIManager::connector() {
-    std::string detail;
-    BoardState state = checkBoard(detail);
-    while (state != BoardState::Connected) {
-        header("Connect to your ESP32");
-        std::cout << (state == BoardState::Unreachable ? danger(detail) : detail) << "\n\n";
-        if (state == BoardState::NotPaired)
-            std::cout << "To pair: press " << bold("BOOT") << " on the board (it shows a code), then press "
-                      << accent("p") << " here.\n\n";
-        std::cout << muted(ConfigManager::getInstance().getConfig().localCopy
-                               ? "Without the board, the app uses this computer's copy and syncs later."
-                               : "Device-only mode: without the board there's no vault to open.")
+    std::string detail, address;
+    while (checkBoard(detail, address) != BoardState::Connected) {
+        header("Pair with your host");
+        std::cout << detail << "\n\nTo pair: open pairing on the host (BOOT on the board), then press " << accent("p")
+                  << " here.\n\n"
+                  << muted(ConfigManager::getInstance().getConfig().localCopy
+                               ? "Without it, the app uses this computer's copy and syncs with any other host."
+                               : "Device-only mode: without the host there's no vault to open.")
                   << "\n\n"
-                  << legend({{"p", "pair"}, {"a", "change address"}, {"r", "check again"}, {"Enter", "continue without it"}})
-                  << "\n";
+                  << legend({{"p", "pair"}, {"r", "check again"}, {"Enter", "continue without it"}}) << "\n";
         std::string in = readLine("> ");
         if (in.empty()) return;
-        if (in == "a") {
-            setBoardHost(readLine("Board address (the IP on its screen): "));
-        } else if (in == "p") {
-            const std::string def = defaultDeviceName();
-            std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
-            if (name.empty()) name = def;
-            const std::string code = normalizePairCode(readLine("Code on the board: "));
-            if (!validDeviceName(name) || code.empty()) {
-                message_ = danger(code.empty() ? "The code on the board has 16 characters."
-                                               : "Use 1-20 characters of a-z, 0-9 and - for the name.");
-                continue;
-            }
-            std::cout << "Now press BOOT on the board to approve '" << name << "' (within a minute)..." << std::flush;
-            try {
-                std::string why;
-                const std::string host = ConfigManager::getInstance().getConfig().espHost;
-                if (!savePairing(pairWithBoard(host, kPairPort, name, code), why)) throw PairError(why);
-                message_ = accent("Paired as " + name + ".");
-            } catch (const std::exception& e) {
-                message_ = danger(e.what());
-                continue;
-            }
-        } else if (in != "r") {
-            continue;
-        }
-        state = checkBoard(detail);
+        if (in == "p") pairWith(address);
     }
-    if (message_.empty() && detail.size()) message_ = accent("Connected to the ESP32.");
+}
+
+bool TerminalUIManager::pairWith(std::string address) {
+    const std::string typed =
+        readLine("Host address (the IP it shows; add :port if it isn't the board)" +
+                 (address.empty() ? std::string() : " " + muted("[" + address + "]")) + ": ");
+    if (!typed.empty()) address = typed;
+    const std::string def = defaultDeviceName();
+    std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
+    if (name.empty()) name = def;
+    const std::string code = normalizePairCode(readLine("Code on the host: "));
+    if (!validDeviceName(name) || code.empty()) {
+        message_ = danger(code.empty() ? "The code has 16 characters."
+                                       : "Use 1-20 characters of a-z, 0-9 and - for the name.");
+        return false;
+    }
+    std::cout << "Now approve '" << name << "' on the host (BOOT on the board), within a minute..." << std::flush;
+    std::string error;
+    const bool ok = safeAddHost(address, name, code, error);
+    message_ = ok ? accent("Paired with " + address + ".") : danger(error);
+    return ok;
 }
 
 void TerminalUIManager::header(const std::string& state) {
@@ -153,13 +125,15 @@ void TerminalUIManager::header(const std::string& state) {
     const AppConfig& c = ConfigManager::getInstance().getConfig();
     using S = VaultService::SyncStatus;
     const S s = vault->lastSyncStatus();
-    std::string where = c.espHost.empty() ? muted("Vault on this computer")
-                        : !c.localCopy    ? (s == S::Offline ? danger("ESP32 at " + c.espHost + " is unreachable")
-                                                             : muted("Vault on the ESP32 at " + c.espHost + ", nothing stored here"))
-                        : s == S::Ok      ? muted("Synced with the ESP32 at " + c.espHost)
-                        : s == S::Offline ? muted("ESP32 offline, working on this computer's copy")
-                        : s == S::Error   ? danger("ESP32 sync error: " + vault->lastSyncError())
-                                          : muted("Vault on this computer, syncs with the ESP32 at " + c.espHost);
+    const std::string at = boardAddress();
+    std::string where = at.empty() ? muted("Vault on this computer")
+                        : !c.localCopy
+                            ? (s == S::Offline ? danger("The host at " + at + " is unreachable")
+                                               : muted("Vault on the host at " + at + ", nothing stored here"))
+                        : s == S::Ok      ? muted("Synced with " + at)
+                        : s == S::Offline ? muted("Hosts offline, working on this computer's copy")
+                        : s == S::Error   ? danger("Sync error: " + vault->lastSyncError())
+                                          : muted("Vault on this computer, syncs with " + at);
     auto panel = oled(now("%H:%M"));
     std::vector<std::string> side = {"", bold(state), where, ""};
     for (size_t i = 0; i < panel.size(); i++) std::cout << panel[i] << "  " << side[i] << "\n";
@@ -281,7 +255,8 @@ void TerminalUIManager::home() {
         std::vector<std::pair<std::string, std::string>> keys;
         if (!shown.empty()) keys.push_back({shown.size() == 1 ? "1" : "1-" + std::to_string(shown.size()), "open"});
         keys.insert(keys.end(), {{"n", "new"}, {"/text", "search"}, {"p", "master password"}});
-        if (board_) keys.insert(keys.end(), {{"k", "PIN"}, {"d", "devices"}});
+        if (pinHost()) keys.push_back({"k", "PIN"});
+        keys.push_back({"d", "hosts & devices"});
         keys.insert(keys.end(), {{"u", "update"}, {"l", "lock"}, {"q", "quit"}});
         std::cout << "\n" << legend(keys) << "\n";
 
@@ -295,10 +270,10 @@ void TerminalUIManager::home() {
             newEntry();
         } else if (in == "p") {
             changeMasterPassword();
-        } else if (in == "k" && board_) {
+        } else if (in == "k" && pinHost()) {
             pinScreen();
-        } else if (in == "d" && board_) {
-            devicesScreen();
+        } else if (in == "d") {
+            hostsScreen();
         } else if (in == "u") {
             updateApp();
         } else if (!in.empty() && in[0] == '/') {
@@ -463,16 +438,69 @@ void TerminalUIManager::pinScreen() {
     vaultcrypto::wipe(master), vaultcrypto::wipe(pin), vaultcrypto::wipe(repeat);
 }
 
-void TerminalUIManager::devicesScreen() {
+void TerminalUIManager::hostsScreen() {
+    while (isLoggedIn) {
+        header("Hosts");
+        std::cout
+            << "Hosts keep a copy of the vault for your devices to sync with: the ESP32 board, or a computer that\n"
+            << "runs pwvault --serve. Each network has one; this computer syncs with whichever it can reach.\n\n";
+        std::vector<std::string> rows;
+        for (const PairedHost& h : hosts_)
+            rows.push_back(bold(h.address) + "  " + hostRoleName(h.role) + "  " + muted(hostStatusText(h)));
+        if (rows.empty()) std::cout << muted("None yet: this computer keeps the vault on its own.") << "\n";
+        printEntries(rows);
+        std::vector<std::pair<std::string, std::string>> keys;
+        const std::string range = hosts_.size() == 1 ? "1" : "1-" + std::to_string(hosts_.size());
+        if (!hosts_.empty())
+            keys.insert(keys.end(), {{range, "devices"}, {"c " + range, "change address"}, {"f " + range, "forget"}});
+        if (!deviceOnly_) keys.push_back({"a", "add a host"});
+        keys.push_back({"Enter", "back"});
+        std::cout << "\n" << legend(keys) << "\n";
+
+        std::string in = readLine("> "), error;
+        if (in.empty()) return;
+        if (lower(in) == "a" && !deviceOnly_) {
+            std::cout << "\nOn the host: press BOOT on the board (or p in its pwvault --serve). It shows a code.\n";
+            pairWith("");
+            continue;
+        }
+        const char action = in.size() > 2 && in[1] == ' ' ? static_cast<char>(std::tolower(in[0])) : 0;  // c, f
+        int n = std::atoi(in.c_str() + (action ? 2 : 0));
+        if (n < 1 || n > static_cast<int>(hosts_.size()) || (action && action != 'c' && action != 'f')) {
+            message_ = danger("Type a number from the list, or c or f and a number.");
+            continue;
+        }
+        const PairedHost h = hosts_[n - 1];
+        if (!action) {
+            devicesScreen(h);
+            continue;
+        }
+        if (action == 'c') {  // it joined another network: same pairing, new address
+            const std::string to = readLine("New address for " + h.address + " (the IP it shows now): ");
+            if (!to.empty())
+                message_ = safeSetHostAddress(h.id, to, error) ? accent("Saved: " + to + ".") : danger(error);
+            continue;
+        }
+        std::cout << "\nForget " << bold(h.address) << "? This computer stops syncing with it and deletes its "
+                  << "certificate for it. The vault on this computer stays.\n";
+        const std::string how =
+            lower(readLine("Type r to ask the host to revoke this computer first (approve it there), "
+                           "f to just forget it, Enter to cancel: "));
+        if (how != "r" && how != "f") continue;
+        message_ = safeForgetHost(h.id, how == "r", error) ? accent("Forgot " + h.address + ".") : danger(error);
+    }
+}
+
+void TerminalUIManager::devicesScreen(const PairedHost& host) {
     while (isLoggedIn) {
         std::string error;
         EspStore::Storage storage;
-        auto devices = safeListDevices(error, &storage);
+        auto devices = safeListDevices(*host.store, error, &storage);
         if (!devices) {
             message_ = danger(error);
             return;
         }
-        header("Devices");
+        header("Devices on " + host.address);
         std::cout << muted(storageText(storage)) << "\n\n";
         std::vector<std::string> rows;
         for (const auto& d : *devices)
@@ -480,15 +508,15 @@ void TerminalUIManager::devicesScreen() {
                            muted(lastSeenText(d.lastSeen)));
         printEntries(rows);
         std::cout << "\n"
-                  << muted("To add a phone, type a and scan the code with the pwvault app. On a computer, run "
-                            "esp32/pki.sh pair <name> instead.") << "\n\n"
+                  << muted("To add a phone, type a and scan the code with the pwvault app. On a computer, use "
+                            "hosts & devices -> add a host there.") << "\n\n"
                   << legend({{"a", "add a device"}, {"r 1-" + std::to_string(devices->size()), "revoke"}, {"Enter", "back"}})
                   << "\n";
 
         std::string in = readLine("> ");
         if (in.empty()) return;
         if (lower(in) == "a") {
-            auto invite = safeOpenPairing(error);
+            auto invite = safeOpenPairing(*host.store, error);
             if (!invite) {
                 message_ = danger(error);
                 continue;
@@ -511,7 +539,7 @@ void TerminalUIManager::devicesScreen() {
         if (d.thisDevice) std::cout << danger("That's this computer: you'll be locked out here.") << "\n";
         if (lower(readLine("Type yes to revoke: ")) != "yes") continue;
         std::cout << "Press BOOT on the board to confirm (within a minute)..." << std::flush;
-        message_ = safeRevokeDevice(d.name, error) ? accent("Revoked " + d.name + ".") : danger(error);
+        message_ = safeRevokeDevice(*host.store, d.name, error) ? accent("Revoked " + d.name + ".") : danger(error);
     }
 }
 
