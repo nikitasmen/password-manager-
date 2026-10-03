@@ -48,6 +48,59 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: android, path: android/build/outputs/apk/release/pwvault-release.apk }
 
+  firmware:
+    runs-on: ubuntu-latest
+    env:
+      CORE: esp32:esp32@3.3.12  # the same pins as shell.nix
+      CORE_URL: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - run: |
+          arduino-cli core update-index --additional-urls "$CORE_URL"
+          arduino-cli core install "$CORE" --additional-urls "$CORE_URL"
+          arduino-cli lib install "Adafruit SSD1306@2.5.17" "Adafruit GFX Library@1.12.6" "Adafruit BusIO@1.17.4" "ArduinoJson@7.4.3"
+      # No cert.h or secrets.h here: a generic build makes its server cert on first boot and asks for Wi-Fi itself.
+      - run: arduino-cli compile -b esp32:esp32:esp32 --export-binaries --output-dir out esp32/vault
+      - name: Flasher site
+        env: { TAG: '${{ github.ref_name }}' }
+        run: |
+          # The parts, never vault.ino.merged.bin: that's a full 4 MB image and would wipe the vault (LittleFS) and
+          # the saved Wi-Fi (NVS). Offsets are those of the default partition table.
+          mkdir site
+          cp esp32/flash/index.html site/
+          cp out/vault.ino.bootloader.bin site/bootloader.bin
+          cp out/vault.ino.partitions.bin site/partitions.bin
+          cp ~/.arduino15/packages/esp32/hardware/esp32/${CORE##*@}/tools/partitions/boot_app0.bin site/
+          cp out/vault.ino.bin site/firmware.bin
+          cat > site/manifest.json <<EOF
+          {
+            "name": "pwvault board",
+            "version": "$TAG",
+            "new_install_prompt_erase": false,
+            "builds": [{
+              "chipFamily": "ESP32",
+              "parts": [
+                { "path": "bootloader.bin", "offset": 4096 },
+                { "path": "partitions.bin", "offset": 32768 },
+                { "path": "boot_app0.bin", "offset": 57344 },
+                { "path": "firmware.bin", "offset": 65536 }
+              ]
+            }]
+          }
+          EOF
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+
+  pages:
+    needs: firmware
+    runs-on: ubuntu-latest
+    permissions: { pages: write, id-token: write }
+    environment: { name: github-pages, url: '${{ steps.deploy.outputs.page_url }}' }
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
   publish:
     needs: [desktop, android]
     runs-on: ubuntu-latest

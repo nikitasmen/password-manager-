@@ -52,15 +52,16 @@ Run it from anywhere. Settings live in `~/.config/pwvault/config` and the local 
 
 Tested on an ESP32-D0WD with a 128×64 SSD1306 OLED (I2C, SDA 21 / SCL 22, address 0x3C). The pins are constants at the top of `esp32/vault/vault.ino`.
 
-1. **Server certificate:** `esp32/pki.sh server` makes the board's TLS cert (gitignored). Every client pins it.
-2. **Wi-Fi:** `cp esp32/vault/secrets.example.h esp32/vault/secrets.h`, then set your SSID and password (the ESP32 only supports **2.4 GHz**).
-3. **Flash:**
+1. **Flash** from the browser, no toolchain needed: plug the board in over USB and open the flasher page (`https://nikitasmen.github.io/password-manager-/`) in Chrome or Edge on a computer, or Chrome on Android with a USB-OTG cable. Every release publishes it. From source instead:
    ```bash
    arduino-cli compile -b esp32:esp32:esp32 --upload -p /dev/ttyUSB0 esp32/vault
    ```
-   The OLED shows the clock and the board's IP. If Wi-Fi doesn't connect within 30 seconds, the board reboots and tries again. On first boot the board makes its own device CA, which never leaves it.
-4. **Fixed IP:** set up a DHCP reservation for the board in your router, so its address doesn't change.
-5. **Pair each device**, the first one included (see below). Pairing puts the certificate files where the app looks by default and sets `espHost`.
+   Flashing writes only the firmware: the vault, paired devices and saved Wi-Fi stay.
+   **Boards set up before the web flasher existed** keep their server cert in the firmware (`cert.h`), not in storage. Do their first update from source, with `cert.h` present, so the board copies the cert into storage. A web-flasher build makes a new cert instead, and every device must then pair again (`pki.sh pair --force`).
+2. **Wi-Fi:** the OLED shows **wifi setup** and a QR code. Scan it with a phone camera to join the board's hotspot (`pwvault-ap`, a random password shown on the screen); the setup page opens, or go to `http://192.168.4.1`. Pick your network (the ESP32 only supports **2.4 GHz**). The board then shows the clock and its IP. It opens this setup again whenever it can't reach its saved network for 30 seconds after starting.
+   On first boot the board makes its own device CA and TLS server cert, which never leave it; devices receive the server cert when they pair.
+3. **Fixed IP:** set up a DHCP reservation for the board in your router, so its address doesn't change.
+4. **Pair each device**, the first one included (see below). Pairing puts the certificate files where the app looks by default and sets `espHost`.
 
 ### Pairing a device
 

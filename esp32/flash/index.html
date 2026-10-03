@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- The board flasher, published to GitHub Pages by .github/workflows/release.yml next to manifest.json and the
+     firmware parts. ESP Web Tools writes over USB with Web Serial: Chrome/Edge on a computer, Chrome on Android. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pwvault board setup</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root { color-scheme: light dark; --fg: #1d1d1f; --bg: #fafafa; --muted: #666; --warn: #8a5a00; --warn-bg: #fff4dc; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #eee; --bg: #161616; --muted: #aaa; --warn: #ffcf70; --warn-bg: #3a2c0c; } }
+  body { font: 16px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 36em; margin: 0 auto; padding: 1.5em 16px; }
+  h1 { font-size: 1.5em; margin-bottom: 0.2em; }
+  .muted { color: var(--muted); }
+  .warn { color: var(--warn); background: var(--warn-bg); padding: 0.75em 1em; border-radius: 6px; }
+  ol li { margin-bottom: 0.6em; }
+</style>
+</head>
+<body>
+<h1>pwvault board setup</h1>
+<p class="muted">Installs the vault firmware on an ESP32 board with an SSD1306 screen. Firmware <span id="ver"></span>.</p>
+
+<ol>
+  <li>Plug the board in over USB: into a computer (Chrome or Edge), or into an Android phone with a USB-OTG cable (Chrome).</li>
+  <li>Press <b>Install</b> and pick the board's serial port.
+    <p><esp-web-install-button manifest="manifest.json">
+      <span slot="unsupported">This browser can't reach USB serial ports. Use Chrome or Edge on a computer, or Chrome on Android.</span>
+      <span slot="not-allowed">The page must be opened over https.</span>
+    </esp-web-install-button></p>
+  </li>
+  <li>When it restarts, the screen shows <b>wifi setup</b> and a QR code. Scan it with the phone's camera to join the
+    board's hotspot; the setup page opens (or go to <code>http://192.168.4.1</code>). Pick your 2.4 GHz network and
+    enter its password.</li>
+  <li>The screen then shows the clock and the board's IP. Pair your devices: press BOOT on the board, then scan the
+    code with the app (or use Devices → Add a device on the desktop).</li>
+</ol>
+
+<p class="warn"><b>Updating a board that already holds a vault:</b> install normally, and never pick "erase". Installing
+writes only the firmware; the vault and paired devices stay. Erasing deletes them.
+A board first set up from a source build with an older firmware gets a new certificate from this installer, so
+every device must pair again; update it once from source to avoid that.</p>
+
+<p class="muted">The board also opens the Wi-Fi setup by itself whenever it can't reach its saved network for 30 seconds
+after starting, e.g. after a move or a new router.</p>
+
+<script>
+  fetch("manifest.json").then(r => r.json()).then(m => { document.getElementById("ver").textContent = m.version; }).catch(() => {});
+</script>
+</body>
+</html>
