@@ -329,6 +329,18 @@ object App {
         notice = "PIN removed. Unlock with the master password."
     }
 
+    /** The board joined another network: same pairing, new address. Re-pairing would also delete the PIN. */
+    fun setHost(text: String, close: () -> Unit) {
+        val (h, p) = parseHost(text)
+        board!!.host = h
+        board!!.port = p
+        prefs.edit().putString("host", text.trim()).apply()
+        close()
+        syncNow()
+    }
+
+    fun showStorage() = run { notice = board!!.storage().text() }
+
     fun syncNow() {
         syncing = true
         run {
@@ -587,6 +599,7 @@ private fun ColumnScope.VaultScreen() {
     var edit by remember { mutableStateOf<Credential?>(null) } // platform "" = a new entry
     var pinSheet by remember { mutableStateOf(false) }
     var bioSheet by remember { mutableStateOf(false) }
+    var hostSheet by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     val shown = App.items.filter { it.platform.contains(query, true) || it.username.contains(query, true) }
@@ -635,11 +648,14 @@ private fun ColumnScope.VaultScreen() {
             QuietButton("More", { menu = true }, color = palette.muted)
             DropdownMenu(menu, { menu = false }, containerColor = palette.surface) {
                 DropdownMenuItem({ Text("Sync now") }, { menu = false; App.syncNow() }, enabled = App.hasBoard && !App.busy)
+                if (App.hasBoard) DropdownMenuItem({ Text("Board storage") }, { menu = false; App.showStorage() },
+                    enabled = !App.busy)
                 if (App.hasBoard) DropdownMenuItem({ Text(if (App.pinFile.exists()) "Change or remove PIN" else "Set a PIN") },
                     { menu = false; pinSheet = true })
                 if (App.bioOn) DropdownMenuItem({ Text("Turn off fingerprint unlock") }, { menu = false; App.disableFingerprint() })
                 else if (Biometric.available(ctx)) DropdownMenuItem({ Text("Turn on fingerprint unlock") },
                     { menu = false; bioSheet = true })
+                if (App.hasBoard) DropdownMenuItem({ Text("Board address") }, { menu = false; hostSheet = true })
                 if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Pair again") }, { menu = false; App.screen = Screen.Pair })
                 if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Check for updates") }, { menu = false; App.checkUpdate(manual = true) })
             }
@@ -652,6 +668,24 @@ private fun ColumnScope.VaultScreen() {
     edit?.let { EditSheet(it) { edit = null } }
     if (pinSheet) PinSheet { pinSheet = false }
     if (bioSheet) FingerprintSheet { bioSheet = false }
+    if (hostSheet) HostSheet { hostSheet = false }
+}
+
+@Composable
+private fun HostSheet(close: () -> Unit) {
+    var host by remember { mutableStateOf(App.host) }
+    val go = { if (host.isNotBlank()) App.setHost(host, close) }
+    Sheet(close) {
+        Text("Board address", color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+        Prose("If the board joined another network, type the IP its screen shows now. The pairing and PIN stay.")
+        Field(host, { host = it }, "Board address", onDone = go)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            QuietButton("Cancel", close, color = palette.muted)
+            Spacer(Modifier.width(8.dp))
+            PrimaryButton("Save", go, enabled = !App.busy && host.isNotBlank(), modifier = Modifier.weight(1f))
+        }
+        Feedback()
+    }
 }
 
 @Composable

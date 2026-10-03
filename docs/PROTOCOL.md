@@ -120,8 +120,9 @@ take an exclusive lock on `vault.json.lock` and replace the file atomically (tem
 
 **Transport:** HTTPS on port 443 with mutual TLS.
 
-- The server cert has the name `pwvault.local` (made by `esp32/pki.sh server`). Clients pin that exact cert and
-  verify the name `pwvault.local` even when they connect by IP.
+- The server cert has the name `pwvault.local`; the board makes it on first boot (self-signed, `/server.pem`), and
+  clients receive it when pairing (§9). Clients pin that exact cert and verify the name `pwvault.local` even when
+  they connect by IP.
 - Clients present a cert issued by the board's device CA (§10). The handshake refuses anything else.
 - Clients SHOULD keep one connection open: a handshake costs about 0.5 s, a reused request about 0.06 s.
 
@@ -138,7 +139,7 @@ Request and reply bodies are JSON. Errors are `{"error":"<message>"}`. A request
 | `GET /entries?after=N` | | 200 `{"entries":[…],"seq":S}`: records with `seq` > N, in no particular order |
 | `POST /entries` | `{"entries":[…]}`, at most 32 | 200 `{"seq":S}`; 400 if any record is malformed (then none is written) |
 | `POST /access` | `{"platform":…,"username":…}` | 200. Display-only hint for the OLED (see §12) |
-| `GET /devices` | | 200 `{"devices":[{"name":…,"seen":T}],"you":"<name>"}` |
+| `GET /devices` | | 200 `{"devices":[{"name":…,"seen":T}],"you":"<name>","storage":{"used":B,"total":B,"records":N}}`: `storage` is the board's flash for the vault, in bytes, and how many entry records it holds (tombstones included). Optional: older firmware omits it |
 | `DELETE /devices/<name>` | | 202 `{"pending":true}`; 404 no such device (§10) |
 | `POST /pair/open` | | 200 `{"code":…,"qr":…,"seconds":S}`: opens pairing like a BOOT press, or returns the open session's code (§9) |
 | `PUT /pin` | `{"verifier":"<64 hex>"}` | 200 `{"secret":"<64 hex>"}` (§11) |

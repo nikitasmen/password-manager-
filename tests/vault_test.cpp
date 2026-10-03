@@ -449,8 +449,10 @@ void testPair(const fs::path& dir, const std::string& spec) {
     auto put = [&](const char* n, const std::string& s) { return std::ofstream(dir / n) << s, (dir / n).string(); };
     EspStore esp(EspConfig{host, port, put("server.pem", f.serverPem), put("device.pem", f.certPem), put("device.key", f.keyPem)});
     esp.getMeta();  // throws unless the board accepts the certificate it just issued
-    auto devices = esp.devices();
+    EspStore::Storage storage;
+    auto devices = esp.devices(&storage);
     CHECK(std::any_of(devices.begin(), devices.end(), [](const auto& d) { return d.thisDevice && d.name == "pair-test"; }));
+    CHECK(storage.total > 0 && storage.used <= storage.total);  // §7 storage, which the Devices screens show
     std::cout << "pair: ok (wrong code refused, no pairing port reported, issued cert accepted)\n";
     // A paired device opens pairing for another (the laptop showing a QR for a phone): same code, QR per §9
     const EspStore::PairInvite invite = esp.openPairing();

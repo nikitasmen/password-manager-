@@ -2,7 +2,8 @@
 # Certificates for the ESP32 vault (mutual TLS). The board is its own device CA: it signs a device's cert when you
 # approve it with its BOOT button, so adding a device needs only the board and that device.
 #
-#   ./pki.sh server            server cert the clients pin      -> vault/cert.h, vault/cert.pem (then flash)
+#   ./pki.sh server            a server cert for tests/fake_esp.py -> vault/cert.pem (+ vault/cert.h, which a firmware
+#                              build copies into a board that has no server cert yet; boards normally make their own)
 #   ./pki.sh pair <name>       make THIS machine device <name>: press BOOT on the board first, type the code it
 #                              shows, press BOOT again to approve (--force to re-pair an already set up machine)
 #   ./pki.sh devices           list paired devices (asks the board)

@@ -856,11 +856,12 @@ void GuiUIManager::openDevices() {
     auto reload = [&] {
         list->clear();
         std::string error;
-        auto got = safeListDevices(error);
+        EspStore::Storage storage;
+        auto got = safeListDevices(error, &storage);
         devices = got ? *got : std::vector<EspStore::Device>{};
         for (const auto& d : devices)
             list->add((d.name + (d.thisDevice ? "  (this computer)" : "") + "   " + lastSeenText(d.lastSeen)).c_str());
-        if (!got) say(error, true);
+        got ? say(storageText(storage), false) : say(error, true);
         revoke->deactivate();
     };
     on(list, [&] { list->value() ? revoke->activate() : revoke->deactivate(); });

@@ -125,7 +125,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/meta"):
             return self.reply(200, state["meta"]) if state["meta"] else self.reply(404, {"error": "no vault yet"})
         if route == ("GET", "/devices"):
-            return self.reply(200, {"devices": [{"name": n, "seen": seen.get(n, 0)} for n in devices], "you": who})
+            used = sum(len(json.dumps(e)) for e in state["entries"].values())  # roughly what LittleFS would hold
+            return self.reply(200, {"devices": [{"name": n, "seen": seen.get(n, 0)} for n in devices], "you": who,
+                                    "storage": {"used": used, "total": 1408 * 1024, "records": len(state["entries"])}})
         if method == "DELETE" and url.path.startswith("/devices/"):
             name = url.path[len("/devices/"):]
             if name not in devices:

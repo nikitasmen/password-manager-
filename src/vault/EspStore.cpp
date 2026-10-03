@@ -97,7 +97,7 @@ void EspStore::noteAccess(const std::string& platform, const std::string& userna
     request("POST", "/access", nlohmann::json{{"platform", platform}, {"username", username}}.dump());
 }
 
-std::vector<EspStore::Device> EspStore::devices() {
+std::vector<EspStore::Device> EspStore::devices(Storage* storage) {
     auto r = request("GET", "/devices");
     if (r.status != 200) throw std::runtime_error("GET /devices: HTTP " + std::to_string(r.status));
     auto j = nlohmann::json::parse(r.body);
@@ -105,6 +105,10 @@ std::vector<EspStore::Device> EspStore::devices() {
     for (const auto& d : j.at("devices")) {
         std::string name = d.at("name").get<std::string>();
         out.push_back({name, d.value("seen", int64_t{0}), name == j.value("you", "")});
+    }
+    if (storage) {
+        const auto st = j.value("storage", nlohmann::json::object());
+        *storage = {st.value("used", uint64_t{0}), st.value("total", uint64_t{0}), st.value("records", uint64_t{0})};
     }
     return out;
 }

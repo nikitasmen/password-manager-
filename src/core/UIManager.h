@@ -45,10 +45,11 @@ class UIManager {
     // Devices paired with the board. Not vault data, so it bypasses VaultService; board_ is owned by `vault`
     // (null without espHost). On failure: nullopt/false, and `error` is a sentence for the user.
     EspStore* board_ = nullptr;
-    std::optional<std::vector<EspStore::Device>> safeListDevices(std::string& error);
+    std::optional<std::vector<EspStore::Device>> safeListDevices(std::string& error, EspStore::Storage* storage = nullptr);
     bool safeRevokeDevice(const std::string& name, std::string& error);
     std::optional<EspStore::PairInvite> safeOpenPairing(std::string& error);  // for showing a phone the pairing QR  // blocks until BOOT is pressed (≤ 1 min)
     static std::string lastSeenText(int64_t unixTime);                   // "seen 5 min ago"
+    static std::string storageText(const EspStore::Storage& s);         // "Board storage: 12 KB of 1408 KB used ..."
 
     // The connector, shown on start (once per run) while an ESP32 is configured but not connected
     enum class BoardState { Connected, NotPaired, Unreachable };
