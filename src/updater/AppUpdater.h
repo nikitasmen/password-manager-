@@ -117,7 +117,8 @@ class AppUpdater {
      * @param downloadedPath Path to downloaded file
      * @return true if installation succeeded
      */
-    bool installUpdate(const std::string& downloadedPath);
+    // "" on success, else what went wrong
+    std::string installUpdate(const std::string& downloadedPath);
 
     /**
      * @brief Update version in configuration file

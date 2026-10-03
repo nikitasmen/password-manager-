@@ -9,6 +9,7 @@
 #include "../core/clipboard.h"
 #include "../core/qrcodegen.hpp"
 #include "../core/terminal_ui.h"
+#include "../updater/AppUpdater.h"
 #include "../utils/EncryptionUtils.h"
 #include "../vault/Crypto.h"
 
@@ -281,7 +282,7 @@ void TerminalUIManager::home() {
         if (!shown.empty()) keys.push_back({shown.size() == 1 ? "1" : "1-" + std::to_string(shown.size()), "open"});
         keys.insert(keys.end(), {{"n", "new"}, {"/text", "search"}, {"p", "master password"}});
         if (board_) keys.insert(keys.end(), {{"k", "PIN"}, {"d", "devices"}});
-        keys.insert(keys.end(), {{"l", "lock"}, {"q", "quit"}});
+        keys.insert(keys.end(), {{"u", "update"}, {"l", "lock"}, {"q", "quit"}});
         std::cout << "\n" << legend(keys) << "\n";
 
         std::string in = readLine("> ");
@@ -298,6 +299,8 @@ void TerminalUIManager::home() {
             pinScreen();
         } else if (in == "d" && board_) {
             devicesScreen();
+        } else if (in == "u") {
+            updateApp();
         } else if (!in.empty() && in[0] == '/') {
             filter = in.substr(1);
         } else if (!in.empty()) {
@@ -313,6 +316,39 @@ void TerminalUIManager::home() {
                 viewCredential(pick);
         }
     }
+}
+
+void TerminalUIManager::updateApp() {
+    AppUpdater updater;
+    std::cout << muted("Checking GitHub for a newer version...") << std::endl;
+    bool ok = false;
+    std::string error;
+    VersionInfo latest;
+    updater.checkForUpdates([&](bool success, const std::string& message, const VersionInfo& v) {
+        ok = success;
+        error = message;
+        latest = v;
+    });
+    const std::string current = VersionInfo::getCurrentVersion();
+    if (!ok) {
+        message_ = danger(error);
+        return;
+    }
+    if (!latest.isNewerThan(current)) {
+        message_ = accent("You have the latest version (" + current + ").");
+        return;
+    }
+    if (const std::string managed = AppUpdater::packageManagerUpgradeCommand(); !managed.empty()) {
+        message_ = accent(latest.version + " is out.") + " " + muted("Update with: " + managed);
+        return;
+    }
+    if (readLine("Update " + current + " to " + latest.version + "? [y/N] ") != "y") return;
+    updater.downloadUpdate(
+        latest, [](int percent, const std::string&) { std::cout << "\r" << percent << "%" << std::flush; },
+        [&](bool success, const std::string& message) {
+            std::cout << "\n";
+            message_ = success ? accent("Updated to " + latest.version + ". Restart the app to use it.") : danger(message);
+        });
 }
 
 // ---- one entry ----

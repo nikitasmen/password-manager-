@@ -23,6 +23,9 @@
 #define PATH_SEPARATOR "\\"
 #else
 #include <curl/curl.h>
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #define PATH_SEPARATOR "/"
@@ -244,6 +247,20 @@ void configureCurlCommon(CURL* curl, const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
 }
+
+// Runs `path --help` (exits 0 without touching config or vault): false if the loader can't start it.
+bool startsUp(const std::string& path) {
+    posix_spawn_file_actions_t io;
+    posix_spawn_file_actions_init(&io);
+    posix_spawn_file_actions_addopen(&io, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&io, 2, "/dev/null", O_WRONLY, 0);
+    char* argv[] = {const_cast<char*>(path.c_str()), const_cast<char*>("--help"), nullptr};
+    pid_t pid = 0;
+    int status = 0;
+    const bool spawned = posix_spawn(&pid, path.c_str(), &io, nullptr, argv, environ) == 0;
+    posix_spawn_file_actions_destroy(&io);
+    return spawned && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
 #endif
 }  // namespace
 
@@ -428,12 +445,13 @@ void AppUpdater::downloadUpdate(const VersionInfo& versionInfo,
         if (success) {
             progressCallback(100, "Download complete. Installing...");
 
-            if (installUpdate(downloadPath)) {
+            const std::string error = installUpdate(downloadPath);
+            if (error.empty()) {
                 // Update version in config file
                 updateVersionInConfig(versionInfo.version);
                 completionCallback(true, "Update installed successfully! Please restart the application.");
             } else {
-                completionCallback(false, "Failed to install update. Please install manually.");
+                completionCallback(false, error);
             }
         } else {
             completionCallback(false, "Failed to download update.");
@@ -589,16 +607,22 @@ const VersionInfo AppUpdater::parseReleaseInfo(const std::string& jsonResponse) 
     }
 }
 
-bool AppUpdater::installUpdate(const std::string& downloadedPath) {
+std::string AppUpdater::installUpdate(const std::string& downloadedPath) {
     const std::string currentPath = executablePath();
-    if (currentPath.empty()) {
-        std::cerr << "Could not determine current executable path" << std::endl;
-        return false;
-    }
+    if (currentPath.empty()) return "Couldn't find this program's path. Install the update manually.";
 
     // Stage next to the executable so the final rename stays on one filesystem (and is atomic).
     const std::string stagedPath = currentPath + ".new";
-    if (!copyFile(downloadedPath, stagedPath)) return false;
+    if (!copyFile(downloadedPath, stagedPath)) return "Couldn't write next to " + currentPath + ". Install the update manually.";
+#ifndef _WIN32
+    // The release is built on Ubuntu 22.04. Where it can't start (NixOS, or missing FLTK/curl), keep this build.
+    if (!startsUp(stagedPath)) {
+        std::error_code rmEc;
+        fs::remove(stagedPath, rmEc);
+        return "The downloaded version doesn't run on this system (missing libraries, or NixOS). "
+               "Nothing was changed; build the new version from source instead.";
+    }
+#endif
 
     std::error_code ec;
 #ifdef _WIN32
@@ -607,20 +631,20 @@ bool AppUpdater::installUpdate(const std::string& downloadedPath) {
     fs::remove(oldPath, ec);
     fs::rename(currentPath, oldPath, ec);
     if (ec) {
-        std::cerr << "Failed to move current executable aside: " << ec.message() << std::endl;
+        const std::string why = ec.message();
         fs::remove(stagedPath, ec);
-        return false;
+        return "Couldn't move the running program aside: " + why;
     }
 #endif
     fs::rename(stagedPath, currentPath, ec);
     if (ec) {
-        std::cerr << "Failed to replace executable: " << ec.message() << std::endl;
+        const std::string why = ec.message();
 #ifdef _WIN32
         std::error_code restoreEc;
         fs::rename(oldPath, currentPath, restoreEc);
 #endif
         fs::remove(stagedPath, ec);
-        return false;
+        return "Couldn't replace " + currentPath + ": " + why;
     }
-    return true;
+    return "";
 }
