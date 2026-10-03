@@ -9,18 +9,39 @@ import java.io.File
 /** A host's role (PROTOCOL.md §6), best first: it decides the sync order and which host gets PINs. */
 enum class Role { Dedicated, Server, Peer }
 
+/** As GET /devices says it; unknown = the least trusted. */
+fun roleOf(wire: String) = when (wire) { "dedicated" -> Role.Dedicated; "server" -> Role.Server; else -> Role.Peer }
+
 /** One host this phone syncs with. [id]: hex SHA-256 of its pinned server cert, which keys its sync cursors. */
 class Host(val id: String, val role: Role, val store: Store)
 
-class Vault(private val local: Store, hosts: List<Host>, private val syncState: File) {
+class Vault(private val local: Store, initialHosts: List<Host>, private val syncState: File) {
     // Mismatch: no host synced, and one holds another vault (see planMerge)
     enum class Sync { Disabled, Ok, Offline, Error, Mismatch }
 
     /** Each host's result in the last sync. */
     class HostStatus(val host: Host, var status: Sync = Sync.Disabled, var error: String = "", var triedAt: Long = 0)
 
-    private val hosts = hosts.sortedBy { it.role } // best first
-    val hostStatus = this.hosts.map { HostStatus(it) }
+    private val hosts = mutableListOf<Host>() // best role first
+    val hostStatus = mutableListOf<HostStatus>() // parallel to hosts
+
+    init {
+        initialHosts.forEach(::addHost)
+    }
+
+    /** Pairing with another host: after the hosts with the same or a better role. */
+    @Synchronized fun addHost(h: Host) {
+        val at = hosts.indexOfFirst { it.role > h.role }.let { if (it < 0) hosts.size else it }
+        hosts.add(at, h)
+        hostStatus.add(at, HostStatus(h))
+    }
+
+    /** Forgetting a host (§10), with its cursors. */
+    @Synchronized fun removeHost(id: String) {
+        val i = hosts.indexOfFirst { it.id == id }
+        if (i >= 0) { hosts.removeAt(i); hostStatus.removeAt(i) }
+        forgetCursors(syncState, id)
+    }
     var status = Sync.Disabled
         private set
     var error = ""

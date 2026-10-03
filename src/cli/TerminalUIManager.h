@@ -39,7 +39,8 @@ class TerminalUIManager : public UIManager {
     void newEntry();
     void editEntry(const Credential& c);
     void changeMasterPassword();
-    void devicesScreen();  // devices paired with the ESP32
+    void hostsScreen();    // the hosts this computer syncs with: add, forget, open one
+    void devicesScreen(const PairedHost& host);  // devices paired with one host
     void connector();      // on start: pair with / reach the ESP32, unless it's already connected
     void pinScreen();      // set, change or remove the PIN
     void updateApp();      // check GitHub for a newer release and install it

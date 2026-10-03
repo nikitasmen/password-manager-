@@ -26,6 +26,8 @@ import javax.net.ssl.X509TrustManager
 class StoreUnavailable(message: String, cause: Throwable? = null) : IOException(message, cause)
 class VaultMismatch(message: String) : Exception(message)
 class PairError(message: String) : Exception(message)
+/** The host refused this phone's certificate: revoked, or replaced by a newer pairing (403 "device revoked"). */
+class DeviceRevoked : IOException("This phone was revoked or re-paired on the host. Pair it again.")
 
 class Changes(val entries: List<Record>, val seq: Long)
 
@@ -175,8 +177,7 @@ class EspStore(
                     "${device.asked.trim().ifEmpty { "never asked" }}; key: ${device.selfTest()}. Pair again if it persists.", e)
             throw StoreUnavailable("The board is unreachable at $host:$port (${e.javaClass.simpleName}: ${e.message})", e)
         }
-        if (r.status == 403 && r.body.contains("device revoked"))
-            throw IOException("This phone was revoked or re-paired on the board. Pair it again.")
+        if (r.status == 403 && r.body.contains("device revoked")) throw DeviceRevoked()
         return r
     }
 
@@ -206,10 +207,35 @@ class EspStore(
         request("POST", "/access", JSONObject().put("platform", c.platform).put("username", c.username))
     }
 
-    /** §7: the board's flash for the vault, from GET /devices. */
-    fun storage(): Storage {
-        val s = ok(request("GET", "/devices"), "GET /devices").json().optJSONObject("storage")
-        return Storage(s?.optLong("used") ?: 0, s?.optLong("total") ?: 0, s?.optLong("records") ?: 0)
+    /** §7 GET /devices: this phone's name there, the paired names, the host's role (older firmware: dedicated), storage. */
+    class Info(val you: String, val names: List<String>, val role: Role, val storage: Storage)
+
+    fun info(): Info {
+        val j = ok(request("GET", "/devices"), "GET /devices").json()
+        val d = j.optJSONArray("devices") ?: JSONArray()
+        val s = j.optJSONObject("storage")
+        return Info(j.optString("you"), (0 until d.length()).map { d.getJSONObject(it).getString("name") },
+            roleOf(j.optString("role", "dedicated")),
+            Storage(s?.optLong("used") ?: 0, s?.optLong("total") ?: 0, s?.optLong("records") ?: 0))
+    }
+
+    fun storage() = info().storage
+
+    /** §10: asks the host to revoke this phone, then waits (up to 65 s) for the approval there. */
+    fun revokeSelf() {
+        val me = info().you
+        val r = request("DELETE", "/devices/$me")
+        if (r.status != 200 && r.status != 202) throw IOException("The host didn't revoke this phone: ${r.error()}")
+        val until = System.currentTimeMillis() + 65_000
+        while (System.currentTimeMillis() < until) {
+            try {
+                if (me !in info().names) return
+            } catch (e: DeviceRevoked) {
+                return // the host refuses this phone now, which is what we asked for
+            }
+            Thread.sleep(1000)
+        }
+        throw IOException("It wasn't approved on the host in time, so this phone still has access there.")
     }
 
     /** §11: the board's secret for this device's new PIN verifier. */
@@ -313,6 +339,15 @@ fun push(to: Store, entries: List<Record>) {
 }
 
 /** Returns whether the local store changed. */
+/** Drops a host's cursors (forget host, §10). */
+fun forgetCursors(state: File, hostId: String) {
+    val doc = runCatching { JSONObject(state.readText()) }.getOrNull() ?: return
+    if (doc.optJSONObject("hosts")?.remove(hostId) == null) return
+    val tmp = File(state.path + ".tmp")
+    tmp.writeText(doc.toString())
+    if (!tmp.renameTo(state)) throw IOException("cannot replace $state")
+}
+
 fun syncStores(local: Store, remote: Store, state: File, hostId: String): Boolean {
     var localChanged = false
     val lm = local.getMeta()

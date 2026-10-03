@@ -30,12 +30,7 @@ Cursors cursorsOf(const nlohmann::json& state, const std::string& hostId) {
     return {state.value("vault_id", ""), h.value("local_seq", uint64_t{0}), h.value("remote_seq", uint64_t{0})};
 }
 
-// Re-reads the file so another host's cursors, saved meanwhile, survive. Another vault's cursors don't.
-void saveCursors(const std::string& path, const std::string& hostId, const Cursors& c) {
-    nlohmann::json state = loadState(path);
-    if (state.value("vault_id", "") != c.vaultId || !state.contains("hosts") || !state["hosts"].is_object())
-        state = {{"vault_id", c.vaultId}, {"hosts", nlohmann::json::object()}};
-    state["hosts"][hostId] = {{"local_seq", c.localSeq}, {"remote_seq", c.remoteSeq}};
+void writeState(const std::string& path, const nlohmann::json& state) {
     std::string tmp = path + ".tmp";  // temp + rename: never a half-written file
     {
         std::ofstream out(tmp, std::ios::trunc);
@@ -43,6 +38,15 @@ void saveCursors(const std::string& path, const std::string& hostId, const Curso
         if (!out.flush()) throw std::runtime_error("cannot write " + tmp);
     }
     std::filesystem::rename(tmp, path);
+}
+
+// Re-reads the file so another host's cursors, saved meanwhile, survive. Another vault's cursors don't.
+void saveCursors(const std::string& path, const std::string& hostId, const Cursors& c) {
+    nlohmann::json state = loadState(path);
+    if (state.value("vault_id", "") != c.vaultId || !state.contains("hosts") || !state["hosts"].is_object())
+        state = {{"vault_id", c.vaultId}, {"hosts", nlohmann::json::object()}};
+    state["hosts"][hostId] = {{"local_seq", c.localSeq}, {"remote_seq", c.remoteSeq}};
+    writeState(path, state);
 }
 
 // Deterministic winner between two metas of the same vault: higher rev, then higher key blob.
@@ -68,6 +72,12 @@ void push(IVaultStore& to, const std::vector<EntryRecord>& entries) {
 }
 
 }  // namespace
+
+void forgetCursors(const std::string& statePath, const std::string& hostId) {
+    nlohmann::json state = loadState(statePath);
+    if (state.contains("hosts") && state["hosts"].is_object() && state["hosts"].erase(hostId))
+        writeState(statePath, state);
+}
 
 bool syncStores(IVaultStore& local, IVaultStore& remote, const std::string& statePath, const std::string& hostId) {
     bool localChanged = false;

@@ -19,9 +19,25 @@ int64_t nowMs() {
 }  // namespace
 
 VaultService::VaultService(std::unique_ptr<IVaultStore> local, std::vector<SyncHost> hosts, std::string syncStatePath)
-    : local_(std::move(local)), hosts_(std::move(hosts)), syncStatePath_(std::move(syncStatePath)) {
-    std::stable_sort(hosts_.begin(), hosts_.end(), [](const SyncHost& a, const SyncHost& b) { return a.role < b.role; });
-    for (const SyncHost& h : hosts_) hostStatus_.push_back({h.id, h.role});
+    : local_(std::move(local)), syncStatePath_(std::move(syncStatePath)) {
+    for (SyncHost& h : hosts) addHost(std::move(h));
+}
+
+void VaultService::addHost(SyncHost host) {
+    // after the hosts with the same or a better role: best role first, otherwise in the order added
+    auto at = std::find_if(hosts_.begin(), hosts_.end(), [&](const SyncHost& h) { return h.role > host.role; });
+    hostStatus_.insert(hostStatus_.begin() + (at - hosts_.begin()), {host.id, host.role});
+    hosts_.insert(at, std::move(host));
+}
+
+void VaultService::removeHost(const std::string& id) {
+    for (size_t i = 0; i < hosts_.size(); i++)
+        if (hosts_[i].id == id) {
+            hosts_.erase(hosts_.begin() + i);
+            hostStatus_.erase(hostStatus_.begin() + i);
+            break;
+        }
+    if (!syncStatePath_.empty()) forgetCursors(syncStatePath_, id);
 }
 
 VaultService::~VaultService() {
@@ -224,13 +240,15 @@ VaultService::SyncStatus VaultService::sync() {
         else syncWith(i);
     }
     auto none = [&] {
-        return std::none_of(hostStatus_.begin(), hostStatus_.end(), [](const HostStatus& s) { return s.status == SyncStatus::Ok; });
+        return std::none_of(
+            hostStatus_.begin(), hostStatus_.end(), [](const HostStatus& s) { return s.status == SyncStatus::Ok; });
     };
     for (size_t i : away)
         if (none()) syncWith(i);  // nothing else answered: maybe we just came back to its network
     if (changed && isUnlocked()) reindex();
     auto first = [&](SyncStatus st) {
-        return std::find_if(hostStatus_.begin(), hostStatus_.end(), [&](const HostStatus& s) { return s.status == st; });
+        return std::find_if(
+            hostStatus_.begin(), hostStatus_.end(), [&](const HostStatus& s) { return s.status == st; });
     };
     if (first(SyncStatus::Ok) != hostStatus_.end()) {
         syncStatus_ = SyncStatus::Ok;

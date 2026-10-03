@@ -13,6 +13,12 @@
 
 // A host's role (docs/PROTOCOL.md §6), best first: it decides the sync order and which host gets PINs.
 enum class HostRole { Dedicated, Server, Peer };
+inline HostRole hostRoleOf(const std::string& wire) {  // as GET /devices says it; unknown = the least trusted
+    return wire == "dedicated" ? HostRole::Dedicated : wire == "server" ? HostRole::Server : HostRole::Peer;
+}
+inline const char* hostRoleName(HostRole r) {
+    return r == HostRole::Dedicated ? "dedicated" : r == HostRole::Server ? "server" : "peer";
+}
 
 // One host this device syncs with.
 struct SyncHost {
@@ -63,6 +69,10 @@ class VaultService {
     // These never see the PIN or the secret, only the derived key.
     std::string sealKeyForPin(const std::string& pinKey);  // requires unlocked; returns the blob
     bool unlockWithPinKey(const std::string& pinKey, const std::string& blob);  // false = doesn't open this vault
+
+    // Pairing with another host, or forgetting one (which also drops its cursors). Not in device-only mode.
+    void addHost(SyncHost host);
+    void removeHost(const std::string& id);
 
     // Ok if any host synced, Error if none did and one failed, Offline if none answered.
     SyncStatus sync();

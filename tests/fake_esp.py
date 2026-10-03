@@ -6,7 +6,9 @@ Its device CA lives in --ca-dir (made on first use, with openssl). Pairing is al
 printed code, and the "BOOT press" is automatic: pair and revoke requests are approved at once.
 
   python3 tests/fake_esp.py --port 8443 --cert esp32/vault/cert.pem --key esp32/vault/key.pem \
-      --ca-dir <dir> [--code 0123456789ABCDEF]
+      --ca-dir <dir> [--code 0123456789ABCDEF] [--role dedicated|server|peer]
+--role plays another kind of host (§6): anything but dedicated answers 404 to /pin, as §11 requires. Two fakes
+need two server certs: the cert's SHA-256 is the host id.
 Pair a sandboxed client (XDG_CONFIG_HOME, espHost=127.0.0.1, espPort=8443) with
   PWVAULT_PAIR_PORT=8444 PWVAULT_CODE=<code> esp32/pki.sh pair <name>
 """
@@ -127,6 +129,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/devices"):
             used = sum(len(json.dumps(e)) for e in state["entries"].values())  # roughly what LittleFS would hold
             return self.reply(200, {"devices": [{"name": n, "seen": seen.get(n, 0)} for n in devices], "you": who,
+                                    "role": pairing["role"],
                                     "storage": {"used": used, "total": 1408 * 1024, "records": len(state["entries"])}})
         if method == "DELETE" and url.path.startswith("/devices/"):
             name = url.path[len("/devices/"):]
@@ -140,7 +143,9 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[{who}] opened pairing", flush=True)
             return self.reply(200, {"code": pairing["code"], "qr": f"PWVAULT:127.0.0.1:{pairing['code']}", "seconds": 120})
         if route in (("PUT", "/pin"), ("POST", "/pin")):
-            req = self.body()
+            req = self.body()  # read even when refusing: the connection is reused
+            if pairing["role"] != "dedicated":
+                return self.reply(404, {"error": "PIN unlock needs a dedicated host"})
             if not isinstance(req, dict):
                 return None if req is None else self.reply(400, {"error": "bad body"})
             if route == ("PUT", "/pin"):
@@ -257,10 +262,11 @@ def main():
     ap.add_argument("--pair-port", type=int, help="default: --port + 1")
     ap.add_argument("--ca-dir", required=True, help="the fake board's device CA (created if missing)")
     ap.add_argument("--code", help="pairing code (16 chars); default: random, printed")
+    ap.add_argument("--role", default="dedicated", choices=["dedicated", "server", "peer"])
     a = ap.parse_args()
     make_ca(a.ca_dir)
     alpha = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-    pairing.update(code=a.code or "".join(secrets.choice(alpha) for _ in range(16)), ca_dir=a.ca_dir,
+    pairing.update(code=a.code or "".join(secrets.choice(alpha) for _ in range(16)), ca_dir=a.ca_dir, role=a.role,
                    server_fp=hashlib.sha256(ssl.PEM_cert_to_DER_cert(open(a.cert).read())).hexdigest())
     pair_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     pair_ctx.load_cert_chain(a.cert, a.key)

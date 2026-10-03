@@ -260,8 +260,10 @@ void testHosts(const fs::path& dir) {
             d.links.push_back(link.get());
             hosts.push_back({id, id == "board" ? HostRole::Dedicated : HostRole::Peer, std::move(link)});
         }
-        d.vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>((dir / ("h-" + name + ".json")).string()),
-                                                 std::move(hosts), (dir / ("h-" + name + ".sync")).string());
+        d.vault =
+            std::make_unique<VaultService>(std::make_unique<LocalFileStore>((dir / ("h-" + name + ".json")).string()),
+                                           std::move(hosts),
+                                           (dir / ("h-" + name + ".sync")).string());
         return d;
     };
     Dev phone = device("phone", {{"laptop", &laptopStore}, {"board", &boardStore}});  // listed worst first
@@ -314,7 +316,8 @@ void testHosts(const fs::path& dir) {
     // a host with another vault is skipped and reported; the others still sync
     LocalFileStore strangerStore((dir / "h-stranger.json").string());
     {
-        VaultService other(std::make_unique<LocalFileStore>((dir / "h-other.json").string()), std::vector<SyncHost>{}, "");
+        VaultService other(
+            std::make_unique<LocalFileStore>((dir / "h-other.json").string()), std::vector<SyncHost>{}, "");
         other.create("x", CipherAlg::Aes256Gcm, 1000);
         strangerStore.putMeta(*LocalFileStore((dir / "h-other.json").string()).getMeta(), 0);
     }
@@ -333,7 +336,17 @@ void testHosts(const fs::path& dir) {
     CHECK(desk.vault->sync() == S::Ok);
     std::ifstream in2(dir / "h-desk.sync");
     CHECK(nlohmann::json::parse(in2)["hosts"].contains("board"));
-    std::cout << "hosts: ok (role order; changes cross hosts; away hosts skipped; foreign hosts reported; per-host cursors)\n";
+    // hosts come and go at runtime: a new one slots in by role, a forgotten one loses its cursors
+    LocalFileStore serverStore((dir / "h-server.json").string());
+    desk.vault->addHost({"server", HostRole::Server, std::make_unique<FlakyStore>(serverStore)});
+    CHECK(desk.vault->hostStatuses().size() == 2 && desk.vault->hostStatuses()[1].id == "server");
+    CHECK(desk.vault->sync() == S::Ok && serverStore.getMeta());
+    desk.vault->removeHost("server");
+    std::ifstream in3(dir / "h-desk.sync");
+    auto after = nlohmann::json::parse(in3)["hosts"];
+    CHECK(desk.vault->hostStatuses().size() == 1 && !after.contains("server") && after.contains("board"));
+    std::cout << "hosts: ok (role order; changes cross hosts; away hosts skipped; foreign hosts reported; per-host "
+                 "cursors; add/forget)\n";
 }
 
 // Real-hardware test, only when PWVAULT_TEST_ESP="host[:port],serverCert,clientCert,clientKey" is set
@@ -557,6 +570,20 @@ void testPair(const fs::path& dir, const std::string& spec) {
     CHECK(invite.code == code && invite.qr == "PWVAULT:" + host + ":" + code && invite.seconds > 0);
     std::cout << "pair/open: ok\n";
 
+    // PIN unlock only on a dedicated host (§11): any other answers 404, which EspStore reports as an error
+    std::string role;
+    esp.devices(nullptr, &role);
+    if (role != "dedicated") {
+        bool refused = false;
+        try {
+            esp.setPin(std::string(64, 'a'));
+        } catch (const std::runtime_error&) {
+            refused = true;
+        }
+        CHECK(refused && esp.tryPin(std::string(64, 'a')).result == EspStore::PinReply::NotSet);
+        std::cout << "pin: ok (a " << role << " host offers none)\n";
+        return;
+    }
     // PIN unlock through the board: the vault key sealed under HMAC(board secret, PIN proof)
     CHECK(validPin("1234") && validPin("00000000") && !validPin("123") && !validPin("12a4") && !validPin(""));
     VaultService v(std::make_unique<LocalFileStore>((dir / "pin-vault.json").string()), std::vector<SyncHost>{}, "");
@@ -574,7 +601,8 @@ void testPair(const fs::path& dir, const std::string& spec) {
     for (int i = 0; i < 4; i++) CHECK(esp.tryPin(wrongProof).result == EspStore::PinReply::Wrong);
     CHECK(esp.tryPin(wrongProof).result == EspStore::PinReply::Removed);  // the 5th: gone
     CHECK(esp.tryPin(proof).result == EspStore::PinReply::NotSet);        // even the right PIN, now
-    VaultService other(std::make_unique<LocalFileStore>((dir / "other-vault.json").string()), std::vector<SyncHost>{}, "");
+    VaultService other(
+        std::make_unique<LocalFileStore>((dir / "other-vault.json").string()), std::vector<SyncHost>{}, "");
     other.create("master", CipherAlg::Aes256Gcm, 1000);
     other.lock();
     CHECK(!other.unlockWithPinKey(pinWrapKey(r.secretHex, proof), blob));  // bound to its own vault

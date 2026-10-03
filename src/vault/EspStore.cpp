@@ -63,7 +63,7 @@ EspStore::Response EspStore::request(const std::string& method, const std::strin
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &res.status);
     // Other 403s (e.g. a revoke not confirmed on the board) are for the caller
     if (res.status == 403 && res.body.find("device revoked") != std::string::npos)
-        throw std::runtime_error("ESP32: this device was revoked or re-paired; pair it again (esp32/pki.sh pair)");
+        throw DeviceRevoked("ESP32: this device was revoked or re-paired; pair it again (esp32/pki.sh pair)");
     return res;
 }
 
@@ -97,7 +97,7 @@ void EspStore::noteAccess(const std::string& platform, const std::string& userna
     request("POST", "/access", nlohmann::json{{"platform", platform}, {"username", username}}.dump());
 }
 
-std::vector<EspStore::Device> EspStore::devices(Storage* storage) {
+std::vector<EspStore::Device> EspStore::devices(Storage* storage, std::string* role) {
     auto r = request("GET", "/devices");
     if (r.status != 200) throw std::runtime_error("GET /devices: HTTP " + std::to_string(r.status));
     auto j = nlohmann::json::parse(r.body);
@@ -110,6 +110,7 @@ std::vector<EspStore::Device> EspStore::devices(Storage* storage) {
         const auto st = j.value("storage", nlohmann::json::object());
         *storage = {st.value("used", uint64_t{0}), st.value("total", uint64_t{0}), st.value("records", uint64_t{0})};
     }
+    if (role) *role = j.value("role", "dedicated");
     return out;
 }
 
@@ -125,7 +126,12 @@ void EspStore::revokeDevice(const std::string& name) {
         throw std::runtime_error("the board didn't revoke " + name + ": " + why);
     }
     for (auto until = std::chrono::steady_clock::now() + std::chrono::seconds(65);;) {
-        auto list = devices();
+        std::vector<Device> list;
+        try {
+            list = devices();
+        } catch (const DeviceRevoked&) {
+            return;  // it was this device: the board now refuses it, which is what we asked for
+        }
         if (std::none_of(list.begin(), list.end(), [&](const Device& d) { return d.name == name; })) return;
         if (std::chrono::steady_clock::now() > until) break;
         std::this_thread::sleep_for(std::chrono::seconds(1));

@@ -281,7 +281,8 @@ void TerminalUIManager::home() {
         std::vector<std::pair<std::string, std::string>> keys;
         if (!shown.empty()) keys.push_back({shown.size() == 1 ? "1" : "1-" + std::to_string(shown.size()), "open"});
         keys.insert(keys.end(), {{"n", "new"}, {"/text", "search"}, {"p", "master password"}});
-        if (board_) keys.insert(keys.end(), {{"k", "PIN"}, {"d", "devices"}});
+        if (pinHost()) keys.push_back({"k", "PIN"});
+        keys.push_back({"d", "hosts & devices"});
         keys.insert(keys.end(), {{"u", "update"}, {"l", "lock"}, {"q", "quit"}});
         std::cout << "\n" << legend(keys) << "\n";
 
@@ -295,10 +296,10 @@ void TerminalUIManager::home() {
             newEntry();
         } else if (in == "p") {
             changeMasterPassword();
-        } else if (in == "k" && board_) {
+        } else if (in == "k" && pinHost()) {
             pinScreen();
-        } else if (in == "d" && board_) {
-            devicesScreen();
+        } else if (in == "d") {
+            hostsScreen();
         } else if (in == "u") {
             updateApp();
         } else if (!in.empty() && in[0] == '/') {
@@ -463,16 +464,74 @@ void TerminalUIManager::pinScreen() {
     vaultcrypto::wipe(master), vaultcrypto::wipe(pin), vaultcrypto::wipe(repeat);
 }
 
-void TerminalUIManager::devicesScreen() {
+void TerminalUIManager::hostsScreen() {
+    while (isLoggedIn) {
+        header("Hosts");
+        std::cout
+            << "Hosts keep a copy of the vault for your devices to sync with: the ESP32 board, or a computer that\n"
+            << "runs pwvault --serve. Each network has one; this computer syncs with whichever it can reach.\n\n";
+        std::vector<std::string> rows;
+        for (const PairedHost& h : hosts_)
+            rows.push_back(bold(h.address) + "  " + hostRoleName(h.role) + "  " + muted(hostStatusText(h)));
+        if (rows.empty()) std::cout << muted("None yet: this computer keeps the vault on its own.") << "\n";
+        printEntries(rows);
+        std::vector<std::pair<std::string, std::string>> keys;
+        const std::string range = hosts_.size() == 1 ? "1" : "1-" + std::to_string(hosts_.size());
+        if (!hosts_.empty()) keys.insert(keys.end(), {{range, "devices"}, {"f " + range, "forget"}});
+        if (!deviceOnly_) keys.push_back({"a", "add a host"});
+        keys.push_back({"Enter", "back"});
+        std::cout << "\n" << legend(keys) << "\n";
+
+        std::string in = readLine("> "), error;
+        if (in.empty()) return;
+        if (lower(in) == "a" && !deviceOnly_) {
+            std::cout << "\nOn the host: press BOOT on the board (or open pairing on the computer). It shows a code.\n";
+            const std::string address = readLine("Host address (as it shows it; add :port if it isn't the board): ");
+            const std::string def = defaultDeviceName();
+            std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
+            if (name.empty()) name = def;
+            const std::string code = normalizePairCode(readLine("Code on the host: "));
+            if (!validDeviceName(name) || code.empty()) {
+                message_ = danger(code.empty() ? "The code has 16 characters."
+                                               : "Use 1-20 characters of a-z, 0-9 and - for the name.");
+                continue;
+            }
+            std::cout << "Now approve '" << name << "' on the host (BOOT on the board), within a minute..."
+                      << std::flush;
+            message_ = safeAddHost(address, name, code, error) ? accent("Paired with " + address + ".") : danger(error);
+            continue;
+        }
+        const bool forget = in.size() > 2 && lower(in).rfind("f ", 0) == 0;
+        int n = std::atoi(in.c_str() + (forget ? 2 : 0));
+        if (n < 1 || n > static_cast<int>(hosts_.size())) {
+            message_ = danger("Type a number from the list, or f and a number.");
+            continue;
+        }
+        const PairedHost h = hosts_[n - 1];
+        if (!forget) {
+            devicesScreen(h);
+            continue;
+        }
+        std::cout << "\nForget " << bold(h.address) << "? This computer stops syncing with it and deletes its "
+                  << "certificate for it. The vault on this computer stays.\n";
+        const std::string how =
+            lower(readLine("Type r to ask the host to revoke this computer first (approve it there), "
+                           "f to just forget it, Enter to cancel: "));
+        if (how != "r" && how != "f") continue;
+        message_ = safeForgetHost(h.id, how == "r", error) ? accent("Forgot " + h.address + ".") : danger(error);
+    }
+}
+
+void TerminalUIManager::devicesScreen(const PairedHost& host) {
     while (isLoggedIn) {
         std::string error;
         EspStore::Storage storage;
-        auto devices = safeListDevices(error, &storage);
+        auto devices = safeListDevices(*host.store, error, &storage);
         if (!devices) {
             message_ = danger(error);
             return;
         }
-        header("Devices");
+        header("Devices on " + host.address);
         std::cout << muted(storageText(storage)) << "\n\n";
         std::vector<std::string> rows;
         for (const auto& d : *devices)
@@ -488,7 +547,7 @@ void TerminalUIManager::devicesScreen() {
         std::string in = readLine("> ");
         if (in.empty()) return;
         if (lower(in) == "a") {
-            auto invite = safeOpenPairing(error);
+            auto invite = safeOpenPairing(*host.store, error);
             if (!invite) {
                 message_ = danger(error);
                 continue;
@@ -511,7 +570,7 @@ void TerminalUIManager::devicesScreen() {
         if (d.thisDevice) std::cout << danger("That's this computer: you'll be locked out here.") << "\n";
         if (lower(readLine("Type yes to revoke: ")) != "yes") continue;
         std::cout << "Press BOOT on the board to confirm (within a minute)..." << std::flush;
-        message_ = safeRevokeDevice(d.name, error) ? accent("Revoked " + d.name + ".") : danger(error);
+        message_ = safeRevokeDevice(*host.store, d.name, error) ? accent("Revoked " + d.name + ".") : danger(error);
     }
 }
 

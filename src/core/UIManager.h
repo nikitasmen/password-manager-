@@ -42,13 +42,37 @@ class UIManager {
     // One line for the user: where the vault is kept and whether the ESP32 is reachable.
     std::string syncStatusText() const;
 
-    // Devices paired with the board. Not vault data, so it bypasses VaultService; board_ is owned by `vault`
-    // (null without espHost). On failure: nullopt/false, and `error` is a sentence for the user.
-    EspStore* board_ = nullptr;
-    std::string boardId_;  // its host id (PROTOCOL.md §8), "" before pairing
-    std::optional<std::vector<EspStore::Device>> safeListDevices(std::string& error, EspStore::Storage* storage = nullptr);
-    bool safeRevokeDevice(const std::string& name, std::string& error);
-    std::optional<EspStore::PairInvite> safeOpenPairing(std::string& error);  // for showing a phone the pairing QR  // blocks until BOOT is pressed (≤ 1 min)
+    // Hosts this device is paired with (PROTOCOL.md §6), best role first. The config's esp* keys hold the first one
+    // (board_, which the connector manages); hosts added later live in hostsDir()/<id prefix>/. Stores are owned by
+    // `vault`. Paired devices aren't vault data, so the Devices screens use these directly, bypassing VaultService.
+    struct PairedHost {
+        std::string id;       // hex SHA-256 of its server cert
+        std::string address;  // as the user gave it: IP or name, with ":port" when it isn't 443
+        HostRole role = HostRole::Dedicated;
+        std::string dir;  // its folder; "" = the config's esp* host
+        EspStore* store = nullptr;
+    };
+    std::vector<PairedHost> hosts_;
+    EspStore* board_ = nullptr;  // the config's esp* host, null without espHost
+    bool deviceOnly_ = false;    // localCopy=false: board_ is the one store, and no other host can be added
+    static std::string hostsDir();  // configDir()/hosts
+    const PairedHost* pinHost() const;  // the best dedicated host: the only kind that offers PINs (§11); may be null
+    std::string hostStatusText(const PairedHost& h) const;  // "synced", "not on this network", ...
+    // Pairs with one more host: "ip" (the board's ports) or "ip:port" (pairing on port+1). Blocks until it's approved
+    // there (<= 90 s). false + error on failure, and nothing is saved.
+    bool safeAddHost(const std::string& address, const std::string& name, const std::string& code, std::string& error);
+    // PROTOCOL.md §10: deletes this device's files for the host, its cursors, and pin.json if the PIN is its.
+    // revokeFirst: ask the host to revoke this device first (blocks until approved there); if that fails, nothing
+    // is forgotten.
+    bool safeForgetHost(std::string id, bool revokeFirst, std::string& error);  // id by value: it erases the entry
+
+    // On failure: nullopt/false, and `error` is a sentence for the user.
+    std::optional<std::vector<EspStore::Device>> safeListDevices(EspStore& host, std::string& error,
+                                                                 EspStore::Storage* storage = nullptr);
+    bool safeRevokeDevice(EspStore& host,
+                          const std::string& name,
+                          std::string& error);  // blocks until approved (≤ 1 min)
+    std::optional<EspStore::PairInvite> safeOpenPairing(EspStore& host, std::string& error);  // the QR a phone scans
     static std::string lastSeenText(int64_t unixTime);                   // "seen 5 min ago"
     static std::string storageText(const EspStore::Storage& s);         // "Board storage: 12 KB of 1408 KB used ..."
 

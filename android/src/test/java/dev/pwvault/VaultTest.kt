@@ -160,6 +160,16 @@ class VaultTest {
         File(dir, "h-desk.sync").writeText("""{"vault_id":"x","local_seq":99,"remote_seq":99}""")
         assertEquals(Vault.Sync.Ok, desk.sync())
         assertTrue(JSONObject(File(dir, "h-desk.sync").readText()).getJSONObject("hosts").has("board"))
+
+        // hosts come and go at runtime: a new one slots in by role, a forgotten one loses its cursors
+        val server = LocalStore(File(dir, "h-server.json"))
+        desk.addHost(Host("server", Role.Server, server))
+        assertEquals(listOf("board", "server"), desk.hostStatus.map { it.host.id })
+        assertEquals(Vault.Sync.Ok, desk.sync())
+        assertTrue(server.getMeta() != null)
+        desk.removeHost("server")
+        val left = JSONObject(File(dir, "h-desk.sync").readText()).getJSONObject("hosts")
+        assertTrue(desk.hostStatus.size == 1 && !left.has("server") && left.has("board"))
     }
 
     @Test fun mergeStandalonePhoneIntoBoardVault() {
@@ -237,8 +247,16 @@ class VaultTest {
 
         val esp = EspStore(host, port.toInt(), p.server, keys.private, p.cert)
         esp.getMeta() // throws unless the board accepts the cert it just issued
-        val storage = esp.storage()
+        val info = esp.info()
+        assertTrue("phone-test" in info.names && info.you == "phone-test")
+        val storage = info.storage
         assertTrue(storage.total > 0 && storage.used <= storage.total && storage.text().contains(" KB of "))
+        if (info.role != Role.Dedicated) { // §11: only a dedicated host offers PINs
+            assertTrue(runCatching { esp.setPin("a".repeat(64)) }.isFailure)
+            esp.revokeSelf()
+            assertTrue(runCatching { esp.getMeta() }.exceptionOrNull() is DeviceRevoked)
+            return
+        }
         val phone = Vault(LocalStore(File(dir, "p.json")), listOf(Host("esp", Role.Dedicated, esp)), File(dir, "p-sync.json"))
         if (!phone.exists()) phone.create("master", iterations = 1000) // a fresh fake; else the vault is someone's
         assertEquals(Vault.Sync.Ok, phone.sync())
@@ -256,5 +274,7 @@ class VaultTest {
         assertEquals(PinResult.Unlocked, unlockWithPin(phone, esp, pinFile, "2468"))
         assertTrue(phone.unlocked)
         phone.remove("phone-test.example")
+        esp.revokeSelf() // §10: returns once the host refuses this phone
+        assertTrue(runCatching { esp.getMeta() }.exceptionOrNull() is DeviceRevoked)
     }
 }

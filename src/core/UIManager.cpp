@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <sstream>
 
 #include "../core/base64.h"
 #include "../utils/EncryptionUtils.h"
@@ -16,6 +18,22 @@
 #include "../vault/LocalFileStore.h"
 
 namespace {
+std::string readFile(const std::string& path) {  // "" if missing
+    std::ifstream in(path);
+    return {std::istreambuf_iterator<char>(in), {}};
+}
+
+// "192.168.1.5" -> the board's port 443; "host:8443" -> 8443
+std::pair<std::string, int> splitAddress(const std::string& a) {
+    auto colon = a.rfind(':');
+    if (colon == std::string::npos) return {a, 443};
+    try {
+        return {a.substr(0, colon), std::stoi(a.substr(colon + 1))};
+    } catch (const std::exception&) {
+        return {a, 443};
+    }
+}
+
 // Run a vault call for the UI: log a failure and return `fallback` instead of throwing into UI code.
 template <class R, class F>
 R guarded(const char* what, R fallback, F&& call) {
@@ -33,21 +51,43 @@ R guarded(const char* what, R fallback, F&& call) {
 //   local-first (default): the local file, synced with the ESP32 when espHost is set
 //   device-only (localCopy=false): the ESP32 as the only store, nothing written to dataPath
 UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
+    namespace fs = std::filesystem;
     const AppConfig& c = ConfigManager::getInstance().getConfig();
+    deviceOnly_ = !c.localCopy;
     std::vector<SyncHost> hosts;
+    auto add = [&](PairedHost h, const EspConfig& cfg) {
+        auto store = std::make_unique<EspStore>(cfg);
+        h.store = store.get();
+        h.id = certFingerprint(readFile(cfg.certPath));  // not paired yet: no cert, id "" until pairing writes one
+        hosts.push_back({h.id, h.role, std::move(store)});
+        hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; }),
+                      h);
+    };
     if (!c.espHost.empty()) {
-        auto board = std::make_unique<EspStore>(EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
-        board_ = board.get();
-        std::ifstream pem(c.espCert);  // not paired yet: no cert, id "" until pairing writes one
-        boardId_ = certFingerprint({std::istreambuf_iterator<char>(pem), {}});
-        hosts.push_back({boardId_, HostRole::Dedicated, std::move(board)});
+        add({"", c.espHost + (c.espPort == 443 ? "" : ":" + std::to_string(c.espPort)), HostRole::Dedicated},
+            EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
+        board_ = hosts_.front().store;
     }
-    if (!c.localCopy) {
-        if (hosts.empty()) throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
+    std::error_code ec;
+    if (!deviceOnly_)
+        for (const auto& d : fs::directory_iterator(hostsDir(), ec)) {
+            std::map<std::string, std::string> kv;  // host: address=, role=
+            std::istringstream in(readFile((d.path() / "host").string()));
+            for (std::string line; std::getline(in, line);)
+                if (auto eq = line.find('='); eq != std::string::npos) kv[line.substr(0, eq)] = line.substr(eq + 1);
+            if (kv["address"].empty()) continue;
+            auto [addr, port] = splitAddress(kv["address"]);
+            const std::string dir = d.path().string();
+            add({"", kv["address"], hostRoleOf(kv["role"]), dir},
+                EspConfig{addr, port, dir + "/server.pem", dir + "/device.pem", dir + "/device.key"});
+        }
+    if (deviceOnly_) {
+        if (!board_)
+            throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
         vault = std::make_unique<VaultService>(std::move(hosts.front().store), std::vector<SyncHost>{}, "");
         return;
     }
-    std::filesystem::create_directories(dataPath);
+    fs::create_directories(dataPath);
     vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>(dataPath + "/vault.json"), std::move(hosts),
                                            dataPath + "/sync.json");
 }
@@ -107,20 +147,125 @@ T boardCall(std::string& error, T onError, F&& f) {
 }
 }  // namespace
 
-std::optional<std::vector<EspStore::Device>> UIManager::safeListDevices(std::string& error, EspStore::Storage* storage) {
-    if (!board_) return error = "No ESP32 is set up (espHost in the config).", std::nullopt;
+std::optional<std::vector<EspStore::Device>> UIManager::safeListDevices(EspStore& host, std::string& error,
+                                                                        EspStore::Storage* storage) {
     return boardCall(error, std::optional<std::vector<EspStore::Device>>{},
-                     [&] { return std::optional(board_->devices(storage)); });
+                     [&] { return std::optional(host.devices(storage)); });
 }
 
-bool UIManager::safeRevokeDevice(const std::string& name, std::string& error) {
-    if (!board_) return error = "No ESP32 is set up (espHost in the config).", false;
-    return boardCall(error, false, [&] { return board_->revokeDevice(name), true; });
+bool UIManager::safeRevokeDevice(EspStore& host, const std::string& name, std::string& error) {
+    return boardCall(error, false, [&] { return host.revokeDevice(name), true; });
 }
 
-std::optional<EspStore::PairInvite> UIManager::safeOpenPairing(std::string& error) {
-    if (!board_) return error = "No ESP32 is set up (espHost in the config).", std::nullopt;
-    return boardCall(error, std::optional<EspStore::PairInvite>{}, [&] { return std::optional(board_->openPairing()); });
+std::optional<EspStore::PairInvite> UIManager::safeOpenPairing(EspStore& host, std::string& error) {
+    return boardCall(error, std::optional<EspStore::PairInvite>{}, [&] { return std::optional(host.openPairing()); });
+}
+
+std::string UIManager::hostsDir() {
+    return ConfigManager::configDir() + "/hosts";
+}
+
+const UIManager::PairedHost* UIManager::pinHost() const {
+    for (const PairedHost& h : hosts_)
+        if (h.role == HostRole::Dedicated) return &h;
+    return nullptr;
+}
+
+std::string UIManager::hostStatusText(const PairedHost& h) const {
+    if (deviceOnly_) return "the only store (device-only)";
+    for (const auto& s : vault->hostStatuses())
+        if (s.id == h.id) switch (s.status) {
+                case VaultService::SyncStatus::Ok:
+                    return "synced";
+                case VaultService::SyncStatus::Offline:
+                    return "not reachable from here";
+                case VaultService::SyncStatus::Error:
+                    return "sync failed: " + s.error;
+                case VaultService::SyncStatus::Disabled:
+                    break;
+            }
+    return "not checked yet";
+}
+
+bool UIManager::safeAddHost(const std::string& address, const std::string& name, const std::string& code,
+                            std::string& error) {
+    namespace fs = std::filesystem;
+    if (deviceOnly_) return error = "Device-only mode keeps the vault on one host only.", false;
+    auto [addr, port] = splitAddress(address);
+    if (addr.empty()) return error = "Type the host's address, as it shows it.", false;
+    std::string dir;
+    try {
+        const PairedFiles f = pairWithBoard(addr, port == 443 ? kPairPort : port + 1, name, code);
+        const std::string id = certFingerprint(f.serverPem);
+        for (const PairedHost& h : hosts_)
+            if (h.id == id) return error = "This computer is already paired with that host.", false;
+        dir = hostsDir() + "/" + id.substr(0, 16);
+        for (const auto& [file, content] : {std::pair{"/server.pem", &f.serverPem}, {"/device.pem", &f.certPem},
+                                            {"/device.key", &f.keyPem}}) {
+            writePrivateTmp(dir + file, *content);
+            fs::rename(dir + file + ".tmp", dir + file);
+        }
+        auto store = std::make_unique<EspStore>(
+            EspConfig{addr, port, dir + "/server.pem", dir + "/device.pem", dir + "/device.key"});
+        std::string role;
+        store->devices(nullptr, &role);  // also proves the host accepts the cert it just issued
+        writePrivateTmp(dir + "/host", "address=" + address + "\nrole=" + hostRoleName(hostRoleOf(role)) + "\n");
+        fs::rename(dir + "/host.tmp", dir + "/host");
+        PairedHost h{id, address, hostRoleOf(role), dir, store.get()};
+        vault->addHost({id, h.role, std::move(store)});
+        hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; }),
+                      h);
+    } catch (const StoreUnavailable&) {
+        error = "Paired, but the host didn't answer on port " + std::to_string(port) + ". Nothing was saved.";
+    } catch (const std::exception& e) {
+        error = e.what();
+    }
+    if (error.empty()) {
+        vault->sync();
+        return true;
+    }
+    std::error_code ec;
+    if (!dir.empty()) fs::remove_all(dir, ec);
+    return false;
+}
+
+bool UIManager::safeForgetHost(std::string id, bool revokeFirst, std::string& error) {
+    namespace fs = std::filesystem;
+    auto it = std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& h) { return h.id == id; });
+    if (it == hosts_.end()) return error = "No such host.", false;
+    if (deviceOnly_) return error = "Device-only mode needs its host: there's no vault without it.", false;
+    if (revokeFirst) try {
+            for (const auto& d : it->store->devices())
+                if (d.thisDevice) it->store->revokeDevice(d.name);
+        } catch (const DeviceRevoked&) {  // it already refuses this computer: nothing left to revoke
+        } catch (const StoreUnavailable&) {
+            return error = "The host isn't reachable, so it can't revoke this computer. Forget it without revoking, "
+                           "or try again on its network.", false;
+        } catch (const std::exception& e) {
+            return error = e.what(), false;
+        }
+    const PairedHost* pin = pinHost();
+    const bool pinIsItsOwn = pin && pin->id == id;
+    if (auto f = loadPinFile(pinFilePath()); f && (f->host == id || (f->host.empty() && pinIsItsOwn)))
+        safeRemovePin(error);
+    const PairedHost gone = *it;
+    hosts_.erase(it);
+    vault->removeHost(id);  // destroys its store
+    std::error_code ec;
+    if (gone.dir.empty()) {  // the config's host: its files, and espHost
+        const AppConfig& c = ConfigManager::getInstance().getConfig();
+        for (const std::string& f : {c.espCert, c.espClientCert, c.espClientKey}) fs::remove(f, ec);
+        AppConfig next = c;
+        next.espHost.clear();
+        ConfigManager::getInstance().updateConfig(next);
+        board_ = nullptr;
+        if (!ConfigManager::getInstance().saveConfig())
+            return error = "Forgot the host, but couldn't write " + ConfigManager::configFile(), false;
+    } else {
+        fs::remove_all(gone.dir, ec);
+    }
+    error.clear();
+    return true;
 }
 
 UIManager::BoardState UIManager::checkBoard(std::string& detail) {
@@ -177,23 +322,24 @@ std::string UIManager::pinFilePath() {
 }
 
 bool UIManager::hasPin() const {
-    return board_ && std::filesystem::exists(pinFilePath());
+    return pinHost() && std::filesystem::exists(pinFilePath());
 }
 
 UIManager::PinResult UIManager::safeUnlockWithPin(const std::string& pin, std::string& message) {
     auto file = loadPinFile(pinFilePath());
-    if (!board_ || !file) {
+    const PairedHost* host = pinHost();
+    if (!host || !file) {
         message = "PIN unlock isn't set up here. Use your master password.";
         return PinResult::Failed;
     }
-    if (!file->host.empty() && !boardId_.empty() && file->host != boardId_) {
+    if (!file->host.empty() && !host->id.empty() && file->host != host->id) {
         message = "This PIN belongs to another host. Use your master password.";
         return PinResult::Failed;
     }
     const std::string proof = pinProofHex(pin, base64::decode(file->salt), file->iterations);
     EspStore::PinReply reply;
     try {
-        reply = board_->tryPin(proof);
+        reply = host->store->tryPin(proof);
     } catch (const StoreUnavailable&) {
         message = "The ESP32 isn't reachable, and the PIN needs it. Use your master password.";
         return PinResult::Unavailable;
@@ -234,7 +380,8 @@ UIManager::PinResult UIManager::safeUnlockWithPin(const std::string& pin, std::s
 
 bool UIManager::safeSetPin(const std::string& masterPassword, const std::string& pin, const std::string& repeat,
                            std::string& error) {
-    if (!board_) error = "PIN unlock needs the ESP32 (espHost in the config).";
+    const PairedHost* host = pinHost();
+    if (!host) error = "PIN unlock needs a dedicated host, like the ESP32 board.";
     else if (!validPin(pin)) error = "Use at least 4 digits, and only digits.";
     else if (pin != repeat) error = "The two PINs don't match.";
     else if (!vault->verifyMasterPassword(masterPassword)) error = "That's not your master password.";
@@ -244,9 +391,9 @@ bool UIManager::safeSetPin(const std::string& masterPassword, const std::string&
         const std::string salt = vaultcrypto::randomBytes(16);
         f.salt = base64::encode(salt);
         f.iterations = kDefaultKdfIterations;
-        f.host = boardId_;
+        f.host = host->id;
         const std::string proof = pinProofHex(pin, salt, f.iterations);
-        std::string key = pinWrapKey(board_->setPin(vaultcrypto::sha256Hex(proof)), proof);
+        std::string key = pinWrapKey(host->store->setPin(vaultcrypto::sha256Hex(proof)), proof);
         f.blob = vault->sealKeyForPin(key);
         vaultcrypto::wipe(key);
         savePinFile(pinFilePath(), f);

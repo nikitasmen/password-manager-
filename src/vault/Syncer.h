@@ -17,4 +17,7 @@ class VaultMismatch : public std::runtime_error {
 // Returns true if anything changed locally (caller should re-read).
 bool syncStores(IVaultStore& local, IVaultStore& remote, const std::string& statePath, const std::string& hostId);
 
+// Drops a host's cursors (forget host, PROTOCOL.md §10). A missing file is fine.
+void forgetCursors(const std::string& statePath, const std::string& hostId);
+
 #endif  // SYNCER_H

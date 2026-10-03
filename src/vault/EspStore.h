@@ -16,6 +16,12 @@ struct EspConfig {
     std::string clientKey;   // ...and its private key (never leaves this machine)
 };
 
+// The host refused this device's certificate: revoked, or replaced by a newer pairing (403 "device revoked").
+class DeviceRevoked : public std::runtime_error {
+   public:
+    using std::runtime_error::runtime_error;
+};
+
 // The ESP32 vault over mutual TLS: docs/PROTOCOL.md §7. The board only talks to devices whose certificate
 // its device CA signed.
 // Throws StoreUnavailable when the board can't be reached, std::runtime_error for anything else.
@@ -42,8 +48,10 @@ class EspStore : public IVaultStore {
     struct Storage {
         uint64_t used = 0, total = 0, records = 0;
     };
-    std::vector<Device> devices(Storage* storage = nullptr);
+    // role: the host's role (PROTOCOL.md §6), "dedicated" when the firmware is too old to say.
+    std::vector<Device> devices(Storage* storage = nullptr, std::string* role = nullptr);
     // Asks the board, then waits until someone presses BOOT there (up to a minute). Throws if it doesn't happen.
+    // Revoking this device itself returns once the board refuses it.
     void revokeDevice(const std::string& name);
 
     // Opens pairing on the board, as a BOOT press does, so this device can show the code as a large QR for a phone
