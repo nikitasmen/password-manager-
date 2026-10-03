@@ -149,12 +149,12 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(req, dict):
                 return None if req is None else self.reply(400, {"error": "bad body"})
             if route == ("PUT", "/pin"):
-                if not HEX64.match(str(req.get("verifier"))):
+                if not HEX64.fullmatch(str(req.get("verifier"))):
                     return self.reply(400, {"error": "need {verifier: 64 hex}"})
                 pins[who] = {"secret": secrets.token_hex(32), "verifier": req["verifier"], "fails": 0}
                 print(f"[{who}] PIN set", flush=True)
                 return self.reply(200, {"secret": pins[who]["secret"]})
-            if not HEX64.match(str(req.get("proof"))):
+            if not HEX64.fullmatch(str(req.get("proof"))):
                 return self.reply(400, {"error": "need {proof: 64 hex}"})
             rec = pins.get(who)
             if not rec:
@@ -169,7 +169,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(410, {"error": "too many wrong PINs; the PIN was removed", "left": 0})
             return self.reply(403, {"error": "wrong PIN", "left": PIN_TRIES - rec["fails"]})
         if route == ("GET", "/entries"):
-            after = int(parse_qs(url.query).get("after", ["0"])[0])
+            after = parse_qs(url.query).get("after", ["0"])[0]
+            after = int(after) if after.isdigit() else 0  # like the board's strtoull: not a number = from 0
             return self.reply(200, {"entries": [e for e in state["entries"].values() if e["seq"] > after],
                                     "seq": state["seq"]})
         if route in (("PUT", "/meta"), ("POST", "/entries"), ("POST", "/access")):
@@ -177,6 +178,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(req, dict):
                 return None if req is None else self.reply(400, {"error": "bad body"})
             if route == ("PUT", "/meta"):
+                if not isinstance(req.get("meta"), dict) or type(req.get("if_rev")) is not int:
+                    return self.reply(400, {"error": "need {meta, if_rev}"})
                 current = state["meta"]["rev"] if state["meta"] else 0
                 if req.get("if_rev") != current:
                     return self.reply(409, {"error": "rev changed"})
@@ -186,7 +189,7 @@ class Handler(BaseHTTPRequestHandler):
             if route == ("POST", "/entries"):
                 entries = req.get("entries")
                 if not isinstance(entries, list) or len(entries) > MAX_BATCH or not all(
-                        isinstance(e, dict) and ID.match(str(e.get("id"))) and isinstance(e.get("updated"), int)
+                        isinstance(e, dict) and ID.fullmatch(str(e.get("id"))) and type(e.get("updated")) is int
                         and isinstance(e.get("deleted"), bool) and isinstance(e.get("alg"), str)
                         and isinstance(e.get("data"), str) for e in entries):
                     return self.reply(400, {"error": "bad entry record"})
@@ -240,7 +243,7 @@ class PairHandler(Handler):
             want = mac(f"pwvault-pair-req\n{pairing['server_fp']}\n{name}\n{csr}")
             if not hmac.compare_digest(want, str(req.get("mac", ""))):
                 return self.reply(403, {"error": "wrong code (or someone is intercepting)"})
-            if not NAME.match(name):
+            if not NAME.fullmatch(name):
                 return self.reply(400, {"error": "name: 1-20 chars of a-z 0-9 -"})
             try:
                 cert = sign(name, base64.b64decode(csr))

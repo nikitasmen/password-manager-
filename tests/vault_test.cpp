@@ -609,6 +609,50 @@ void testPair(const fs::path& dir, const std::string& spec) {
     std::cout << "pin: ok (unlocks; 5 wrong tries remove it; bound to its vault)\n";
 }
 
+// A host holds ciphertext only and isn't trusted (PROTOCOL.md §12): whatever it does to the records, a client never
+// shows one entry's secret under another's name, and never crashes. It can only make entries unreadable.
+void testHostileHost(const fs::path& dir) {
+    LocalFileStore host((dir / "x-host.json").string());
+    auto writer = makeDevice(dir, "x-writer", host);
+    writer.vault->create("master", CipherAlg::Aes256Gcm, 1000);
+    const std::map<std::string, std::string> secret = {{"GitHub", "gh-secret"}, {"Mail", "mail-secret"},
+                                                       {"Bank", "bank-secret"}};
+    for (const auto& [platform, pw] : secret) writer.vault->put({platform, "nik", pw, CipherAlg::Aes256Gcm});
+    std::vector<EntryRecord> all = host.changesAfter(0).entries;
+    CHECK(all.size() == 3);
+
+    // 1. One record's ciphertext changed (and dated newer, so the merge rule takes it)
+    EntryRecord flipped = all[0];
+    flipped.data[flipped.data.size() / 2] = flipped.data[flipped.data.size() / 2] == 'A' ? 'B' : 'A';
+    flipped.updated += 1000;
+    // 2. Another record's ciphertext moved onto a different id: its AAD binds it to its own id
+    EntryRecord moved = all[2];
+    moved.id = all[1].id;
+    moved.updated = all[1].updated + 1000;
+    host.putEntries({flipped, moved});
+
+    auto reader = makeDevice(dir, "x-reader", host);
+    CHECK(reader.vault->unlock("master"));
+    CHECK(reader.vault->platforms().size() == 1);  // only the untouched one opens; the others are skipped
+    for (const auto& [platform, pw] : secret)
+        if (auto got = reader.vault->get(platform)) CHECK(got->platform == platform && got->password == pw);
+
+    // 3. The vault key blob changed: the master password no longer opens it, and that's a clean "no"
+    VaultMeta m = *host.getMeta();
+    m.key[m.key.size() / 2] = m.key[m.key.size() / 2] == 'A' ? 'B' : 'A';
+    m.rev += 1;
+    CHECK(host.putMeta(m, m.rev - 1));
+    auto locked = makeDevice(dir, "x-locked", host);
+    bool opened = true;
+    try {
+        opened = locked.vault->unlock("master");
+    } catch (const std::exception& e) {
+        std::cerr << "unlock threw: " << e.what() << "\n";
+    }
+    CHECK(!opened);
+    std::cout << "hostile host: ok (changed and moved records don't open; a changed key blob doesn't unlock)\n";
+}
+
 // Forgetting or re-pairing a host deletes pin.json only if the PIN is that host's (PROTOCOL.md §11)
 void testPinOwnership() {
     PinFile old{"salt", 1, "blob", ""};  // from before there were several hosts: the PIN host's alone
@@ -631,6 +675,7 @@ int main() {
     testRobustness(dir);
     testDeviceOnly(dir);
     testPinOwnership();
+    testHostileHost(dir);
     if (const char* esp = std::getenv("PWVAULT_TEST_ESP")) testEsp(dir, esp);
     if (const char* pair = std::getenv("PWVAULT_TEST_PAIR")) testPair(dir, pair);
     fs::remove_all(dir);
