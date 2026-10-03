@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -37,14 +38,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -119,6 +120,7 @@ object App {
     var bioOn by mutableStateOf(false) // fingerprint unlock is set up (bio.json)
     var update by mutableStateOf<Release?>(null) // a newer release with an APK
     var updating by mutableStateOf<Int?>(null) // download progress, %
+    var storage by mutableStateOf("") // the board's flash use, for Settings
 
     fun init(ctx: Context) {
         if (::dir.isInitialized) return
@@ -339,7 +341,13 @@ object App {
         syncNow()
     }
 
-    fun showStorage() = run { notice = board!!.storage().text() }
+    fun loadStorage() = run {
+        storage = try {
+            board!!.storage().text().removePrefix("Board storage: ")
+        } catch (e: StoreUnavailable) {
+            "Unknown while the board is offline"
+        }
+    }
 
     fun syncNow() {
         syncing = true
@@ -600,14 +608,14 @@ private fun ColumnScope.VaultScreen() {
     var pinSheet by remember { mutableStateOf(false) }
     var bioSheet by remember { mutableStateOf(false) }
     var hostSheet by remember { mutableStateOf(false) }
-    val ctx = LocalContext.current
-    var menu by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(false) }
     val shown = App.items.filter { it.platform.contains(query, true) || it.username.contains(query, true) }
     val count = App.items.size
 
     Spacer(Modifier.height(12.dp))
-    Oled(listOf(OledText(if (App.syncing) "syncing..." else boardLine()), OledText(App.deviceName, right = true),
-        OledText(if (count == 1) "1 entry" else "$count entries", y = 18, size = 1)), rows = 28, rules = listOf(10))
+    // One line of the board's screen: how the vault stands, and how big it is
+    Oled(listOf(OledText(if (App.syncing) "syncing..." else boardLine(), y = 2),
+        OledText(if (count == 1) "1 entry" else "$count entries", y = 2, right = true)), rows = 11)
     if (App.sync == Vault.Sync.Error && App.syncError.isNotEmpty())
         Text(App.syncError, Modifier.padding(top = 8.dp), color = palette.danger, style = MaterialTheme.typography.bodySmall,
             maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -644,22 +652,7 @@ private fun ColumnScope.VaultScreen() {
 
     Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         QuietButton("Lock", { App.lock() }, color = palette.muted)
-        Box {
-            QuietButton("More", { menu = true }, color = palette.muted)
-            DropdownMenu(menu, { menu = false }, containerColor = palette.surface) {
-                DropdownMenuItem({ Text("Sync now") }, { menu = false; App.syncNow() }, enabled = App.hasBoard && !App.busy)
-                if (App.hasBoard) DropdownMenuItem({ Text("Board storage") }, { menu = false; App.showStorage() },
-                    enabled = !App.busy)
-                if (App.hasBoard) DropdownMenuItem({ Text(if (App.pinFile.exists()) "Change or remove PIN" else "Set a PIN") },
-                    { menu = false; pinSheet = true })
-                if (App.bioOn) DropdownMenuItem({ Text("Turn off fingerprint unlock") }, { menu = false; App.disableFingerprint() })
-                else if (Biometric.available(ctx)) DropdownMenuItem({ Text("Turn on fingerprint unlock") },
-                    { menu = false; bioSheet = true })
-                if (App.hasBoard) DropdownMenuItem({ Text("Board address") }, { menu = false; hostSheet = true })
-                if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Pair again") }, { menu = false; App.screen = Screen.Pair })
-                if (!BuildConfig.DEMO) DropdownMenuItem({ Text("Check for updates") }, { menu = false; App.checkUpdate(manual = true) })
-            }
-        }
+        QuietButton("Settings", { settings = true }, color = palette.muted)
         Spacer(Modifier.width(8.dp))
         PrimaryButton("Add entry", { edit = Credential("", "", "") }, enabled = !App.busy, modifier = Modifier.weight(1f))
     }
@@ -669,6 +662,73 @@ private fun ColumnScope.VaultScreen() {
     if (pinSheet) PinSheet { pinSheet = false }
     if (bioSheet) FingerprintSheet { bioSheet = false }
     if (hostSheet) HostSheet { hostSheet = false }
+    // One sheet at a time: a setting that needs its own sheet closes Settings first
+    if (settings) SettingsSheet(close = { settings = false }, pin = { settings = false; pinSheet = true },
+        fingerprint = { settings = false; bioSheet = true }, host = { settings = false; hostSheet = true })
+}
+
+/**
+ * Everything that isn't an entry, grouped by what it acts on: this phone, the board, the app. Each row says what
+ * the setting is now, and its button says what tapping does.
+ */
+@Composable
+private fun SettingsSheet(close: () -> Unit, pin: () -> Unit, fingerprint: () -> Unit, host: () -> Unit) {
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) { if (App.hasBoard) App.loadStorage() }
+    Sheet(close) { Column(Modifier.verticalScroll(rememberScrollState())) { // taller than a small phone
+        Text("Settings", color = palette.ink, style = MaterialTheme.typography.headlineSmall)
+
+        Group("This phone")
+        Setting("Name", App.deviceName)
+        if (App.hasBoard) Setting("PIN unlock", if (App.pinFile.exists()) "On, while the board is reachable" else "Off") {
+            QuietButton(if (App.pinFile.exists()) "Change" else "Set up", pin)
+        }
+        if (App.bioOn || Biometric.available(ctx)) Setting("Fingerprint unlock", if (App.bioOn) "On" else "Off") {
+            Switch(App.bioOn, { if (App.bioOn) App.disableFingerprint() else fingerprint() },
+                colors = SwitchDefaults.colors(checkedTrackColor = palette.accent, checkedThumbColor = palette.onAccent))
+        }
+
+        if (App.hasBoard) {
+            Group("Board")
+            Setting("Sync", boardLine().replaceFirstChar { it.uppercase() }) {
+                QuietButton("Sync now", { App.syncNow() }, enabled = !App.busy)
+            }
+            Setting("Storage", App.storage.ifEmpty { "Checking..." })
+            Setting("Address", App.host) { QuietButton("Change", host) }
+            Setting("Pairing", "Paired as ${App.deviceName}") {
+                QuietButton("Pair again", { close(); App.message = ""; App.screen = Screen.Pair }, color = palette.muted)
+            }
+        }
+
+        if (!BuildConfig.DEMO) {
+            Group("App")
+            Setting("Version", BuildConfig.VERSION_NAME) {
+                QuietButton("Check for updates", { App.checkUpdate(manual = true) })
+            }
+        }
+        Feedback()
+    } }
+}
+
+@Composable
+private fun Group(title: String) {
+    Text(title, Modifier.padding(top = 24.dp, bottom = 4.dp), color = palette.accent,
+        style = MaterialTheme.typography.titleMedium)
+    HorizontalDivider(color = palette.line)
+}
+
+/** One setting: its name, what it is now, and at most one action. */
+@Composable
+private fun Setting(name: String, value: String, action: (@Composable () -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(name, color = palette.ink, style = MaterialTheme.typography.bodyLarge)
+            Text(value, color = palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 2,
+                overflow = TextOverflow.Ellipsis)
+        }
+        action?.invoke()
+    }
+    HorizontalDivider(color = palette.line)
 }
 
 @Composable
