@@ -15,7 +15,8 @@ import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP = f"{ROOT}/password_manager"
+BUILD = os.environ.get("PWVAULT_BUILD", ROOT)  # where password_manager and vault_test are: in-source, or CI's build/
+APP = f"{BUILD}/password_manager"
 children = []  # killed on any exit: a host left running keeps its port, and the next run meets its cert
 atexit.register(lambda: [c.kill() for c in children if c.poll() is None])
 

@@ -27,7 +27,9 @@ AVD_HOME = f"{ANDROID}/build/avd"
 AVD, IMAGE = "pwvault-test", "system-images;android-35;google_apis;x86_64"
 BOARD, SERVER = 19443, 19453
 CODE_B, CODE_S = "ABCD0123EFGH4567", "BCDE1234FGHJ5678"
-SHELL = ["nix-shell", f"{ANDROID}/shell.nix", "--arg", "withEmulator", "true", "--run"]
+# CI has the SDK, gradle and an emulator already (.github/workflows/test.yml); here they come from android/shell.nix
+SHELL = ["bash", "-c"] if os.environ.get("CI") else ["nix-shell", f"{ANDROID}/shell.nix", "--arg", "withEmulator",
+                                                      "true", "--run"]
 ENV = dict(os.environ, ANDROID_AVD_HOME=AVD_HOME, ANDROID_USER_HOME=f"{ANDROID}/build/android-home")
 
 

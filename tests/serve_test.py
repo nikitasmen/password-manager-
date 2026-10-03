@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import threading
 
-from harness import APP, ROOT, Checks, Proc, fake_host, sandbox, serve_host
+from harness import APP, BUILD, ROOT, Checks, Proc, fake_host, sandbox, serve_host
 
 PORT, FAKE_CODE = 18643, "ABCD0123EFGH4567"
 
@@ -52,7 +52,7 @@ def main():
         c.check(status == 200 and st["used"] == 0 and st["records"] == 0 and 0 < st["total"] < 2**60,
                 "storage on a host with no vault yet", st)
         cfg = f"{client_env['XDG_CONFIG_HOME']}/pwvault"
-        r = subprocess.run([f"{ROOT}/vault_test"], env=dict(client_env, PWVAULT_TEST_ESP=f"127.0.0.1:{PORT},"
+        r = subprocess.run([f"{BUILD}/vault_test"], env=dict(client_env, PWVAULT_TEST_ESP=f"127.0.0.1:{PORT},"
                            f"{cfg}/server.pem,{cfg}/device.pem,{cfg}/device.key"), capture_output=True, text=True)
         c.check(r.returncode == 0 and "41 records round-tripped" in r.stdout,
                 "the C++ client's round trip through it (vault_test)", r.stdout[-400:] + r.stderr[-400:])

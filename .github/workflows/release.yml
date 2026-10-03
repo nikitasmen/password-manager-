@@ -1,4 +1,5 @@
-# Pushing a v* tag builds both apps from that tag and publishes them as the GitHub release the updaters read.
+# Pushing a v* tag runs every test suite (test.yml), then builds both apps from that tag and publishes them as the
+# GitHub release the updaters read. Nothing is built, published or deployed unless all the tests pass.
 # Asset names are part of the updater contract: `password_manager` (AppUpdater::getPlatformBinaryName) and an `.apk`.
 name: Release
 
@@ -10,7 +11,11 @@ permissions:
   contents: write
 
 jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
   desktop:
+    needs: tests
     # Built outside nix so it runs on ordinary distros; 22.04 keeps the glibc floor at 2.34.
     runs-on: ubuntu-22.04
     steps:
@@ -18,11 +23,11 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y cmake g++ libfltk1.3-dev libfontconfig-dev libssl-dev libcurl4-openssl-dev
       - run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DPWVAULT_VERSION=${{ github.ref_name }}
       - run: cmake --build build -j
-      - run: build/vault_test && build/base64_test
       - uses: actions/upload-artifact@v4
         with: { name: desktop, path: build/password_manager }
 
   android:
+    needs: tests
     runs-on: ubuntu-latest
     defaults:
       run: { working-directory: android }
@@ -39,7 +44,7 @@ jobs:
           # An unsigned or differently signed APK can't update installed copies, so never publish one.
           [ -n "$KEYSTORE_B64" ] || { echo "::error::ANDROID_KEYSTORE_B64 secret is not set"; exit 1; }
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
-      - run: gradle testDebugUnitTest assembleRelease
+      - run: gradle assembleRelease  # tested in test.yml
         env:
           ORG_GRADLE_PROJECT_pwvaultKeystore: ${{ runner.temp }}/release.jks
           ORG_GRADLE_PROJECT_pwvaultKeystorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -49,6 +54,7 @@ jobs:
         with: { name: android, path: android/build/outputs/apk/release/pwvault-release.apk }
 
   firmware:
+    needs: tests
     runs-on: ubuntu-latest
     env:
       CORE: esp32:esp32@3.3.12  # the same pins as shell.nix
