@@ -15,6 +15,7 @@ struct PinFile {
     std::string salt;  // base64
     int iterations = 0;
     std::string blob;  // AEAD blob of the vault key
+    std::string host;  // id of the host holding the secret (PROTOCOL.md §11); "" = the device's only host
 };
 std::optional<PinFile> loadPinFile(const std::string& path);  // nullopt if missing or unreadable
 void savePinFile(const std::string& path, const PinFile& f);  // mode 600; throws on failure

@@ -7,6 +7,9 @@ namespace {
 // Reads re-sync at most this often; an unreachable remote is retried no sooner than this either,
 // so being away from home doesn't add a connect timeout to every click.
 constexpr std::chrono::seconds kSyncMaxAge{30};
+// One active host per network (PROTOCOL.md §6): most hosts are elsewhere at any moment. One that didn't answer
+// is skipped this long, unless no other host syncs.
+constexpr std::chrono::minutes kOfflineRetry{5};
 constexpr size_t kMaxRecordBytes = 12 * 1024;  // fits one POST /entries with room to spare
 
 int64_t nowMs() {
@@ -15,10 +18,10 @@ int64_t nowMs() {
 }
 }  // namespace
 
-VaultService::VaultService(std::unique_ptr<IVaultStore> local,
-                           std::unique_ptr<IVaultStore> remote,
-                           std::string syncStatePath)
-    : local_(std::move(local)), remote_(std::move(remote)), syncStatePath_(std::move(syncStatePath)) {
+VaultService::VaultService(std::unique_ptr<IVaultStore> local, std::vector<SyncHost> hosts, std::string syncStatePath)
+    : local_(std::move(local)), hosts_(std::move(hosts)), syncStatePath_(std::move(syncStatePath)) {
+    std::stable_sort(hosts_.begin(), hosts_.end(), [](const SyncHost& a, const SyncHost& b) { return a.role < b.role; });
+    for (const SyncHost& h : hosts_) hostStatus_.push_back({h.id, h.role});
 }
 
 VaultService::~VaultService() {
@@ -99,9 +102,13 @@ std::optional<Credential> VaultService::get(const std::string& platform) {
     refresh();
     auto it = index_.find(vaultformat::entryId(vaultKey_, platform));
     if (it == index_.end()) return std::nullopt;
-    if (!remote_ || syncStatus_ == SyncStatus::Ok) {  // the OLED hint goes to whichever store is the board
+    // The OLED hint goes to the best host that answered (or, device-only, to the one store, the board)
+    IVaultStore* shown = hosts_.empty() ? local_.get() : nullptr;
+    for (size_t i = 0; i < hosts_.size() && !shown; i++)
+        if (hostStatus_[i].status == SyncStatus::Ok) shown = hosts_[i].store.get();
+    if (shown) {
         try {
-            (remote_ ? *remote_ : *local_).noteAccess(it->second.platform, it->second.username);
+            shown->noteAccess(it->second.platform, it->second.username);
         } catch (const std::exception&) {  // purely informational; never block a read on it
         }
     }
@@ -189,26 +196,57 @@ bool VaultService::unlockWithPinKey(const std::string& pinKey, const std::string
     return true;
 }
 
+// PROTOCOL.md §8, several hosts: each in turn, with its own cursors. A change pulled from one host is pushed to
+// the hosts after it in this round, and to the ones before it in the next.
 VaultService::SyncStatus VaultService::sync() {
-    if (!remote_) return syncStatus_ = SyncStatus::Disabled;
-    lastSyncAttempt_ = std::chrono::steady_clock::now();
-    try {
-        bool changed = syncStores(*local_, *remote_, syncStatePath_);
-        syncError_.clear();
+    if (hosts_.empty()) return syncStatus_ = SyncStatus::Disabled;
+    const auto now = lastSyncAttempt_ = std::chrono::steady_clock::now();
+    bool changed = false;
+    auto syncWith = [&](size_t i) {
+        HostStatus& s = hostStatus_[i];
+        s.triedAt = now;
+        try {
+            changed |= syncStores(*local_, *hosts_[i].store, syncStatePath_, hosts_[i].id);
+            s.status = SyncStatus::Ok;
+            s.error.clear();
+        } catch (const StoreUnavailable& e) {
+            s.status = SyncStatus::Offline;
+            s.error = e.what();
+        } catch (const std::exception& e) {  // VaultMismatch, a revoked cert, ...: keep working locally, surface it
+            s.status = SyncStatus::Error;
+            s.error = e.what();
+        }
+    };
+    std::vector<size_t> away;  // offline a moment ago: probably on another network
+    for (size_t i = 0; i < hosts_.size(); i++) {
+        const HostStatus& s = hostStatus_[i];
+        if (s.status == SyncStatus::Offline && now - s.triedAt < kOfflineRetry) away.push_back(i);
+        else syncWith(i);
+    }
+    auto none = [&] {
+        return std::none_of(hostStatus_.begin(), hostStatus_.end(), [](const HostStatus& s) { return s.status == SyncStatus::Ok; });
+    };
+    for (size_t i : away)
+        if (none()) syncWith(i);  // nothing else answered: maybe we just came back to its network
+    if (changed && isUnlocked()) reindex();
+    auto first = [&](SyncStatus st) {
+        return std::find_if(hostStatus_.begin(), hostStatus_.end(), [&](const HostStatus& s) { return s.status == st; });
+    };
+    if (first(SyncStatus::Ok) != hostStatus_.end()) {
         syncStatus_ = SyncStatus::Ok;
-        if (changed && isUnlocked()) reindex();
-    } catch (const StoreUnavailable& e) {
-        syncError_ = e.what();
-        syncStatus_ = SyncStatus::Offline;
-    } catch (const std::exception& e) {  // VaultMismatch, bad token, ...: keep working locally, surface it
-        syncError_ = e.what();
+        syncError_.clear();
+    } else if (auto e = first(SyncStatus::Error); e != hostStatus_.end()) {
         syncStatus_ = SyncStatus::Error;
+        syncError_ = e->error;
+    } else {
+        syncStatus_ = SyncStatus::Offline;
+        syncError_ = hostStatus_.front().error;
     }
     return syncStatus_;
 }
 
 void VaultService::refresh() {
-    if (remote_) {
+    if (!hosts_.empty()) {
         if (std::chrono::steady_clock::now() - lastSyncAttempt_ > kSyncMaxAge) sync();
         return;
     }

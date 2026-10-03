@@ -34,19 +34,21 @@ R guarded(const char* what, R fallback, F&& call) {
 //   device-only (localCopy=false): the ESP32 as the only store, nothing written to dataPath
 UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
     const AppConfig& c = ConfigManager::getInstance().getConfig();
-    std::unique_ptr<IVaultStore> esp;
+    std::vector<SyncHost> hosts;
     if (!c.espHost.empty()) {
         auto board = std::make_unique<EspStore>(EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
         board_ = board.get();
-        esp = std::move(board);
+        std::ifstream pem(c.espCert);  // not paired yet: no cert, id "" until pairing writes one
+        boardId_ = certFingerprint({std::istreambuf_iterator<char>(pem), {}});
+        hosts.push_back({boardId_, HostRole::Dedicated, std::move(board)});
     }
     if (!c.localCopy) {
-        if (!esp) throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
-        vault = std::make_unique<VaultService>(std::move(esp), nullptr, "");
+        if (hosts.empty()) throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
+        vault = std::make_unique<VaultService>(std::move(hosts.front().store), std::vector<SyncHost>{}, "");
         return;
     }
     std::filesystem::create_directories(dataPath);
-    vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>(dataPath + "/vault.json"), std::move(esp),
+    vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>(dataPath + "/vault.json"), std::move(hosts),
                                            dataPath + "/sync.json");
 }
 
@@ -184,6 +186,10 @@ UIManager::PinResult UIManager::safeUnlockWithPin(const std::string& pin, std::s
         message = "PIN unlock isn't set up here. Use your master password.";
         return PinResult::Failed;
     }
+    if (!file->host.empty() && !boardId_.empty() && file->host != boardId_) {
+        message = "This PIN belongs to another host. Use your master password.";
+        return PinResult::Failed;
+    }
     const std::string proof = pinProofHex(pin, base64::decode(file->salt), file->iterations);
     EspStore::PinReply reply;
     try {
@@ -238,6 +244,7 @@ bool UIManager::safeSetPin(const std::string& masterPassword, const std::string&
         const std::string salt = vaultcrypto::randomBytes(16);
         f.salt = base64::encode(salt);
         f.iterations = kDefaultKdfIterations;
+        f.host = boardId_;
         const std::string proof = pinProofHex(pin, salt, f.iterations);
         std::string key = pinWrapKey(board_->setPin(vaultcrypto::sha256Hex(proof)), proof);
         f.blob = vault->sealKeyForPin(key);

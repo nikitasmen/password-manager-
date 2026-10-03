@@ -24,6 +24,9 @@ bool validDeviceName(const std::string& name);  // 1-20 chars of a-z 0-9 -, firs
 // The code as typed ("abcd-o123 ...") -> the 16-char key; "" if it isn't 16 chars
 std::string normalizePairCode(const std::string& typed);
 
+// A host's id (PROTOCOL.md §8): hex SHA-256 of the DER of its server cert, given as PEM. "" if it isn't one.
+std::string certFingerprint(const std::string& pem);
+
 // Blocks until the board answers: up to ~90 s, because someone has to press BOOT to approve.
 PairedFiles pairWithBoard(const std::string& host, int pairPort, const std::string& name, const std::string& code);
 

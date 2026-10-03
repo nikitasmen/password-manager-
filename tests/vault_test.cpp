@@ -162,7 +162,9 @@ Device makeDevice(const fs::path& dir, const std::string& name, IVaultStore& esp
     auto link = std::make_unique<FlakyStore>(esp);
     FlakyStore* raw = link.get();
     auto local = std::make_unique<LocalFileStore>((dir / (name + ".json")).string());
-    return {raw, std::make_unique<VaultService>(std::move(local), std::move(link), (dir / (name + ".sync")).string())};
+    std::vector<SyncHost> hosts;
+    hosts.push_back({"esp", HostRole::Dedicated, std::move(link)});
+    return {raw, std::make_unique<VaultService>(std::move(local), std::move(hosts), (dir / (name + ".sync")).string())};
 }
 
 void testSync(const fs::path& dir) {
@@ -230,7 +232,7 @@ void testSync(const fs::path& dir) {
     // a different vault pointed at the same ESP32 is refused, not merged
     auto stranger = makeDevice(dir, "stranger", esp);
     auto strangerLocal = std::make_unique<LocalFileStore>((dir / "stranger-solo.json").string());
-    VaultService solo(std::move(strangerLocal), nullptr, "");
+    VaultService solo(std::move(strangerLocal), std::vector<SyncHost>{}, "");
     solo.create("other", CipherAlg::Aes256Gcm, kFastKdf);
     CHECK(solo.lastSyncStatus() == S::Disabled);
     fs::copy_file(dir / "stranger-solo.json", dir / "stranger.json", fs::copy_options::overwrite_existing);
@@ -239,6 +241,99 @@ void testSync(const fs::path& dir) {
     CHECK(laptop.vault->sync() == S::Ok);  // the real vault is untouched
 
     std::cout << "sync: ok\n";
+}
+
+// PROTOCOL.md §8, several hosts: a board (dedicated) and a laptop (peer). The phone has both; the desktop only the
+// board; the pi only the laptop. Changes still reach everyone, through the phone.
+void testHosts(const fs::path& dir) {
+    using S = VaultService::SyncStatus;
+    LocalFileStore boardStore((dir / "h-board.json").string()), laptopStore((dir / "h-laptop.json").string());
+    struct Dev {
+        std::vector<FlakyStore*> links;
+        std::unique_ptr<VaultService> vault;
+    };
+    auto device = [&](const std::string& name, std::vector<std::pair<std::string, IVaultStore*>> to) {
+        Dev d;
+        std::vector<SyncHost> hosts;
+        for (auto& [id, store] : to) {
+            auto link = std::make_unique<FlakyStore>(*store);
+            d.links.push_back(link.get());
+            hosts.push_back({id, id == "board" ? HostRole::Dedicated : HostRole::Peer, std::move(link)});
+        }
+        d.vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>((dir / ("h-" + name + ".json")).string()),
+                                                 std::move(hosts), (dir / ("h-" + name + ".sync")).string());
+        return d;
+    };
+    Dev phone = device("phone", {{"laptop", &laptopStore}, {"board", &boardStore}});  // listed worst first
+    Dev desk = device("desk", {{"board", &boardStore}});
+    Dev pi = device("pi", {{"laptop", &laptopStore}});
+
+    phone.vault->create("master", CipherAlg::Aes256Gcm, 1000);  // lands on both hosts
+    CHECK(boardStore.getMeta() && laptopStore.getMeta());
+    const auto& hs = phone.vault->hostStatuses();
+    CHECK(hs.size() == 2 && hs[0].id == "board" && hs[1].id == "laptop");  // best role first
+    CHECK(hs[0].status == S::Ok && hs[1].status == S::Ok);
+
+    // the pi writes through the laptop; the phone carries it to the board; the desktop reads it there
+    CHECK(pi.vault->unlock("master"));
+    pi.vault->put({"Pi", "u", "from-pi", CipherAlg::Aes256Gcm});
+    CHECK(desk.vault->unlock("master"));
+    CHECK(!desk.vault->get("pi"));
+    CHECK(phone.vault->unlock("master"));  // pulls it from the laptop after the board: the board gets it next round
+    phone.vault->sync();
+    desk.vault->sync();
+    CHECK(desk.vault->get("pi") && desk.vault->get("pi")->password == "from-pi");
+    // and back: the desktop's edit reaches the pi
+    desk.vault->put({"Pi", "u", "from-desk", CipherAlg::Aes256Gcm});
+    phone.vault->sync();
+    pi.vault->sync();
+    CHECK(pi.vault->get("pi")->password == "from-desk");
+
+    // one host away: still Ok, and that host says why; the OLED hint goes to the best host that answered
+    phone.links[0]->online = false;  // links are in the order given: [0] laptop
+    phone.links[1]->online = false;  // [1] board
+    CHECK(phone.vault->sync() == S::Offline);
+    phone.links[0]->online = true;
+    CHECK(phone.vault->sync() == S::Ok);
+    CHECK(phone.vault->hostStatuses()[0].status == S::Offline && phone.vault->hostStatuses()[1].status == S::Ok);
+    phone.vault->get("pi");
+    CHECK(phone.links[0]->lastAccess == "Pi/u");
+    // back on the board's network: the board was offline a moment ago, so while the laptop answers it's skipped...
+    phone.links[1]->online = true;
+    phone.links[1]->lastAccess.clear();
+    CHECK(phone.vault->sync() == S::Ok);
+    CHECK(phone.vault->hostStatuses()[0].status == S::Offline);
+    // ...and once the laptop is gone (one active host per network), it's tried at once
+    phone.links[0]->online = false;
+    CHECK(phone.vault->sync() == S::Ok);
+    CHECK(phone.vault->hostStatuses()[0].status == S::Ok);
+    phone.vault->get("pi");
+    CHECK(phone.links[1]->lastAccess == "Pi/u");
+    phone.links[0]->online = true;
+
+    // a host with another vault is skipped and reported; the others still sync
+    LocalFileStore strangerStore((dir / "h-stranger.json").string());
+    {
+        VaultService other(std::make_unique<LocalFileStore>((dir / "h-other.json").string()), std::vector<SyncHost>{}, "");
+        other.create("x", CipherAlg::Aes256Gcm, 1000);
+        strangerStore.putMeta(*LocalFileStore((dir / "h-other.json").string()).getMeta(), 0);
+    }
+    fs::copy_file(dir / "h-phone.json", dir / "h-phone2.json");
+    Dev phone2 = device("phone2", {{"board", &boardStore}, {"stranger", &strangerStore}});
+    CHECK(phone2.vault->unlock("master"));
+    CHECK(phone2.vault->lastSyncStatus() == S::Ok);
+    CHECK(phone2.vault->hostStatuses()[1].status == S::Error);
+    CHECK(phone2.vault->hostStatuses()[1].error.find("different vault") != std::string::npos);
+
+    // cursors: one pair per host; a v1 cursor file reads as "sync everything" and is replaced
+    std::ifstream in(dir / "h-phone.sync");
+    auto state = nlohmann::json::parse(in);
+    CHECK(state["hosts"].contains("board") && state["hosts"].contains("laptop"));
+    std::ofstream(dir / "h-desk.sync", std::ios::trunc) << R"({"vault_id":"x","local_seq":99,"remote_seq":99})";
+    CHECK(desk.vault->sync() == S::Ok);
+    std::ifstream in2(dir / "h-desk.sync");
+    CHECK(nlohmann::json::parse(in2)["hosts"].contains("board"));
+    std::cout << "hosts: ok (role order; changes cross hosts; away hosts skipped; foreign hosts reported; per-host cursors)\n";
 }
 
 // Real-hardware test, only when PWVAULT_TEST_ESP="host[:port],serverCert,clientCert,clientKey" is set
@@ -298,7 +393,9 @@ void testEsp(const fs::path& dir, const std::string& spec) {
     }
     auto makeEspDevice = [&](const std::string& name) {
         auto local = std::make_unique<LocalFileStore>((dir / (name + ".json")).string());
-        return std::make_unique<VaultService>(std::move(local), std::make_unique<EspStore>(cfg),
+        std::vector<SyncHost> hosts;
+        hosts.push_back({"esp", HostRole::Dedicated, std::make_unique<EspStore>(cfg)});
+        return std::make_unique<VaultService>(std::move(local), std::move(hosts),
                                               (dir / (name + ".sync")).string());
     };
     using S = VaultService::SyncStatus;
@@ -400,7 +497,7 @@ void testDeviceOnly(const fs::path& dir) {
 
     auto link = std::make_unique<FlakyStore>(esp);
     FlakyStore* board = link.get();
-    VaultService kiosk(std::move(link), nullptr, "");  // what UIManager builds for localCopy=false
+    VaultService kiosk(std::move(link), std::vector<SyncHost>{}, "");  // what UIManager builds for localCopy=false
     CHECK(kiosk.exists() && kiosk.unlock("master"));
     CHECK(kiosk.get("github")->password == "v1");
     CHECK(board->lastAccess == "GitHub/nik");  // the OLED hears about every read
@@ -446,6 +543,7 @@ void testPair(const fs::path& dir, const std::string& spec) {
     }
     CHECK(wrong && closed);
     PairedFiles f = pairWithBoard(host, pairPort, "pair-test", code);
+    CHECK(certFingerprint(f.serverPem).size() == 64 && certFingerprint("not a cert").empty());  // the host id
     auto put = [&](const char* n, const std::string& s) { return std::ofstream(dir / n) << s, (dir / n).string(); };
     EspStore esp(EspConfig{host, port, put("server.pem", f.serverPem), put("device.pem", f.certPem), put("device.key", f.keyPem)});
     esp.getMeta();  // throws unless the board accepts the certificate it just issued
@@ -461,7 +559,7 @@ void testPair(const fs::path& dir, const std::string& spec) {
 
     // PIN unlock through the board: the vault key sealed under HMAC(board secret, PIN proof)
     CHECK(validPin("1234") && validPin("00000000") && !validPin("123") && !validPin("12a4") && !validPin(""));
-    VaultService v(std::make_unique<LocalFileStore>((dir / "pin-vault.json").string()), nullptr, "");
+    VaultService v(std::make_unique<LocalFileStore>((dir / "pin-vault.json").string()), std::vector<SyncHost>{}, "");
     v.create("master", CipherAlg::Aes256Gcm, 1000);
     v.put({"mail", "me", "pw", CipherAlg::Aes256Gcm});
     const std::string salt = vaultcrypto::randomBytes(16), proof = pinProofHex("2468", salt, 1000),
@@ -476,7 +574,7 @@ void testPair(const fs::path& dir, const std::string& spec) {
     for (int i = 0; i < 4; i++) CHECK(esp.tryPin(wrongProof).result == EspStore::PinReply::Wrong);
     CHECK(esp.tryPin(wrongProof).result == EspStore::PinReply::Removed);  // the 5th: gone
     CHECK(esp.tryPin(proof).result == EspStore::PinReply::NotSet);        // even the right PIN, now
-    VaultService other(std::make_unique<LocalFileStore>((dir / "other-vault.json").string()), nullptr, "");
+    VaultService other(std::make_unique<LocalFileStore>((dir / "other-vault.json").string()), std::vector<SyncHost>{}, "");
     other.create("master", CipherAlg::Aes256Gcm, 1000);
     other.lock();
     CHECK(!other.unlockWithPinKey(pinWrapKey(r.secretHex, proof), blob));  // bound to its own vault
@@ -489,6 +587,7 @@ int main() {
     testVectors();
     testMergeRule(dir);
     testSync(dir);
+    testHosts(dir);
     testRobustness(dir);
     testDeviceOnly(dir);
     if (const char* esp = std::getenv("PWVAULT_TEST_ESP")) testEsp(dir, esp);

@@ -38,6 +38,16 @@ std::string der(X509* x) {
     return out;
 }
 
+}  // namespace
+
+std::string certFingerprint(const std::string& pem) {
+    Bio b(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())));
+    Cert x(PEM_read_bio_X509(b.get(), nullptr, nullptr, nullptr));
+    return x ? vaultcrypto::sha256Hex(der(x.get())) : "";
+}
+
+namespace {
+
 size_t collect(char* data, size_t size, size_t n, void* out) {
     static_cast<std::string*>(out)->append(data, size * n);
     return size * n;
