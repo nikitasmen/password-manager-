@@ -29,6 +29,7 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <esp_https_server.h>
+#include <esp_partition.h>
 #include <esp_tls.h>
 #include <esp_random.h>
 #include <esp_wifi.h>
@@ -1018,6 +1019,34 @@ void runSetup() {
     }
 }
 
+// Formats only storage that never held anything. A mount failure on used storage stops here instead of wiping the
+// vault; holding BOOT for 10 s erases it on purpose (e.g. a board that had other firmware's data).
+void mountStorage() {
+    if (LittleFS.begin(false)) return;
+    const esp_partition_t* part =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, nullptr);
+    bool blank = part;
+    static uint32_t buf[1024];
+    for (size_t off = 0; blank && off < part->size; off += sizeof buf) {
+        blank = esp_partition_read(part, off, buf, sizeof buf) == ESP_OK;
+        for (uint32_t w : buf) blank = blank && w == 0xFFFFFFFF;
+    }
+    if (blank && LittleFS.begin(true)) return;
+    Serial.println("LittleFS mount failed; not formatting used storage");
+    oled.clearDisplay();
+    oled.setCursor(0, 0);
+    oled.print("storage error\nnothing was erased\n\nhold BOOT 10 s to\nERASE the vault");
+    oled.display();
+    for (uint32_t heldAt = 0;; delay(50)) {
+        if (digitalRead(BUTTON) == HIGH) heldAt = 0;
+        else if (!heldAt) heldAt = millis() | 1;
+        else if (millis() - heldAt > 10000) {
+            LittleFS.format();
+            ESP.restart();
+        }
+    }
+}
+
 bool haveSavedWifi() {
     wifi_config_t c = {};
     return esp_wifi_get_config(WIFI_IF_STA, &c) == ESP_OK && c.sta.ssid[0];
@@ -1035,7 +1064,7 @@ void setup() {
     pinMode(BUTTON, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(BUTTON), onButton, FALLING);
 
-    if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
+    mountStorage();
     LittleFS.mkdir("/e");
     LittleFS.mkdir("/pin");
     seq = strtoull(readFile("/seq").c_str(), nullptr, 10);
