@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Password Manager Build Script
 # This script builds the unified password manager executable supporting both GUI and CLI modes
 
@@ -9,7 +10,6 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default values
-USE_CMAKE=true
 CLEAN=false
 DEBUG=false
 TESTS=false
@@ -73,62 +73,67 @@ if [ "$CLEAN" = true ]; then
     echo -e "${GREEN}✓ Build directories cleaned${NC}"
 fi
 
+# Package manager: Homebrew on macOS; apt on Debian/Ubuntu, else Homebrew on Linux. Nix (shell.nix) brings everything.
+OS=$(uname -s)
+PKG=""
+if [ "$OS" = Darwin ]; then
+    command -v brew &> /dev/null && PKG=brew
+elif command -v apt-get &> /dev/null; then
+    PKG=apt
+elif command -v brew &> /dev/null; then
+    PKG=brew
+fi
+JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
 # Function to check dependencies
 check_dependencies() {
     echo -e "${BLUE}Checking for required dependencies...${NC}"
+    local missing=()
 
-    # Check for C++ compiler
-    if ! command -v c++ &> /dev/null; then
-        echo -e "${RED}✗ C++ compiler not found. Please install Xcode Command Line Tools with:${NC}"
+    if [ "$OS" = Darwin ] && ! xcode-select -p &> /dev/null; then
+        echo -e "${RED}✗ No C++ compiler. Install the Xcode Command Line Tools, then run this again:${NC}"
         echo "  xcode-select --install"
         exit 1
-    else
-        echo -e "${GREEN}✓ C++ compiler found: $(c++ --version | head -n 1)${NC}"
+    fi
+    for tool in c++ make cmake fltk-config pkg-config; do
+        command -v $tool &> /dev/null || missing+=("$tool")
+    done
+    # Libraries (headers included): pkg-config on Linux; on macOS curl comes with the system and openssl is keg-only
+    if [ "$OS" = Darwin ]; then
+        [ "$PKG" = brew ] && ! brew --prefix --installed openssl@3 &> /dev/null && missing+=("openssl")
+    elif command -v pkg-config &> /dev/null; then
+        for lib in openssl libcurl fontconfig; do
+            pkg-config --exists $lib || missing+=("$lib")
+        done
+    fi
+    command -v git &> /dev/null || echo -e "${YELLOW}⚠ git not found: the app's version will show as v0.0${NC}"
+
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo -e "${GREEN}✓ Compiler, CMake, FLTK, OpenSSL and curl found${NC}"
+        return
     fi
 
-    # Check for CMake
-    if ! command -v cmake &> /dev/null; then
-        echo -e "${RED}✗ CMake is not installed but required for building.${NC}"
-        echo "Would you like to install it with Homebrew? (y/n)"
-        read -r install_cmake
-        if [[ "$install_cmake" =~ ^[Yy]$ ]]; then
-            brew install cmake
-        else
-            echo -e "${RED}Cannot continue without CMake.${NC}"
-            exit 1
+    echo -e "${RED}✗ Missing: ${missing[*]}${NC}"
+    local install
+    case "$PKG" in
+        apt)  install="sudo apt-get install -y build-essential cmake pkg-config git libfltk1.3-dev libssl-dev libcurl4-openssl-dev libfontconfig-dev" ;;
+        brew) install="brew install cmake pkg-config fltk openssl@3"
+              [ "$OS" = Darwin ] || install="$install gcc curl fontconfig" ;;
+        *)    echo "Install a C++17 compiler, make, CMake, pkg-config and the development packages of FLTK 1.3, OpenSSL,"
+              echo "libcurl and fontconfig with your package manager, or install Homebrew (https://brew.sh) and run this again."
+              exit 1 ;;
+    esac
+    echo "Install them with:"
+    echo "  $install"
+    if [ -t 0 ]; then
+        read -r -p "Run that now? (y/n) " answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            [ "$PKG" = apt ] && sudo apt-get update
+            $install || exit 1
+            return
         fi
-    else
-        echo -e "${GREEN}✓ CMake found: $(cmake --version | head -n 1)${NC}"
     fi
-
-    # Check for FLTK (required for GUI mode)
-    if ! command -v fltk-config &> /dev/null; then
-        echo -e "${RED}✗ FLTK not found but required for GUI functionality.${NC}"
-        echo "Would you like to install it with Homebrew? (y/n)"
-        read -r install_fltk
-        if [[ "$install_fltk" =~ ^[Yy]$ ]]; then
-            brew install fltk
-        else
-            echo -e "${RED}Cannot continue without FLTK.${NC}"
-            exit 1
-        fi
-    else
-        echo -e "${GREEN}✓ FLTK found: $(fltk-config --version)${NC}"
-    fi
-
-    # Check for OpenSSL (required for encryption)
-    if ! command -v openssl &> /dev/null; then
-        echo -e "${YELLOW}⚠ OpenSSL not found in PATH, but may be available via pkg-config${NC}"
-    else
-        echo -e "${GREEN}✓ OpenSSL found: $(openssl version)${NC}"
-    fi
-
-    # Check for pkg-config
-    if ! command -v pkg-config &> /dev/null; then
-        echo -e "${YELLOW}⚠ pkg-config not found, may need manual library configuration${NC}"
-    else
-        echo -e "${GREEN}✓ pkg-config found${NC}"
-    fi
+    exit 1
 }
 
 # Function to build with CMake
@@ -148,11 +153,12 @@ build_with_cmake() {
         fi
     done
 
-    if [ "$DEBUG" = true ]; then
-        cmake -DCMAKE_BUILD_TYPE=Debug .
-    else
-        cmake -DCMAKE_BUILD_TYPE=Release .
+    local args=("-DCMAKE_BUILD_TYPE=$([ "$DEBUG" = true ] && echo Debug || echo Release)")
+    if [ "$PKG" = brew ]; then
+        # Homebrew's prefix (/opt/homebrew on Apple Silicon) isn't searched by default, and openssl@3 is keg-only
+        args+=(-DCMAKE_PREFIX_PATH="$(brew --prefix)" -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)")
     fi
+    cmake "${args[@]}" .
 
     if [ $? -ne 0 ]; then
         echo -e "${RED}✗ CMake configuration failed${NC}"
@@ -163,9 +169,9 @@ build_with_cmake() {
     echo -e "${YELLOW}Building password_manager executable...${NC}"
     
     if [ "$DEBUG" = true ]; then
-        make VERBOSE=1 -j4
+        make VERBOSE=1 -j"$JOBS"
     else
-        make -j4
+        make -j"$JOBS"
     fi
     
     if [ $? -ne 0 ]; then
@@ -176,20 +182,12 @@ build_with_cmake() {
     # Build and run tests if requested
     if [ "$TESTS" = true ]; then
         echo -e "${YELLOW}Building and running tests...${NC}"
-        make base64_test vault_test
+        make -j"$JOBS" base64_test vault_test
         echo -e "${YELLOW}Running base64 tests...${NC}"
         ./base64_test || exit 1
         echo -e "${YELLOW}Running vault tests...${NC}"
         ./vault_test || exit 1
     fi
-}
-
-# Function for direct compilation (deprecated)
-build_direct() {
-    echo -e "${RED}Error: Direct compilation is no longer supported.${NC}"
-    echo -e "${RED}This project now requires CMake to build properly.${NC}"
-    echo -e "${YELLOW}Please use CMake to build the unified executable.${NC}"
-    exit 1
 }
 
 # Function to print results
