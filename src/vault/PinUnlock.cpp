@@ -29,6 +29,10 @@ std::string readFile(const std::string& path) {
     return {std::istreambuf_iterator<char>(in), {}};
 }
 
+bool pinBelongsTo(const PinFile& f, const std::string& hostId, const std::string& pinHostId) {
+    return f.host.empty() ? hostId == pinHostId : f.host == hostId;
+}
+
 void writePrivateTmp(const std::string& path, const std::string& content) {
     namespace fs = std::filesystem;
     const std::string tmp = path + ".tmp";

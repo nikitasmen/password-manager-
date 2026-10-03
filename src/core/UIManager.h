@@ -63,7 +63,10 @@ class UIManager {
     std::string hostStatusText(const PairedHost& h) const;  // "synced", "not on this network", ...
     // Pairs with one more host: "ip" (the board's ports) or "ip:port" (pairing on port+1). Blocks until it's approved
     // there (<= 90 s). false + error on failure, and nothing is saved.
-    bool safeAddHost(const std::string& address, const std::string& name, const std::string& code, std::string& error);
+    bool safeAddHost(const std::string& address, const std::string& name, const std::string& code, std::string& error,
+                     std::string* pairedId = nullptr);
+    // A host moved network: same pairing, new address ("ip" or "ip:port"), saved.
+    bool safeSetHostAddress(const std::string& id, const std::string& address, std::string& error);
     // PROTOCOL.md §10: deletes this device's files for the host, its cursors, and pin.json if the PIN is its.
     // revokeFirst: ask the host to revoke this device first (blocks until approved there); if that fails, nothing
     // is forgotten.
@@ -80,11 +83,11 @@ class UIManager {
     static std::string storageText(const EspStore::Storage& s);         // "Board storage: 12 KB of 1408 KB used ..."
 
     // The connector, shown on start (once per run) while an ESP32 is configured but not connected
-    enum class BoardState { Connected, NotPaired, Unreachable };
-    // The best host (or the config's espHost before it's paired): reachable, and does it take our cert?
-    BoardState checkBoard(std::string& detail);  // at most a couple of seconds; detail: why, for the user
-    void setBoardHost(const std::string& address);  // its new address, saved; pairing then goes there
-    std::string boardAddress() const;
+    // Does every host that answers take our cert (or is the config's espHost still to be paired)? Unreachable
+    // hosts are normal and don't count. NotPaired: `address` is the host to pair, `detail` why, for the user.
+    enum class BoardState { Connected, NotPaired };
+    BoardState checkBoard(std::string& detail, std::string& address);
+    std::string boardAddress() const;  // for status lines: the host last synced with, else the best one
     static std::string defaultDeviceName();  // from the hostname, e.g. "nixos"
 
     // PIN unlock, checked by the board (PinUnlock.h). Needs the board; the master password always works too.

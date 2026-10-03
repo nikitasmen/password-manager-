@@ -609,6 +609,18 @@ void testPair(const fs::path& dir, const std::string& spec) {
     std::cout << "pin: ok (unlocks; 5 wrong tries remove it; bound to its vault)\n";
 }
 
+// Forgetting or re-pairing a host deletes pin.json only if the PIN is that host's (PROTOCOL.md §11)
+void testPinOwnership() {
+    PinFile old{"salt", 1, "blob", ""};  // from before there were several hosts: the PIN host's alone
+    CHECK(pinBelongsTo(old, "board", "board"));
+    CHECK(!pinBelongsTo(old, "laptop", "board"));  // re-pairing the laptop must keep the board's PIN
+    CHECK(!pinBelongsTo(old, "laptop", ""));
+    PinFile named{"salt", 1, "blob", "board"};
+    CHECK(pinBelongsTo(named, "board", "other"));
+    CHECK(!pinBelongsTo(named, "laptop", "laptop"));
+    std::cout << "pin ownership: ok\n";
+}
+
 int main() {
     fs::path dir = fs::temp_directory_path() / ("vault_test_" + std::to_string(std::random_device{}()));
     fs::create_directories(dir);
@@ -618,6 +630,7 @@ int main() {
     testHosts(dir);
     testRobustness(dir);
     testDeviceOnly(dir);
+    testPinOwnership();
     if (const char* esp = std::getenv("PWVAULT_TEST_ESP")) testEsp(dir, esp);
     if (const char* pair = std::getenv("PWVAULT_TEST_PAIR")) testPair(dir, pair);
     fs::remove_all(dir);

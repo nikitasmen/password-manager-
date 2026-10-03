@@ -743,54 +743,50 @@ void GuiUIManager::setPinDialog() {
 }
 
 void GuiUIManager::runConnector() {
-    std::string detail;
-    BoardState state = checkBoard(detail);
-    if (state == BoardState::Connected) return;
+    std::string detail, address;
+    if (checkBoard(detail, address) == BoardState::Connected) return;
 
     const size_t mark = callbacks_.size();
-    const int W = 520, H = 360, x = 28, fw = W - 2 * x;
+    const int W = 520, H = 300, x = 28, fw = W - 2 * x;
     auto* w = new Fl_Double_Window(W, H);
-    w->copy_label("Connect to your host");
+    w->copy_label("Pair with your host");
     w->color(enclosure());
-    text(x, 22, fw, 30, "Connect to your host", kSansBold, 20, ink());
-    Fl_Box* status = text(x, 58, fw, 48, "", kSans, kSmall, muted());
-    auto* host = field<Fl_Input>(x, 132, fw - 130, 36, "Address (the IP on its screen)");
-    host->value(boardAddress().c_str());
-    Fl_Button* retry = button(x + fw - 120, 132, 120, 36, "Check again");
-    Fl_Box* busy = text(x, 180, fw, 40, "", kSans, kSmall, muted());
+    text(x, 22, fw, 30, "Pair with your host", kSansBold, 20, ink());
+    Fl_Box* status = text(x, 58, fw, 64, "", kSans, kSmall, muted());
+    text(x,
+         128,
+         fw,
+         40,
+         "To pair: open pairing on the host (BOOT on the board), then press Pair.",
+         kSans,
+         kSmall,
+         muted());
     text(x, H - 118, fw, 40,
          ConfigManager::getInstance().getConfig().localCopy
-             ? "Without the host, the app uses this computer's copy and syncs later."
+             ? "Without it, the app uses this computer's copy and syncs with any other host."
              : "Device-only mode: without the host there's no vault to open.",
          kSans, kSmall, muted());
     Fl_Button* skip = button(x, H - 58, 190, 38, "Continue without it");
+    Fl_Button* retry = button(W - x - 120 - 12 - 130, H - 58, 130, 38, "Check again");
     Fl_Button* pair = button(W - x - 120, H - 58, 120, 38, "Pair...", Kind::Primary);
     w->end();
 
-    auto show = [&] {
-        status->labelcolor(state == BoardState::Unreachable ? danger() : muted());
-        status->copy_label(literal(detail).c_str());
-        w->redraw();
-    };
     auto recheck = [&] {
-        setBoardHost(host->value());
-        busy->copy_label("Checking...");
         w->cursor(FL_CURSOR_WAIT);
         Fl::flush();
-        state = checkBoard(detail);
+        const bool done = checkBoard(detail, address) == BoardState::Connected;
         w->cursor(FL_CURSOR_DEFAULT);
-        busy->copy_label("");
-        if (state == BoardState::Connected) return w->hide();
-        show();
+        if (done) return w->hide();
+        status->copy_label(literal(detail).c_str());
+        w->redraw();
     };
     on(retry, recheck);
     on(skip, [w] { w->hide(); });
     on(pair, [&] {
-        setBoardHost(host->value());
-        if (addHostDialog(host->value())) recheck();  // closes the window once the host accepts the new cert
+        if (!addHostDialog(address).empty()) recheck();  // closes the window once every host takes us
     });
-    show();
-    (state == BoardState::NotPaired ? static_cast<Fl_Widget*>(pair) : host)->take_focus();
+    status->copy_label(literal(detail).c_str());
+    pair->take_focus();
     runModal(w);
     delete w;
     callbacks_.resize(mark);
@@ -810,7 +806,8 @@ void GuiUIManager::openDevices() {
     Fl_Choice* pick = choice(x, 124, fw - 232, 36, "Host");
     Fl_Button* forget = button(x + fw - 220, 124, 100, 36, "Forget");
     Fl_Button* addHost = button(x + fw - 108, 124, 108, 36, "Add host");
-    Fl_Box* hostState = text(x, 162, fw, 24, "", kSans, kSmall, muted());
+    Fl_Box* hostState = text(x, 162, fw - 150, 24, "", kSans, kSmall, muted());
+    Fl_Button* move = button(x + fw - 140, 162, 140, 26, "Change address");
     text(x, 190, fw, 22, "Devices paired with this host", kSansBold, kBody, ink());
     auto* list = new EntryList(x, 216, fw, 180);
     Fl_Box* status = text(x, 402, fw, 60, "", kSans, kSmall, muted());
@@ -833,7 +830,8 @@ void GuiUIManager::openDevices() {
         devices.clear();
         revoke->deactivate();
         const PairedHost* h = host();
-        for (Fl_Widget* b : {static_cast<Fl_Widget*>(forget), static_cast<Fl_Widget*>(add)})
+        for (Fl_Widget* b :
+             {static_cast<Fl_Widget*>(forget), static_cast<Fl_Widget*>(add), static_cast<Fl_Widget*>(move)})
             h ? b->activate() : b->deactivate();
         hostState->copy_label(h ? literal(std::string(hostRoleName(h->role)) + " host, " + hostStatusText(*h)).c_str()
                                 : "No hosts yet: this computer keeps the vault on its own. Add one to sync.");
@@ -847,15 +845,30 @@ void GuiUIManager::openDevices() {
         got ? say(storageText(storage), false) : say(error, true);
         w->redraw();
     };
-    auto fillHosts = [&](int select) {
+    auto fillHosts = [&](const std::string& select) {  // select: a host id; "" or unknown = the first
         pick->clear();
-        for (const PairedHost& h : hosts_) pick->add(literal(h.address).c_str());  // literal: no FLTK symbols
-        pick->value(hosts_.empty() ? -1 : std::min(select, static_cast<int>(hosts_.size()) - 1));
+        int at = hosts_.empty() ? -1 : 0;
+        for (size_t i = 0; i < hosts_.size(); i++) {
+            pick->add(literal(hosts_[i].address).c_str());  // literal: no FLTK symbols
+            if (hosts_[i].id == select) at = static_cast<int>(i);
+        }
+        pick->value(at);
         reload();
     };
     on(pick, reload);
     on(addHost, [&] {
-        if (addHostDialog()) fillHosts(static_cast<int>(hosts_.size()) - 1);
+        const std::string id = addHostDialog();
+        if (!id.empty()) fillHosts(id);  // hosts are in role order, so the new one isn't necessarily last
+    });
+    on(move, [&] {
+        const PairedHost* h = host();
+        if (!h) return;
+        const char* to = fl_input("It joined another network? Type the address it shows now.", h->address.c_str());
+        std::string error;
+        if (!to || !*to) return;
+        const std::string id = h->id;
+        if (!safeSetHostAddress(id, to, error)) return say(error, true);
+        fillHosts(id);
     });
     on(forget, [&] {
         const PairedHost* h = host();
@@ -871,7 +884,7 @@ void GuiUIManager::openDevices() {
         std::string error;
         const bool ok = safeForgetHost(h->id, how == 2, error);
         w->cursor(FL_CURSOR_DEFAULT);
-        fillHosts(0);
+        fillHosts("");
         if (!ok) say(error, true);
     });
     on(list, [&] { list->value() ? revoke->activate() : revoke->deactivate(); });
@@ -899,13 +912,13 @@ void GuiUIManager::openDevices() {
         reload();  // the new device, if it was approved
     });
     on(close, [w] { w->hide(); });
-    fillHosts(0);
+    fillHosts("");
     runModal(w);
     delete w;
     callbacks_.resize(mark);
 }
 
-bool GuiUIManager::addHostDialog(const std::string& at) {
+std::string GuiUIManager::addHostDialog(const std::string& at) {
     const size_t mark = callbacks_.size();
     const int W = 520, H = 420, x = 28, fw = W - 2 * x;
     auto* w = new Fl_Double_Window(W, H);
@@ -926,7 +939,7 @@ bool GuiUIManager::addHostDialog(const std::string& at) {
     Fl_Button* pair = button(W - x - 100, H - 58, 100, 38, "Pair", Kind::Primary);
     pair->shortcut(FL_Enter);
     w->end();
-    bool paired = false;
+    std::string paired;  // its id
     on(cancel, [w] { w->hide(); });
     on(pair, [&] {
         const std::string c = normalizePairCode(code->value());
@@ -940,10 +953,10 @@ bool GuiUIManager::addHostDialog(const std::string& at) {
         Fl::flush();
         // ponytail: blocks the window until the host answers (<= 90 s), like the connector
         std::string why;
-        paired = safeAddHost(address->value(), name->value(), c, why);
+        safeAddHost(address->value(), name->value(), c, why, &paired);
         w->cursor(FL_CURSOR_DEFAULT);
         error->labelcolor(danger());
-        if (paired) return w->hide();
+        if (!paired.empty()) return w->hide();
         error->copy_label(literal(why).c_str());
     });
     (at.empty() ? static_cast<Fl_Widget*>(address) : code)->take_focus();

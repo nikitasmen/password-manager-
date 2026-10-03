@@ -309,7 +309,7 @@ object App {
             throw e
         }
         hosts.find { it.id == id }?.let { old -> // its PIN record went with the old pairing (§9)
-            if (runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull() in setOf(id, "")) pinFile.delete()
+            if (pinBelongsTo(pinFile, id, pinHost?.id)) pinFile.delete()
             keystore().deleteEntry(old.alias)
             vault?.removeHost(id)
             hosts = hosts - old
@@ -336,8 +336,7 @@ object App {
             throw Exception("The host isn't reachable, so it can't revoke this phone. Forget it without revoking, " +
                 "or try again on its network.")
         }
-        val pinOwner = runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull()
-        if (pinOwner != null && (pinOwner == h.id || (pinOwner.isEmpty() && pinHost?.id == h.id))) pinFile.delete()
+        if (pinBelongsTo(pinFile, h.id, pinHost?.id)) pinFile.delete()
         vault!!.removeHost(h.id)
         keystore().deleteEntry(h.alias)
         h.dir.deleteRecursively()

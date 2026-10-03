@@ -224,7 +224,7 @@ std::string UIManager::hostStatusText(const PairedHost& h) const {
 }
 
 bool UIManager::safeAddHost(const std::string& address, const std::string& name, const std::string& code,
-                            std::string& error) {
+                            std::string& error, std::string* pairedId) {
     namespace fs = std::filesystem;
     auto [addr, port] = splitAddress(address);
     if (addr.empty()) return error = "Type the host's address, as it shows it.", false;
@@ -245,7 +245,8 @@ bool UIManager::safeAddHost(const std::string& address, const std::string& name,
         store->devices(nullptr, &role);  // also proves the host accepts the cert it just issued
         writeHostFile(dir + "/host", "address=" + address + "\nrole=" + hostRoleName(hostRoleOf(role)) + "\n");
         if (replaced) {  // re-pairing deleted this name's PIN on the host, and the old cert is gone
-            if (auto pin = loadPinFile(pinFilePath()); pin && (pin->host == id || pin->host.empty()))
+            const PairedHost* pinAt = pinHost();
+            if (auto pin = loadPinFile(pinFilePath()); pin && pinBelongsTo(*pin, id, pinAt ? pinAt->id : ""))
                 safeRemovePin(error);
             if (!deviceOnly_) vault->removeHost(id);
             hosts_.erase(known);
@@ -255,6 +256,7 @@ bool UIManager::safeAddHost(const std::string& address, const std::string& name,
         else vault->addHost({id, h.role, std::move(store)});
         hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; }),
                       h);
+        if (pairedId) *pairedId = id;
         error.clear();
     } catch (const StoreUnavailable&) {
         error = "Paired, but the host didn't answer on port " + std::to_string(port) + ". Nothing was saved.";
@@ -291,10 +293,8 @@ bool UIManager::safeForgetHost(std::string id, bool revokeFirst, std::string& er
         } catch (const std::exception& e) {
             return error = e.what(), false;
         }
-    const PairedHost* pin = pinHost();
-    const bool pinIsItsOwn = pin && pin->id == id;
-    if (auto f = loadPinFile(pinFilePath()); f && (f->host == id || (f->host.empty() && pinIsItsOwn)))
-        safeRemovePin(error);
+    const PairedHost* pinAt = pinHost();
+    if (auto f = loadPinFile(pinFilePath()); f && pinBelongsTo(*f, id, pinAt ? pinAt->id : "")) safeRemovePin(error);
     const std::string dir = it->dir;
     hosts_.erase(it);
     vault->removeHost(id);  // destroys its store
@@ -304,46 +304,44 @@ bool UIManager::safeForgetHost(std::string id, bool revokeFirst, std::string& er
     return true;
 }
 
-std::string UIManager::boardAddress() const {
-    return hosts_.empty() ? ConfigManager::getInstance().getConfig().espHost : hosts_.front().address;
-}
-
-UIManager::BoardState UIManager::checkBoard(std::string& detail) {
+UIManager::BoardState UIManager::checkBoard(std::string& detail, std::string& address) {
     if (hosts_.empty()) {  // an espHost without a pairing yet; none at all: nothing to connect
-        if (boardAddress().empty()) return BoardState::Connected;
-        detail = "This computer isn't paired with the host at " + boardAddress() + " yet.";
+        address = ConfigManager::getInstance().getConfig().espHost;
+        if (address.empty()) return BoardState::Connected;
+        detail = "This computer isn't paired with the host at " + address + " yet.";
         return BoardState::NotPaired;
     }
-    try {
-        hosts_.front().store->getMeta();  // any answer (a vault or none yet) means our certificate was accepted
-    } catch (const StoreUnavailable&) {
-        detail = "Can't reach the host at " + boardAddress() + ". Is it on, and is this computer on its network?";
-        return BoardState::Unreachable;
-    } catch (const std::exception& e) {
-        detail = "This computer isn't paired with the host at " + boardAddress() + " (" + e.what() + ").";
-        return BoardState::NotPaired;
-    }
+    // Most hosts are on other networks at any moment (PROTOCOL.md §6): only a refusal needs the user
+    for (const PairedHost& h : hosts_) try {
+            h.store->getMeta();  // any answer (a vault or none yet) means our certificate was accepted
+        } catch (const StoreUnavailable&) {
+        } catch (const std::exception& e) {
+            address = h.address;
+            detail = "The host at " + address + " refuses this computer (" + e.what() + ").";
+            return BoardState::NotPaired;
+        }
     return BoardState::Connected;
 }
 
-void UIManager::setBoardHost(const std::string& address) {
-    if (address.empty()) return;
-    if (hosts_.empty()) {  // where the connector will pair
-        AppConfig c = ConfigManager::getInstance().getConfig();
-        c.espHost = address;
-        ConfigManager::getInstance().updateConfig(c);
-        ConfigManager::getInstance().saveConfig();
-        return;
-    }
-    PairedHost& h = hosts_.front();
+bool UIManager::safeSetHostAddress(const std::string& id, const std::string& address, std::string& error) {
+    auto h = std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.id == id; });
     auto [addr, port] = splitAddress(address);
-    h.store->setHost(addr, port);
-    h.address = address;
+    if (h == hosts_.end() || addr.empty()) return error = "Type the address it shows now.", false;
     try {
-        writeHostFile(h.dir + "/host", "address=" + address + "\nrole=" + hostRoleName(h.role) + "\n");
+        writeHostFile(h->dir + "/host", "address=" + address + "\nrole=" + hostRoleName(h->role) + "\n");
     } catch (const std::exception& e) {
-        std::cerr << "couldn't save the new address: " << e.what() << "\n";
+        return error = std::string("Couldn't save it: ") + e.what(), false;
     }
+    h->store->setHost(addr, port);
+    h->address = address;
+    return true;
+}
+
+std::string UIManager::boardAddress() const {
+    for (const auto& s : vault->hostStatuses())  // the one this computer synced with, if any did
+        for (const PairedHost& h : hosts_)
+            if (s.status == VaultService::SyncStatus::Ok && h.id == s.id) return h.address;
+    return hosts_.empty() ? ConfigManager::getInstance().getConfig().espHost : hosts_.front().address;
 }
 
 std::string UIManager::pinFilePath() {

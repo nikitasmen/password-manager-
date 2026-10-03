@@ -83,36 +83,27 @@ void TerminalUIManager::initialize() {
 }
 
 void TerminalUIManager::connector() {
-    std::string detail;
-    BoardState state = checkBoard(detail);
-    while (state != BoardState::Connected) {
-        header("Connect to your ESP32");
-        std::cout << (state == BoardState::Unreachable ? danger(detail) : detail) << "\n\n";
-        if (state == BoardState::NotPaired)
-            std::cout << "To pair: press " << bold("BOOT") << " on the board (it shows a code), then press "
-                      << accent("p") << " here.\n\n";
-        std::cout << muted(ConfigManager::getInstance().getConfig().localCopy
-                               ? "Without the board, the app uses this computer's copy and syncs later."
-                               : "Device-only mode: without the board there's no vault to open.")
+    std::string detail, address;
+    while (checkBoard(detail, address) != BoardState::Connected) {
+        header("Pair with your host");
+        std::cout << detail << "\n\nTo pair: open pairing on the host (BOOT on the board), then press " << accent("p")
+                  << " here.\n\n"
+                  << muted(ConfigManager::getInstance().getConfig().localCopy
+                               ? "Without it, the app uses this computer's copy and syncs with any other host."
+                               : "Device-only mode: without the host there's no vault to open.")
                   << "\n\n"
-                  << legend({{"p", "pair"}, {"a", "change address"}, {"r", "check again"}, {"Enter", "continue without it"}})
-                  << "\n";
+                  << legend({{"p", "pair"}, {"r", "check again"}, {"Enter", "continue without it"}}) << "\n";
         std::string in = readLine("> ");
         if (in.empty()) return;
-        if (in == "a") {
-            setBoardHost(readLine("Board address (the IP on its screen): "));
-        } else if (in == "p") {
-            if (!pairWith(boardAddress())) continue;
-        } else if (in != "r") {
-            continue;
-        }
-        state = checkBoard(detail);
+        if (in == "p") pairWith(address);
     }
-    if (message_.empty() && detail.size()) message_ = accent("Connected to the ESP32.");
 }
 
 bool TerminalUIManager::pairWith(std::string address) {
-    if (address.empty()) address = readLine("Host address (the IP it shows; add :port if it isn't the board): ");
+    const std::string typed =
+        readLine("Host address (the IP it shows; add :port if it isn't the board)" +
+                 (address.empty() ? std::string() : " " + muted("[" + address + "]")) + ": ");
+    if (!typed.empty()) address = typed;
     const std::string def = defaultDeviceName();
     std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
     if (name.empty()) name = def;
@@ -460,7 +451,8 @@ void TerminalUIManager::hostsScreen() {
         printEntries(rows);
         std::vector<std::pair<std::string, std::string>> keys;
         const std::string range = hosts_.size() == 1 ? "1" : "1-" + std::to_string(hosts_.size());
-        if (!hosts_.empty()) keys.insert(keys.end(), {{range, "devices"}, {"f " + range, "forget"}});
+        if (!hosts_.empty())
+            keys.insert(keys.end(), {{range, "devices"}, {"c " + range, "change address"}, {"f " + range, "forget"}});
         if (!deviceOnly_) keys.push_back({"a", "add a host"});
         keys.push_back({"Enter", "back"});
         std::cout << "\n" << legend(keys) << "\n";
@@ -472,15 +464,21 @@ void TerminalUIManager::hostsScreen() {
             pairWith("");
             continue;
         }
-        const bool forget = in.size() > 2 && lower(in).rfind("f ", 0) == 0;
-        int n = std::atoi(in.c_str() + (forget ? 2 : 0));
-        if (n < 1 || n > static_cast<int>(hosts_.size())) {
-            message_ = danger("Type a number from the list, or f and a number.");
+        const char action = in.size() > 2 && in[1] == ' ' ? static_cast<char>(std::tolower(in[0])) : 0;  // c, f
+        int n = std::atoi(in.c_str() + (action ? 2 : 0));
+        if (n < 1 || n > static_cast<int>(hosts_.size()) || (action && action != 'c' && action != 'f')) {
+            message_ = danger("Type a number from the list, or c or f and a number.");
             continue;
         }
         const PairedHost h = hosts_[n - 1];
-        if (!forget) {
+        if (!action) {
             devicesScreen(h);
+            continue;
+        }
+        if (action == 'c') {  // it joined another network: same pairing, new address
+            const std::string to = readLine("New address for " + h.address + " (the IP it shows now): ");
+            if (!to.empty())
+                message_ = safeSetHostAddress(h.id, to, error) ? accent("Saved: " + to + ".") : danger(error);
             continue;
         }
         std::cout << "\nForget " << bold(h.address) << "? This computer stops syncing with it and deletes its "

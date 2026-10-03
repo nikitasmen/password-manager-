@@ -272,6 +272,15 @@ sealed interface PinResult {
     class Failed(val why: String) : PinResult
 }
 
+/**
+ * Is pin.json the host's (§11), so forgetting or re-pairing it must delete the PIN? Its `host` names it; a file
+ * without one is from before there were several hosts and belongs to the PIN host, [pinHostId], alone.
+ */
+fun pinBelongsTo(pinFile: File, hostId: String, pinHostId: String?): Boolean {
+    val owner = runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull() ?: return false
+    return if (owner.isEmpty()) hostId == pinHostId else owner == hostId
+}
+
 /** [hostId]: the host holding the secret, recorded in pin.json (§11). */
 fun setPin(vault: Vault, board: EspStore, pinFile: File, master: String, pin: String, hostId: String = "") {
     require(vault.verifyMasterPassword(master)) { "Wrong master password." }

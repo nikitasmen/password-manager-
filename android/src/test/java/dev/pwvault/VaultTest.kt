@@ -52,6 +52,19 @@ class VaultTest {
         assertTrue(compareBytes("é", "z") > 0) // unsigned bytes, not signed
     }
 
+    // Forgetting or re-pairing a host deletes pin.json only if the PIN is that host's (§11)
+    @Test fun pinOwnership() {
+        val f = File(dir, "pin-owner.json")
+        assertFalse(pinBelongsTo(f, "board", "board")) // no PIN at all
+        f.writeText("""{"salt":"","iter":1,"blob":""}""") // from before hosts: the PIN host's alone
+        assertTrue(pinBelongsTo(f, "board", "board"))
+        assertFalse(pinBelongsTo(f, "laptop", "board")) // re-pairing the laptop must keep the board's PIN
+        assertFalse(pinBelongsTo(f, "laptop", null))
+        f.writeText("""{"salt":"","iter":1,"blob":"","host":"board"}""")
+        assertTrue(pinBelongsTo(f, "board", "other"))
+        assertFalse(pinBelongsTo(f, "laptop", "laptop"))
+    }
+
     @Test fun pairingHelpers() {
         assertEquals("ABCD0123EFGH4567", normalizePairCode("abcd-o123-efgh-4567"))
         assertEquals("", normalizePairCode("short"))

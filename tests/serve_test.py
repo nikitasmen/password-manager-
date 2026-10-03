@@ -104,6 +104,8 @@ def main():
     status, body = curl(client_env, "GET", "/devices")
     info = json.loads(body)
     check(status == 200 and info["you"] == "laptop" and info["role"] == "server", "GET /devices: you, role")
+    st = info["storage"]  # no vault.json yet: nothing used, and a total that's real disk space, not a wraparound
+    check(st["used"] == 0 and st["records"] == 0 and 0 < st["total"] < 2**60, "storage on a new host")
     check(curl(client_env, "PUT", "/pin")[0] == 404, "no PIN on a server host (§11)")
 
     c = f"{client_env['XDG_CONFIG_HOME']}/pwvault"

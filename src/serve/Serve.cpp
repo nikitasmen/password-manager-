@@ -142,7 +142,11 @@ class Console {
     }
     // Asks the person at the host; `done` gets the answer, or false after `seconds` without one.
     void ask(const std::string& question, int seconds, std::function<void(bool)> done) {
-        std::lock_guard<std::mutex> l(m_);
+        std::unique_lock<std::mutex> l(m_);
+        if (closed_) {  // stopping: a question now would keep stop() waiting for its answer
+            l.unlock();
+            return done(false);
+        }
         asks_.push_back({question, Clock::now() + std::chrono::seconds(seconds), std::move(done)});
         if (asks_.size() == 1)
             prompt();
@@ -184,6 +188,16 @@ class Console {
             done(false);
     }
 
+    // Closed before the servers stop, so no request can start waiting for an answer that nobody will give;
+    // open while serving.
+    void setOpen(bool open) {
+        {
+            std::lock_guard<std::mutex> l(m_);
+            closed_ = !open;
+        }
+        if (!open) expire(true);
+    }
+
    private:
     void prompt() {
         std::cout << term::bold(asks_.front().question) << " [y/N] " << std::flush;
@@ -194,6 +208,7 @@ class Console {
         std::function<void(bool)> done;
     };
     std::mutex m_;
+    bool closed_ = false;
     std::deque<Ask> asks_;
 };
 
@@ -426,17 +441,17 @@ class Host {
                           for (const auto& [name, fp] : devices_)
                               list.push_back({{"name", name}, {"seen", seen_.count(name) ? seen_[name] : 0}});
                       }
-                      std::error_code ec;
-                      const uint64_t used = fs::file_size(vaultPath_, ec),
-                                     free = fs::space(fs::path(vaultPath_).parent_path(), ec).available;
+                      std::error_code noFile, noSpace;  // no vault.json yet on a new host: 0 used
+                      const uint64_t used = fs::file_size(vaultPath_, noFile),
+                                     free = fs::space(fs::path(vaultPath_).parent_path(), noSpace).available;
                       reply(res,
                             200,
                             {{"devices", list},
                              {"you", who},
                              {"role", hostRoleName(role_)},
                              {"storage",
-                              {{"used", ec ? 0 : used},
-                               {"total", used + free},
+                              {{"used", noFile ? 0 : used},
+                               {"total", (noFile ? 0 : used) + (noSpace ? 0 : free)},
                                {"records", store_.changesAfter(0).entries.size()}}}});
                   }));
         api_->Delete(R"(/devices/([a-z0-9-]{1,20}))",
@@ -572,12 +587,13 @@ int runServe(int argc, char** argv) {
                     break;
                 }
             if (!better.empty() && better != standingFor) {
-                console.expire(true);  // a request waiting for an answer would keep stop() waiting for it
+                console.setOpen(false);
                 host.stop();
                 standingFor = better;
                 console.say("Standing down: " + addressOf[better] + " hosts this vault here. Still syncing with it.");
             } else if (better.empty() && !host.serving()) {
                 standingFor.clear();
+                console.setOpen(true);
                 host.start();
                 console.say("Serving " + vaultPath + " as a " + hostRoleName(role) + " host on port " +
                             std::to_string(port) + " (pairing on " + std::to_string(port + 1) + "), host id " +
@@ -625,7 +641,7 @@ int runServe(int argc, char** argv) {
                 lastCheck = Clock::now();
             }
         }
-        console.expire(true);
+        console.setOpen(false);
         host.stop();
     } catch (const std::exception& e) {
         std::cerr << "Can't serve: " << e.what() << "\n";
