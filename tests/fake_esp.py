@@ -50,6 +50,7 @@ pairing = {}  # code, server_fp, ca_dir
 
 
 def make_ca(d):
+    os.makedirs(d, exist_ok=True)  # "created if missing": the folder too, not just the files in it
     if not os.path.exists(f"{d}/ca.pem"):
         subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
                         "-nodes", "-days", "3650", "-subj", "/CN=pwvault device CA", "-keyout", f"{d}/ca.key",
