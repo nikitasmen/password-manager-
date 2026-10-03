@@ -143,9 +143,9 @@ object App {
         load()
     }
 
-    private fun keystore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    internal fun keystore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
-    private fun newDeviceKey(alias: String): KeyPair =
+    internal fun newDeviceKey(alias: String): KeyPair =
         KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
             initialize(
                 KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
