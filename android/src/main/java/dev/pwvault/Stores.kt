@@ -37,7 +37,7 @@ interface Store {
 }
 
 /** `vault.json`: {"seq":N,"meta":{…},"entries":{"<id>":{record}}}, replaced atomically on every write. */
-class LocalStore(private val file: File) : Store {
+class LocalStore(val file: File) : Store {
     // ponytail: in-process lock only, since this app is the file's one writer; add a file lock if that changes
     private fun load() =
         if (file.exists()) JSONObject(file.readText()) else JSONObject().put("seq", 0).put("entries", JSONObject())
@@ -289,13 +289,14 @@ fun pairWithBoard(host: String, pairPort: Int, name: String, code: String, keys:
 fun parseCert(der: ByteArray) = java.security.cert.CertificateFactory.getInstance("X.509")
     .generateCertificate(der.inputStream()) as X509Certificate
 
-// §8. The cursors live in [state]: {"vault_id":…,"local_seq":L,"remote_seq":R}.
+// §8. The cursors live in [state], one pair per host: {"vault_id":…,"hosts":{"<host id>":{"local_seq":L,"remote_seq":R}}}.
+// A host missing from it (or a v1 file, which has no "hosts") syncs everything, which §5 makes harmless.
 private const val BATCH_COUNT = 32
 private const val BATCH_BYTES = 12 * 1024
 
 private fun metaWins(a: Meta, b: Meta) = if (a.rev != b.rev) a.rev > b.rev else compareBytes(a.key, b.key) > 0
 
-private fun push(to: Store, entries: List<Record>) {
+fun push(to: Store, entries: List<Record>) {
     val batch = mutableListOf<Record>()
     var bytes = 0
     for (e in entries) {
@@ -312,20 +313,21 @@ private fun push(to: Store, entries: List<Record>) {
 }
 
 /** Returns whether the local store changed. */
-fun syncStores(local: Store, remote: Store, state: File): Boolean {
+fun syncStores(local: Store, remote: Store, state: File, hostId: String): Boolean {
     var localChanged = false
     val lm = local.getMeta()
     val rm = remote.getMeta()
     if (lm == null && rm == null) return false
     if (lm != null && rm != null && lm.vaultId != rm.vaultId)
-        throw VaultMismatch("The board holds a different vault (vault_id ${rm.vaultId}).")
+        throw VaultMismatch("The host holds a different vault (vault_id ${rm.vaultId}).")
     if (lm != null && (rm == null || metaWins(lm, rm))) remote.putMeta(lm, rm?.rev ?: 0) // a lost CAS race: next sync
     else if (rm != null && (lm == null || metaWins(rm, lm))) localChanged = local.putMeta(rm, lm?.rev ?: 0)
 
     val vaultId = (lm ?: rm)!!.vaultId
     val saved = runCatching { JSONObject(state.readText()) }.getOrNull() // missing or corrupt: sync everything
-    var localSeq = saved?.optLong("local_seq") ?: 0
-    var remoteSeq = saved?.optLong("remote_seq") ?: 0
+    val mineSaved = saved?.optJSONObject("hosts")?.optJSONObject(hostId)
+    var localSeq = mineSaved?.optLong("local_seq") ?: 0
+    var remoteSeq = mineSaved?.optLong("remote_seq") ?: 0
     // A side that had no vault before this sync has none of the other side's history
     if (saved?.optString("vault_id") != vaultId || lm == null || rm == null) { localSeq = 0; remoteSeq = 0 }
 
@@ -341,8 +343,13 @@ fun syncStores(local: Store, remote: Store, state: File): Boolean {
         localChanged = true
     }
     // mine.seq, not the post-pull seq: pulled records echo back once, which §5 ignores (PROTOCOL.md §8 step 6)
+    // Re-read, so other hosts' cursors saved meanwhile survive; another vault's don't
+    val doc = runCatching { JSONObject(state.readText()) }.getOrNull()
+        ?.takeIf { it.optString("vault_id") == vaultId && it.optJSONObject("hosts") != null }
+        ?: JSONObject().put("vault_id", vaultId).put("hosts", JSONObject())
+    doc.getJSONObject("hosts").put(hostId, JSONObject().put("local_seq", mine.seq).put("remote_seq", theirs.seq))
     val tmp = File(state.path + ".tmp")
-    tmp.writeText(JSONObject().put("vault_id", vaultId).put("local_seq", mine.seq).put("remote_seq", theirs.seq).toString())
+    tmp.writeText(doc.toString())
     if (!tmp.renameTo(state)) throw IOException("cannot replace $state")
     return localChanged
 }
