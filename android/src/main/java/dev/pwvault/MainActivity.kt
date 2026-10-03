@@ -228,6 +228,7 @@ object App {
     }
 
     private fun opened() {
+        hasVault = true // open now, whatever the last check said (a vault just created was "none" before)
         items = vault!!.credentials()
         showStatus()
         screen = Screen.Vault
