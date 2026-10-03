@@ -430,12 +430,14 @@ void TerminalUIManager::pinScreen() {
 void TerminalUIManager::devicesScreen() {
     while (isLoggedIn) {
         std::string error;
-        auto devices = safeListDevices(error);
+        EspStore::Storage storage;
+        auto devices = safeListDevices(error, &storage);
         if (!devices) {
             message_ = danger(error);
             return;
         }
         header("Devices");
+        std::cout << muted(storageText(storage)) << "\n\n";
         std::vector<std::string> rows;
         for (const auto& d : *devices)
             rows.push_back(bold(d.name) + (d.thisDevice ? " " + accent("(this computer)") : "") + "  " +

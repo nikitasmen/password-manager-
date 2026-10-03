@@ -329,6 +329,8 @@ object App {
         notice = "PIN removed. Unlock with the master password."
     }
 
+    fun showStorage() = run { notice = board!!.storage().text() }
+
     fun syncNow() {
         syncing = true
         run {
@@ -635,6 +637,8 @@ private fun ColumnScope.VaultScreen() {
             QuietButton("More", { menu = true }, color = palette.muted)
             DropdownMenu(menu, { menu = false }, containerColor = palette.surface) {
                 DropdownMenuItem({ Text("Sync now") }, { menu = false; App.syncNow() }, enabled = App.hasBoard && !App.busy)
+                if (App.hasBoard) DropdownMenuItem({ Text("Board storage") }, { menu = false; App.showStorage() },
+                    enabled = !App.busy)
                 if (App.hasBoard) DropdownMenuItem({ Text(if (App.pinFile.exists()) "Change or remove PIN" else "Set a PIN") },
                     { menu = false; pinSheet = true })
                 if (App.bioOn) DropdownMenuItem({ Text("Turn off fingerprint unlock") }, { menu = false; App.disableFingerprint() })

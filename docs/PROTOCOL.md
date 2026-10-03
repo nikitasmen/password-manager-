@@ -138,7 +138,7 @@ Request and reply bodies are JSON. Errors are `{"error":"<message>"}`. A request
 | `GET /entries?after=N` | | 200 `{"entries":[…],"seq":S}`: records with `seq` > N, in no particular order |
 | `POST /entries` | `{"entries":[…]}`, at most 32 | 200 `{"seq":S}`; 400 if any record is malformed (then none is written) |
 | `POST /access` | `{"platform":…,"username":…}` | 200. Display-only hint for the OLED (see §12) |
-| `GET /devices` | | 200 `{"devices":[{"name":…,"seen":T}],"you":"<name>"}` |
+| `GET /devices` | | 200 `{"devices":[{"name":…,"seen":T}],"you":"<name>","storage":{"used":B,"total":B,"records":N}}`: `storage` is the board's flash for the vault, in bytes, and how many entry records it holds (tombstones included). Optional: older firmware omits it |
 | `DELETE /devices/<name>` | | 202 `{"pending":true}`; 404 no such device (§10) |
 | `POST /pair/open` | | 200 `{"code":…,"qr":…,"seconds":S}`: opens pairing like a BOOT press, or returns the open session's code (§9) |
 | `PUT /pin` | `{"verifier":"<64 hex>"}` | 200 `{"secret":"<64 hex>"}` (§11) |

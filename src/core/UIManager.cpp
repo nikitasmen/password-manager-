@@ -105,9 +105,10 @@ T boardCall(std::string& error, T onError, F&& f) {
 }
 }  // namespace
 
-std::optional<std::vector<EspStore::Device>> UIManager::safeListDevices(std::string& error) {
+std::optional<std::vector<EspStore::Device>> UIManager::safeListDevices(std::string& error, EspStore::Storage* storage) {
     if (!board_) return error = "No ESP32 is set up (espHost in the config).", std::nullopt;
-    return boardCall(error, std::optional<std::vector<EspStore::Device>>{}, [&] { return std::optional(board_->devices()); });
+    return boardCall(error, std::optional<std::vector<EspStore::Device>>{},
+                     [&] { return std::optional(board_->devices(storage)); });
 }
 
 bool UIManager::safeRevokeDevice(const std::string& name, std::string& error) {
@@ -278,6 +279,13 @@ std::string UIManager::lastSeenText(int64_t t) {
     if (ago < 3600) return "seen " + std::to_string(ago / 60) + " min ago";
     if (ago < 2 * 86400) return "seen " + std::to_string(ago / 3600) + " h ago";
     return "seen " + std::to_string(ago / 86400) + " days ago";
+}
+
+std::string UIManager::storageText(const EspStore::Storage& s) {
+    if (!s.total) return "Board storage: unknown (update the board's firmware to see it)";
+    const auto kb = [](uint64_t b) { return std::to_string((b + 1023) / 1024) + " KB"; };
+    return "Board storage: " + kb(s.used) + " of " + kb(s.total) + " used (" + std::to_string(s.used * 100 / s.total) +
+           "%), " + std::to_string(s.records) + (s.records == 1 ? " record" : " records");
 }
 
 std::string UIManager::syncStatusText() const {

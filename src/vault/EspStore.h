@@ -38,7 +38,11 @@ class EspStore : public IVaultStore {
         int64_t lastSeen = 0;  // unix time of its last request since the board booted; 0 = unknown
         bool thisDevice = false;
     };
-    std::vector<Device> devices();
+    // The board's flash for the vault (PROTOCOL.md §7). total 0 = firmware too old to say.
+    struct Storage {
+        uint64_t used = 0, total = 0, records = 0;
+    };
+    std::vector<Device> devices(Storage* storage = nullptr);
     // Asks the board, then waits until someone presses BOOT there (up to a minute). Throws if it doesn't happen.
     void revokeDevice(const std::string& name);
 

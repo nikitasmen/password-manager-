@@ -505,6 +505,10 @@ esp_err_t hDevices(httpd_req_t* r) {
         o["seen"] = (int64_t)dv.seen;
     }
     d["you"] = who;
+    JsonObject st = d["storage"].to<JsonObject>();  // PROTOCOL.md §7: what the clients show as free space
+    st["used"] = (uint64_t)LittleFS.usedBytes();
+    st["total"] = (uint64_t)LittleFS.totalBytes();
+    st["records"] = (uint64_t)seqIndex.size();
     String out;
     serializeJson(d, out);
     return sendJson(r, "200 OK", out);

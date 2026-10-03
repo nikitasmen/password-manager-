@@ -206,6 +206,12 @@ class EspStore(
         request("POST", "/access", JSONObject().put("platform", c.platform).put("username", c.username))
     }
 
+    /** §7: the board's flash for the vault, from GET /devices. */
+    fun storage(): Storage {
+        val s = ok(request("GET", "/devices"), "GET /devices").json().optJSONObject("storage")
+        return Storage(s?.optLong("used") ?: 0, s?.optLong("total") ?: 0, s?.optLong("records") ?: 0)
+    }
+
     /** §11: the board's secret for this device's new PIN verifier. */
     fun setPin(verifier: String): String =
         ok(request("PUT", "/pin", JSONObject().put("verifier", verifier)), "PUT /pin").json().getString("secret")
@@ -224,6 +230,16 @@ class EspStore(
             404, 410 -> PinReply.Gone
             else -> throw IOException("POST /pin: ${r.error()}")
         }
+    }
+}
+
+/** [total] 0 = firmware too old to report it. The same sentence as the desktop's UIManager::storageText. */
+class Storage(val used: Long, val total: Long, val records: Long) {
+    fun text(): String {
+        if (total == 0L) return "Board storage: unknown (update the board's firmware to see it)"
+        fun kb(b: Long) = "${(b + 1023) / 1024} KB"
+        return "Board storage: ${kb(used)} of ${kb(total)} used (${used * 100 / total}%), $records " +
+            if (records == 1L) "record" else "records"
     }
 }
 

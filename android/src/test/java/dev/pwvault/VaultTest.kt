@@ -125,6 +125,8 @@ class VaultTest {
 
         val esp = EspStore(host, port.toInt(), p.server, keys.private, p.cert)
         esp.getMeta() // throws unless the board accepts the cert it just issued
+        val storage = esp.storage()
+        assertTrue(storage.total > 0 && storage.used <= storage.total && storage.text().contains(" KB of "))
         val phone = Vault(LocalStore(File(dir, "p.json")), esp, File(dir, "p-sync.json"))
         if (!phone.exists()) phone.create("master", iterations = 1000) // a fresh fake; else the vault is someone's
         assertEquals(Vault.Sync.Ok, phone.sync())
