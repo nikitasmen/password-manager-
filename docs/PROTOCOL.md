@@ -120,8 +120,9 @@ take an exclusive lock on `vault.json.lock` and replace the file atomically (tem
 
 **Transport:** HTTPS on port 443 with mutual TLS.
 
-- The server cert has the name `pwvault.local` (made by `esp32/pki.sh server`). Clients pin that exact cert and
-  verify the name `pwvault.local` even when they connect by IP.
+- The server cert has the name `pwvault.local`; the board makes it on first boot (self-signed, `/server.pem`), and
+  clients receive it when pairing (§9). Clients pin that exact cert and verify the name `pwvault.local` even when
+  they connect by IP.
 - Clients present a cert issued by the board's device CA (§10). The handshake refuses anything else.
 - Clients SHOULD keep one connection open: a handshake costs about 0.5 s, a reused request about 0.06 s.
 

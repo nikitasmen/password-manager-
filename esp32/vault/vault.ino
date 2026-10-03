@@ -12,6 +12,7 @@
 //                  /seq           store sequence counter
 //                  /e/<id>        one entry record (JSON) per file
 //                  /ca.key, /ca.pem  device CA, made on first boot
+//                  /server.key, /server.pem  TLS server cert for pwvault.local, made on first boot
 //                  /devices.json  {name: hex SHA-256 of its current cert}; a name not in it is revoked
 //                  /pin/<name>    PIN unlock for that device: {secret, verifier, fails}
 //
@@ -21,13 +22,16 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
+#include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
+#include <WebServer.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <esp_https_server.h>
 #include <esp_tls.h>
 #include <esp_random.h>
+#include <esp_wifi.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/md.h>
 #include <mbedtls/oid.h>
@@ -43,8 +47,9 @@
 #include <mutex>
 #include <vector>
 
-#include "cert.h"     // server cert: ../pki.sh server
-#include "secrets.h"  // Wi-Fi: copy from secrets.example.h
+#if __has_include("cert.h")
+#include "cert.h"  // legacy server cert from `pki.sh server`: copied to flash once, so paired devices stay paired
+#endif
 
 // Hardware: found by I2C scan on this board
 constexpr int OLED_SDA = 21, OLED_SCL = 22, OLED_ADDR = 0x3C, OLED_W = 128, OLED_H = 64;
@@ -58,6 +63,8 @@ constexpr size_t MAX_BATCH = 32;
 constexpr uint16_t PAIR_PORT = 8444;
 constexpr uint32_t PAIR_MS = 120000, CONFIRM_MS = 60000;
 constexpr int PIN_TRIES = 5;
+constexpr const char* SETUP_SSID = "pwvault-ap";  // the Wi-Fi setup hotspot
+constexpr uint32_t WIFI_WAIT_MS = 30000;          // at boot, before falling back to setup
 
 Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);
 std::mutex mtx;  // guards storage and `event`; http handlers and loop() run on different tasks
@@ -242,6 +249,70 @@ bool loadCa() {
     caPem = (const char*)out.data();
     // cert last: a crash in between leaves no /ca.pem, so the next boot starts over
     return writeFile("/ca.key", (const char*)pem.data()) && writeFile("/ca.pem", caPem);
+}
+
+String serverCertPem, serverKeyPem;  // the TLS servers' cert and key, from loadServerCert()
+
+// Self-signed for pwvault.local (clients verify that name), like `openssl req -x509`. Clients don't need it
+// beforehand: pairing hands it over, bound to the code by the macs.
+bool makeServerCert() {
+    mbedtls_pk_context key;
+    mbedtls_pk_init(&key);
+    mbedtls_x509write_cert c;
+    mbedtls_x509write_crt_init(&c);
+    std::vector<uint8_t> keyPem(512), crtPem(1024);
+    uint8_t serial[16];
+    rng(nullptr, serial, sizeof serial);
+    serial[0] &= 0x7f;  // positive
+    mbedtls_x509_san_list san = {};
+    san.node.type = MBEDTLS_X509_SAN_DNS_NAME;
+    san.node.san.unstructured_name.p = (unsigned char*)"pwvault.local";
+    san.node.san.unstructured_name.len = strlen("pwvault.local");
+    bool ok = !mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY)) &&
+              !mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(key), rng, nullptr) &&
+              !mbedtls_pk_write_key_pem(&key, keyPem.data(), keyPem.size());
+    if (ok) {
+        mbedtls_x509write_crt_set_version(&c, MBEDTLS_X509_CRT_VERSION_3);
+        mbedtls_x509write_crt_set_md_alg(&c, MBEDTLS_MD_SHA256);
+        mbedtls_x509write_crt_set_subject_key(&c, &key);
+        mbedtls_x509write_crt_set_issuer_key(&c, &key);
+        ok = !mbedtls_x509write_crt_set_subject_name(&c, "CN=pwvault.local") &&
+             !mbedtls_x509write_crt_set_issuer_name(&c, "CN=pwvault.local") &&
+             !mbedtls_x509write_crt_set_serial_raw(&c, serial, sizeof serial) &&
+             !mbedtls_x509write_crt_set_validity(&c, "20250101000000", "20491231235959") &&
+             !mbedtls_x509write_crt_set_basic_constraints(&c, 1, -1) &&
+             !mbedtls_x509write_crt_set_subject_alternative_name(&c, &san) &&
+             !mbedtls_x509write_crt_pem(&c, crtPem.data(), crtPem.size(), rng, nullptr);
+    }
+    mbedtls_x509write_crt_free(&c);
+    mbedtls_pk_free(&key);
+    if (!ok) return false;
+    serverKeyPem = (const char*)keyPem.data();
+    serverCertPem = (const char*)crtPem.data();
+    return true;
+}
+
+// Loads the server cert from flash, or makes one on first boot (after Wi-Fi: entropy). Sets serverFp.
+bool loadServerCert() {
+    serverKeyPem = readFile("/server.key");
+    serverCertPem = readFile("/server.pem");
+    if (!serverKeyPem.length() || !serverCertPem.length()) {
+#if __has_include("cert.h")
+        serverKeyPem = KEY_PEM;
+        serverCertPem = CERT_PEM;
+#else
+        Serial.println("creating server cert");
+        if (!makeServerCert()) return false;
+#endif
+        // cert last: a crash in between leaves no /server.pem, so the next boot starts over
+        if (!writeFile("/server.key", serverKeyPem) || !writeFile("/server.pem", serverCertPem)) return false;
+    }
+    mbedtls_x509_crt own;
+    mbedtls_x509_crt_init(&own);
+    bool ok = !mbedtls_x509_crt_parse(&own, (const uint8_t*)serverCertPem.c_str(), serverCertPem.length() + 1);
+    if (ok) serverFp = sha256Hex(own.raw.p, own.raw.len);
+    mbedtls_x509_crt_free(&own);
+    return ok;
 }
 
 void loadDevices() {
@@ -674,10 +745,10 @@ void startPairing() {
     pairCode = "";
     for (uint8_t b : raw) pairCode += ALPHA[b & 31];
     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
-    conf.servercert = (const uint8_t*)CERT_PEM;
-    conf.servercert_len = sizeof CERT_PEM;
-    conf.prvtkey_pem = (const uint8_t*)KEY_PEM;
-    conf.prvtkey_len = sizeof KEY_PEM;
+    conf.servercert = (const uint8_t*)serverCertPem.c_str();
+    conf.servercert_len = serverCertPem.length() + 1;  // PEM lengths include the NUL
+    conf.prvtkey_pem = (const uint8_t*)serverKeyPem.c_str();
+    conf.prvtkey_len = serverKeyPem.length() + 1;
     conf.port_secure = PAIR_PORT;
     conf.httpd.ctrl_port = ESP_HTTPD_DEF_CTRL_PORT + 2;  // the main server has +1
     conf.httpd.stack_size = 16384;
@@ -727,10 +798,10 @@ esp_err_t hOpenPair(httpd_req_t* r) {
 
 void startServer() {
     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
-    conf.servercert = (const uint8_t*)CERT_PEM;
-    conf.servercert_len = sizeof CERT_PEM;
-    conf.prvtkey_pem = (const uint8_t*)KEY_PEM;
-    conf.prvtkey_len = sizeof KEY_PEM;
+    conf.servercert = (const uint8_t*)serverCertPem.c_str();
+    conf.servercert_len = serverCertPem.length() + 1;  // PEM lengths include the NUL
+    conf.prvtkey_pem = (const uint8_t*)serverKeyPem.c_str();
+    conf.prvtkey_len = serverKeyPem.length() + 1;
     conf.cacert_pem = (const uint8_t*)caPem.c_str();  // setting this makes a client certificate mandatory
     conf.cacert_len = caPem.length() + 1;
     conf.user_cb = onSession;
@@ -776,12 +847,31 @@ void drawQr(esp_qrcode_handle_t qr) {
             if (esp_qrcode_get_module(qr, x, y)) oled.fillRect(x0 + 3 + 2 * x, y0 + 3 + 2 * y, 2, 2, SSD1306_BLACK);
 }
 
+String apPass;  // the setup hotspot's password while it's up, else ""
+
 void draw() {
     oled.clearDisplay();
     oled.setTextColor(SSD1306_WHITE);
     oled.setTextWrap(false);
     oled.setTextSize(1);
-    if (prompt.line1.length()) {
+    if (apPass.length()) {
+        // Text on the left 64 px (10 characters), the join-Wi-Fi QR on the right, as for pairing
+        oled.setCursor(0, 0);
+        oled.print("wifi setup");
+        oled.drawFastHLine(0, 10, 62, SSD1306_WHITE);
+        oled.setCursor(0, 16);
+        oled.print("scan, or");
+        oled.setCursor(0, 26);
+        oled.print("join");
+        oled.setCursor(0, 38);
+        oled.print(SETUP_SSID);
+        oled.setCursor(0, 50);
+        oled.print(apPass);
+        esp_qrcode_config_t qr = ESP_QRCODE_CONFIG_DEFAULT();
+        qr.display_func = drawQr;
+        qr.max_qrcode_version = 3;  // 29 modules: 64 px with the quiet zone, the panel's height
+        esp_qrcode_generate(&qr, ("WIFI:T:WPA;S:" + String(SETUP_SSID) + ";P:" + apPass + ";;").c_str());
+    } else if (prompt.line1.length()) {
         oled.setCursor(0, 0);
         oled.println("confirm");
         oled.drawFastHLine(0, 10, OLED_W, SSD1306_WHITE);
@@ -852,6 +942,87 @@ void draw() {
     oled.display();
 }
 
+// ---- Wi-Fi setup: a WPA2 hotspot whose random password is only on the OLED, and a page to pick the network ----
+
+String htmlEscape(const String& in) {
+    String out;
+    for (char ch : in) out += ch == '<' ? "&lt;" : ch == '>' ? "&gt;" : ch == '&' ? "&amp;" : ch == '"' ? "&quot;" : String(ch);
+    return out;
+}
+
+// Never returns: restarts once the board is on a network, the new one or the saved one coming back.
+void runSetup() {
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.disconnect();  // a station still connecting makes the scan fail
+    String options;
+    for (int i = 0, n = WiFi.scanNetworks(); i < n; i++) options += "<option value=\"" + htmlEscape(WiFi.SSID(i)) + "\">";
+    if (haveSavedWifi()) WiFi.begin();  // keep retrying the saved network meanwhile
+    const char* ALPHA = "23456789abcdefghjkmnpqrstuvwxyz";  // no 0 1 i l o: read off a small screen
+    uint8_t raw[10];
+    rng(nullptr, raw, sizeof raw);  // radio on: real entropy
+    for (uint8_t b : raw) apPass += ALPHA[b % 31];
+    WiFi.softAP(SETUP_SSID, apPass.c_str());
+    Serial.printf("wifi setup: join %s, open http://%s\n", SETUP_SSID, WiFi.softAPIP().toString().c_str());
+
+    DNSServer dns;  // every name resolves to us, so phones open the page as a captive portal
+    dns.start(53, "*", WiFi.softAPIP());
+    WebServer web(80);
+    String ssid, pass;
+    bool join = false;
+    web.on("/", HTTP_GET, [&] {
+        web.send(200, "text/html",
+                 "<!doctype html><meta name=viewport content='width=device-width'><title>pwvault setup</title>"
+                 "<body style='font:16px sans-serif;max-width:24em;margin:2em auto;padding:0 1em'>"
+                 "<h2>pwvault Wi-Fi</h2><form method=post action=/join>"
+                 "<p>Network<br><input name=ssid list=n required style='width:100%'><datalist id=n>" +
+                     options +
+                     "</datalist><p>Password<br><input name=pass type=password style='width:100%'>"
+                     "<p><button>Connect</button></form><p><small>2.4 GHz networks only.</small>");
+    });
+    web.on("/join", HTTP_POST, [&] {
+        ssid = web.arg("ssid");
+        pass = web.arg("pass");
+        web.send(200, "text/html",
+                 "<!doctype html><meta name=viewport content='width=device-width'>"
+                 "<body style='font:16px sans-serif;max-width:24em;margin:2em auto;padding:0 1em'>"
+                 "<h2>Connecting to " + htmlEscape(ssid) + "</h2><p>This hotspot goes away now. If the board's "
+                 "screen shows the clock and an IP, it's online. If it shows the setup QR again, the password was "
+                 "wrong: join again and retry.");
+        join = true;
+    });
+    web.onNotFound([&] {  // captive-portal probes (generate_204, hotspot-detect.html, ...) land here
+        web.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/");
+        web.send(302, "text/plain", "");
+    });
+    web.begin();
+
+    for (uint32_t joinAt = 0, drawn = 0;; delay(10)) {
+        dns.processNextRequest();
+        web.handleClient();
+        if (join && !joinAt) joinAt = millis() | 1;
+        if (joinAt && millis() - joinAt > 1000) {  // after the reply has gone out
+            join = false;
+            joinAt = 0;
+            WiFi.begin(ssid.c_str(), pass.c_str());  // saved to NVS: the next boot uses it
+            for (uint32_t t = millis(); !WiFi.isConnected() && millis() - t < 20000;) delay(100);
+        }
+        if (WiFi.isConnected()) {
+            Serial.printf("wifi: joined %s\n", WiFi.SSID().c_str());
+            delay(500);
+            ESP.restart();  // start clean, as a station only
+        }
+        if (millis() - drawn > 500) {
+            drawn = millis();
+            draw();
+        }
+    }
+}
+
+bool haveSavedWifi() {
+    wifi_config_t c = {};
+    return esp_wifi_get_config(WIFI_IF_STA, &c) == ESP_OK && c.sta.ssid[0];
+}
+
 void setup() {
     Serial.begin(115200);
     Wire.begin(OLED_SDA, OLED_SCL);
@@ -870,20 +1041,17 @@ void setup() {
     seq = strtoull(readFile("/seq").c_str(), nullptr, 10);
     buildIndex();
     loadDevices();
-    mbedtls_x509_crt own;
-    mbedtls_x509_crt_init(&own);
-    if (!mbedtls_x509_crt_parse(&own, (const uint8_t*)CERT_PEM, sizeof CERT_PEM))
-        serverFp = sha256Hex(own.raw.p, own.raw.len);
-    mbedtls_x509_crt_free(&own);
 
     WiFi.setHostname(HOSTNAME);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.mode(WIFI_STA);
+    if (!haveSavedWifi()) runSetup();
+    WiFi.begin();  // the network saved by the setup page
     for (uint32_t t = millis(); !WiFi.isConnected(); delay(200))
-        if (millis() - t > 30000) ESP.restart();  // unattended device: retry from scratch rather than hang
+        if (millis() - t > WIFI_WAIT_MS) runSetup();  // moved, or a new router: let someone pick the network
     Serial.printf("IP %s\n", WiFi.localIP().toString().c_str());
-    if (!loadCa()) {  // after Wi-Fi: the RNG needs the radio on for entropy
-        Serial.println("device CA failed");
-        showEvent("error", "device CA failed", "", "");
+    if (!loadCa() || !loadServerCert()) {  // after Wi-Fi: the RNG needs the radio on for entropy
+        Serial.println("device CA or server cert failed");
+        showEvent("error", "certs failed", "", "");
     }
     configTzTime(TZ_INFO, "pool.ntp.org", "time.google.com");
     MDNS.begin(HOSTNAME);
