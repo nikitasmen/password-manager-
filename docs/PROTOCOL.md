@@ -1,7 +1,7 @@
 # pwvault protocol, v1
 
 This is the contract shared by every pwvault client (the desktop app, the Android app in `android/`) and every store (a local
-file, the ESP32 board, `tests/fake_esp.py`). If the code and this document disagree, one of them is a bug. Change
+file, a host: the ESP32 board, the desktop app's `--serve` mode, `tests/fake_esp.py`). If the code and this document disagree, one of them is a bug. Change
 this document first.
 
 A client is correct when it reproduces `tests/protocol_vectors.json` byte for byte and follows the rules below.
@@ -114,21 +114,46 @@ It orders changes within one store only.
 **Local file** (`vault.json`, in the data directory): `{"seq":N,"meta":{…},"entries":{"<id>":{record}}}`. Writes
 take an exclusive lock on `vault.json.lock` and replace the file atomically (temp file + rename).
 
-**ESP32:** the HTTP API in §7. `tests/fake_esp.py` implements the same API in memory.
+**Host:** a store other devices reach over the HTTP API in §7. Any number of hosts may hold the same vault, and every
+device works offline on its local file. A host has a **role**, which says how much to trust it and how often it's
+there, not how fast it is:
 
-## 7. ESP32 HTTP API
+| Role | What it is | Hosts |
+|---|---|---|
+| `dedicated` | Single-purpose hardware, always on. The only role that offers PIN unlock (§11). | the ESP32 board |
+| `server` | An always-on general-purpose machine. | the desktop app's `--serve` on a Raspberry Pi or a home server |
+| `peer` | A computer someone also uses, often asleep. | the desktop app's `--serve` on a laptop or desktop |
 
-**Transport:** HTTPS on port 443 with mutual TLS.
+Clients prefer hosts in that order. The Android app never hosts: Android stops background servers and phones change
+address on every network. `tests/fake_esp.py` implements the API in memory, as a `dedicated` host.
 
-- The server cert has the name `pwvault.local`; the board makes it on first boot (self-signed, `/server.pem`), and
-  clients receive it when pairing (§9). Clients pin that exact cert and verify the name `pwvault.local` even when
+**One active host per network.** A network has at most one serving host. The board always serves. Any other host
+looks for hosts on the network (§9, *Finding hosts*) before it serves, then every 60 s and whenever its network
+changes. When it finds a host it's paired with, holding the same vault (the same `vault_id` in its meta), with a better
+role, or the same role and a lower id, it **stands down**: it stops both servers and its advertisement, and keeps syncing as an
+ordinary client. When that host has been gone for one check, it serves again. Hosts it isn't paired with (someone else's vault on
+a shared network) don't count. Devices still pair with several hosts,
+one per network they use (the board at home, a Raspberry Pi at the office), and changes travel between them through
+devices that move. A network that hides devices from each other (client isolation) can end up with two hosts; that
+costs a spare copy, never data, since §8 converges either way.
+
+A host that is also a client (the desktop app with `--serve`) serves its own local file: the same `vault.json`, with
+the same lock, so there is one store on that machine, not two.
+
+## 7. Host HTTP API
+
+**Transport:** HTTPS with mutual TLS, on port 443 on the board. Other hosts SHOULD use 8443 (an unprivileged port),
+with pairing on the next port up (§9).
+
+- The server cert has the name `pwvault.local`; each host makes its own on first start (self-signed; `/server.pem`
+  on the board), and clients receive it when pairing (§9). Clients pin that exact cert and verify the name `pwvault.local` even when
   they connect by IP.
-- Clients present a cert issued by the board's device CA (§10). The handshake refuses anything else.
+- Clients present a cert issued by that host's device CA (§10). The handshake refuses anything else.
 - Clients SHOULD keep one connection open: a handshake costs about 0.5 s, a reused request about 0.06 s.
 
-**Authorization:** the device name is the client cert's CN. A request is authorized only if `/devices.json` maps that
+**Authorization:** the device name is the client cert's CN. A request is authorized only if the host's `devices.json` maps that
 name to the SHA-256 of exactly that cert. A revoked or replaced cert gets `403 {"error":"device revoked"}`, and the
-board closes the connection.
+host closes the connection.
 
 Request and reply bodies are JSON. Errors are `{"error":"<message>"}`. A request body is at most 16 KB (413 otherwise).
 
@@ -139,11 +164,11 @@ Request and reply bodies are JSON. Errors are `{"error":"<message>"}`. A request
 | `GET /entries?after=N` | | 200 `{"entries":[…],"seq":S}`: records with `seq` > N, in no particular order |
 | `POST /entries` | `{"entries":[…]}`, at most 32 | 200 `{"seq":S}`; 400 if any record is malformed (then none is written) |
 | `POST /access` | `{"platform":…,"username":…}` | 200. Display-only hint for the OLED (see §12) |
-| `GET /devices` | | 200 `{"devices":[{"name":…,"seen":T}],"you":"<name>","storage":{"used":B,"total":B,"records":N}}`: `storage` is the board's flash for the vault, in bytes, and how many entry records it holds (tombstones included). Optional: older firmware omits it |
+| `GET /devices` | | 200 `{"devices":[{"name":…,"seen":T}],"you":"<name>","role":…,"storage":{"used":B,"total":B,"records":N}}`: `role` is the host's role (§6); older firmware omits it, which means `dedicated`. `storage` is the space the host has for the vault, in bytes, and how many entry records it holds (tombstones included). Optional: older firmware omits it |
 | `DELETE /devices/<name>` | | 202 `{"pending":true}`; 404 no such device (§10) |
 | `POST /pair/open` | | 200 `{"code":…,"qr":…,"seconds":S}`: opens pairing like a BOOT press, or returns the open session's code (§9) |
-| `PUT /pin` | `{"verifier":"<64 hex>"}` | 200 `{"secret":"<64 hex>"}` (§11) |
-| `POST /pin` | `{"proof":"<64 hex>"}` | 200 `{"secret":…}`; 403 `{"error":…,"left":K}`; 410 PIN removed; 404 no PIN (§11) |
+| `PUT /pin` | `{"verifier":"<64 hex>"}` | 200 `{"secret":"<64 hex>"}` (§11); 404 on a host that isn't `dedicated` |
+| `POST /pin` | `{"proof":"<64 hex>"}` | 200 `{"secret":…}`; 403 `{"error":…,"left":K}`; 410 PIN removed; 404 no PIN, or not `dedicated` (§11) |
 
 - **`POST /entries` validation:** `id` is exactly 32 lowercase hex characters (it becomes a file name). `updated` is
   an integer, `deleted` a boolean, and `alg` and `data` are strings. Each record is merged with §5; rejected ones
@@ -153,8 +178,10 @@ Request and reply bodies are JSON. Errors are `{"error":"<message>"}`. A request
 ## 8. Sync
 
 `syncStores(local, remote)` syncs two stores. It is safe to repeat, and it keeps its cursors in `sync.json` next to
-the local vault: `{"vault_id":…,"local_seq":L,"remote_seq":R}`. A missing or corrupt cursor file means "sync
-everything", which §5 makes harmless.
+the local vault, one pair per host, keyed by the host's id (the hex SHA-256 of its pinned server cert):
+`{"vault_id":…,"hosts":{"<host id>":{"local_seq":L,"remote_seq":R}}}`. A missing or corrupt cursor file, or a host
+missing from it, means "sync everything" with that host, which §5 makes harmless. (The v1 file,
+`{"vault_id":…,"local_seq":L,"remote_seq":R}`, is read as having no hosts.)
 
 1. **Meta.** If neither side has one, stop. If both do and their `vault_id`s differ, fail with *vault mismatch* and
    never merge. Otherwise the winner is the meta with the higher `rev`, with ties broken by the larger `key` blob
@@ -174,16 +201,29 @@ everything", which §5 makes harmless.
 An unreachable remote is *offline*: normal, not an error. The client keeps working on the local store and syncs
 later.
 
+**Several hosts.** A sync round runs `syncStores` with every paired host that answers, in role order (§6), each with
+its own cursors. There is no leader to elect: a change pulled from one host is pushed to the next in the same round,
+and devices that sync with different hosts converge through any device or host they share. The round's status is
+*ok* if any host synced, *offline* if none answered. Most hosts are on other networks at any moment, so a round
+doesn't wait on them: a host that didn't answer is skipped for 5 minutes, unless no other host synced in this round,
+and then it's tried after the rest. Connect timeouts are short (1.5 s). A host holding another vault (*vault mismatch*) is skipped and
+reported; the others still sync.
+
 **When the desktop app syncs:** on unlock, after every write, and before a read once the last sync attempt is
 older than 30 s.
 
-**Device-only mode** (`localCopy=false`): the board is the only store. No sync runs, and every read goes to the
-board.
+**Device-only mode** (`localCopy=false`): one host is the only store. No sync runs, and every read goes to that
+host. It needs exactly one paired host.
 
 ## 9. Pairing
 
-Pairing issues a new device's certificate. It runs on a second TLS server, port 8444, with no client cert, which is
-open only while pairing mode is on.
+Pairing issues a new device's certificate for one host; a device pairs with each host it uses. It runs on a second
+TLS server with no client cert (port 8444 on the board, the main port + 1 elsewhere), which is open only while
+pairing mode is on.
+
+On a host without a BOOT button, the host's own window or terminal stands in for it: an explicit action there opens
+pairing and shows the code (and the QR), and a confirmation there approves step 4. Approval always needs someone at
+the host.
 
 1. A BOOT press on the board opens pairing for 2 minutes and shows a 16-character code. A paired device can also
    open it with `POST /pair/open`, which returns the code, the QR text (below) and the seconds left, so a laptop can
@@ -208,14 +248,45 @@ open only while pairing mode is on.
 A man-in-the-middle presents a different cert, which changes `fp`. It can't produce valid macs without the code,
 and the code can't be brute-forced offline from one exchange.
 
+**Finding hosts.** Every host SHOULD advertise itself with DNS-SD over mDNS on the local network, as service
+`_pwvault._tcp` on its main port, with an instance name unique on the network (`pwvault-<first 8 hex of its id>`)
+and TXT records:
+
+| Key | Value |
+|---|---|
+| `v` | `1`, this protocol's version |
+| `id` | the host id: hex SHA-256 of its server cert (§8) |
+| `role` | its role (§6) |
+| `pair` | its pairing port |
+
+What a browse finds is a hint, never trust. Clients use it for two things, and manual entry (an address typed or
+scanned from the QR) always works too:
+
+- **Pairing:** list the hosts found, so the user picks one instead of typing its address. The code and the macs
+  above still authenticate the exchange; a fake advertisement gets nowhere without the code shown on the real host.
+- **A paired host moved:** when a paired host doesn't answer at its saved address, look for an advertisement whose
+  `id` matches it and try that address. The pinned cert decides; an advertisement can't redirect a client to anything
+  but the host it already trusts. A client that finds it MAY save the new address.
+
+Advertising tells the local network that a pwvault host is there, and which role it has (the board's `pwvault.local`
+already did). It reveals nothing about the vault.
+
 A pairing session handles one request, right or wrong. Pairing a name that already exists replaces its fingerprint,
 so the old cert stops working, and deletes that name's PIN record (§11).
 
 ## 10. Devices and revocation
 
-- **Device CA:** the board makes a P-256 CA on first boot (`/ca.key`, `/ca.pem`). The CA key never leaves the board.
-- **Device list:** `/devices.json` maps each paired name to the hex SHA-256 of its one valid cert. A name missing from
-  it is revoked.
+- **Device CA:** each host makes its own P-256 CA on first start (`/ca.key`, `/ca.pem` on the board). The CA key never
+  leaves that host. Hosts don't share a CA: copying a CA key between machines would be the weak point.
+- **Device list:** each host keeps `devices.json`, mapping each paired name to the hex SHA-256 of its one valid cert. A
+  name missing from it is revoked on that host.
+- **Forgetting a host** is a client-only action, for a host that's gone, broken or no longer wanted. The client
+  deletes that host's pinned server cert, its own device cert and key for it, the host's cursors in `sync.json`, and
+  `pin.json` if its `host` names it. The local vault stays. Nothing is sent, so the host still lists the device until
+  it's revoked there: when the host is reachable, the client SHOULD offer to request that revoke (`DELETE
+  /devices/<its own name>`) first. A device that forgets its last host keeps working locally, unpaired.
+- **A lost device is revoked on every host.** Clients SHOULD send the revoke to every paired host they can reach, and
+  show which still need it.
 - **Revocation takes a press.** `DELETE /devices/<name>` only records a pending request (202), which lasts 60 s. A
   newer request replaces it. The OLED shows the name and who asked, and a BOOT press performs it, so a stolen device
   can't lock out the others. Revoking removes the name and its PIN record. Clients poll `GET /devices` until the
@@ -223,7 +294,9 @@ so the old cert stops working, and deletes that name's PIN record (§11).
 
 ## 11. PIN unlock
 
-A PIN unlocks a vault on one device, with the board's help. The master password stays the real key.
+A PIN unlocks a vault on one device, with the help of one `dedicated` host. The master password stays the real key.
+Only `dedicated` hosts implement `/pin`: a general-purpose machine can't keep the secret out of an attacker's reach or
+stop offline guessing, so the others answer 404, and clients offer PIN setup only with a `dedicated` host.
 
 **Setting a PIN** (the vault must be unlocked, and the user re-enters the master password):
 
@@ -233,7 +306,8 @@ A PIN unlocks a vault on one device, with the board's help. The master password 
    `{"secret":<64 hex, random>,"verifier":…,"fails":0}` and returns the secret.
 4. `wrapKey = HMAC-SHA256(secret, "pwvault-pin-key\n" + proof)`, 32 bytes.
 5. The client seals the raw vault key with AES-256-GCM under `wrapKey`, AAD `pwvault-pin:<vault_id>`. It saves
-   `pin.json` = `{"salt":…,"iter":600000,"blob":…}` in its config directory, mode 600.
+   `pin.json` = `{"salt":…,"iter":600000,"blob":…,"host":"<host id>"}` in its config directory, mode 600. `host`
+   names the host that holds the secret; a file without it belongs to the client's only host.
 
 **Unlocking:** the client recomputes `proof` and sends `POST /pin {"proof"}`.
 
@@ -267,6 +341,7 @@ far in the future makes that device's concurrent edits win until real time catch
 | A device without a cert from the device CA | Nothing: the handshake is refused. |
 | A revoked device | One 403, then the connection is closed. |
 | One of your devices, without the master password | Ciphertext. With a PIN set, 5 tries at the PIN, then the PIN is deleted. |
+| A `server` or `peer` host alone | Ciphertext, needing the same offline brute force, and its CA key. No PIN secrets: it doesn't offer PINs. |
 | The board alone | Ciphertext, which needs an offline brute force of the master password at 600,000 PBKDF2 rounds per guess. It also gets the CA key (it can issue certs for itself) and every device's PIN `secret`. |
 | A phone with fingerprint unlock, without your finger | Nothing more than without it: the key never leaves the phone's secure hardware, which needs a strong biometric match for every use, and adding a fingerprint destroys it. |
 | The board **and** a device with a PIN set | **The vault key, if the PIN is weak.** With the `secret` from the board's flash and `pin.json`, the PIN can be brute-forced offline without the board's try limit: each guess costs 600,000 PBKDF2 rounds, and a 4-digit PIN has 10,000 candidates. |
