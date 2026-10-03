@@ -61,7 +61,7 @@ template <class Input>
 Input* field(int x, int y, int w, int h, const char* label = nullptr) {
     auto* f = new Input(x, y, w, h);
     f->box(FLAT_FIELD);
-    f->color(FL_WHITE);
+    f->color(theme::field());
     f->textfont(kSans);
     f->textsize(kValue);
     f->cursor_color(ink());
@@ -80,7 +80,7 @@ Fl_Choice* choice(int x, int y, int w, int h, const char* label) {
     c->labelcolor(muted());
     c->align(FL_ALIGN_TOP_LEFT);
     c->textsize(kBody);
-    c->color(FL_WHITE);
+    c->color(theme::field());
     return c;
 }
 
@@ -357,7 +357,7 @@ void GuiUIManager::buildVaultWindow() {
     passValue_ = text(valueX, y0 + row, dw - 120 - 188, 34, "", kMono, kValue, ink());
     passShown_ = text(valueX, y0 + row + 36, dw - 120, 30, "", kMono, kValue, ink());
     passShown_->box(FLAT_FIELD);
-    passShown_->color(FL_WHITE);
+    passShown_->color(theme::field());
     passShown_->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_CLIP);
     reveal_ = button(dx + dw - 178, y0 + row + 1, 84, 32, "Show");
     on(reveal_, [this] {
@@ -600,10 +600,13 @@ void GuiUIManager::openSettings() {
     clearAfter->value(std::to_string(c.clipboardTimeoutSeconds).c_str());
 
     text(x, 430, fw, 22, "App", kSansBold, kBody, ink());
-    Fl_Choice* mode = choice(x, 478, 240, 36, "Open in");
+    Fl_Choice* mode = choice(x, 478, 170, 36, "Open in");
     mode->add("Window|Terminal|Window if available");
     mode->value(c.defaultUIMode == "gui" ? 0 : (c.defaultUIMode == "tui" || c.defaultUIMode == "cli") ? 1 : 2);
-    Fl_Button* updates = button(x + fw - 170, 478, 170, 36, "Check for updates");
+    Fl_Choice* look = choice(x + 182, 478, 110, 36, "Colors");
+    look->add("System|Light|Dark");
+    look->value(c.theme == "light" ? 1 : c.theme == "dark" ? 2 : 0);
+    Fl_Button* updates = button(x + fw - 160, 478, 160, 36, "Check for updates");
     on(updates, [this] {
         if (!updateDialog_) updateDialog_ = std::make_unique<UpdateDialog>();
         updateDialog_->show();
@@ -642,6 +645,7 @@ void GuiUIManager::openSettings() {
     Fl_Button* save = button(W - x - 100, footY, 100, 38, "Save", Kind::Primary);
     w->end();
 
+    bool recolor = false;
     on(cancel, [w] { w->hide(); });
     on(save, [&] {
         AppConfig n = c;
@@ -651,6 +655,8 @@ void GuiUIManager::openSettings() {
         n.autoClipboardClear = autoClear->value();
         n.clipboardTimeoutSeconds = std::max(1, std::atoi(clearAfter->value()));
         n.defaultUIMode = mode->value() == 0 ? "gui" : mode->value() == 1 ? "tui" : "auto";
+        n.theme = look->value() == 1 ? "light" : look->value() == 2 ? "dark" : "system";
+        recolor = wantsDark(n.theme) != wantsDark(c.theme);
         const bool restart = n.localCopy != c.localCopy;
         ConfigManager::getInstance().updateConfig(n);
         if (!ConfigManager::getInstance().saveConfig()) {
@@ -664,6 +670,11 @@ void GuiUIManager::openSettings() {
     runModal(w);
     delete w;
     callbacks_.resize(mark);
+    if (recolor) {  // widgets keep the colors they were made with: build the window again in the new ones
+        apply(wantsDark(ConfigManager::getInstance().getConfig().theme));
+        buildVaultWindow();
+        showDetail(current_);
+    }
 }
 
 void GuiUIManager::changeMasterPassword() {

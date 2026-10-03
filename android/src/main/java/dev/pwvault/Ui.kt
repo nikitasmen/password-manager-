@@ -79,9 +79,14 @@ private val Dark = Palette(
 val LocalPalette = staticCompositionLocalOf { Light }
 val palette: Palette @Composable get() = LocalPalette.current
 
+enum class Theme { System, Light, Dark }
+
 @Composable
-fun PwTheme(content: @Composable () -> Unit) {
-    val p = if (isSystemInDarkTheme()) Dark else Light
+fun Theme.isDark() = when (this) { Theme.System -> isSystemInDarkTheme(); Theme.Light -> false; Theme.Dark -> true }
+
+@Composable
+fun PwTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val p = if (dark) Dark else Light
     val base = if (p === Dark) darkColorScheme() else lightColorScheme()
     val colors = base.copy(
         primary = p.accent, onPrimary = p.onAccent, background = p.enclosure, onBackground = p.ink,

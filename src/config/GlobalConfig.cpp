@@ -155,6 +155,8 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
             }
         } else if (key == "showEncryptionInCredentials") {
             config_.showEncryptionInCredentials = (value == "true" || value == "1");
+        } else if (key == "theme") {
+            config_.theme = value == "light" || value == "dark" ? value : "system";
         } else if (key == "defaultUIMode") {
             config_.defaultUIMode = value;
             // Normalize to lowercase for consistency
@@ -213,7 +215,8 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
 
     file << "# UI Settings\n";
     file << "showEncryptionInCredentials=" << (config_.showEncryptionInCredentials ? "true" : "false") << "\n";
-    file << "defaultUIMode=" << config_.defaultUIMode << "\n\n";
+    file << "defaultUIMode=" << config_.defaultUIMode << "\n";
+    file << "theme=" << config_.theme << "\n\n";
 
     file << "# ESP32 Vault (empty espHost = local only)\n";
     file << "espHost=" << config_.espHost << "\n";

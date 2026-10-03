@@ -25,7 +25,7 @@ int guiMain() {
         }
 
         // Initialize FLTK with more lenient error handling
-        theme::apply();
+        theme::apply(theme::wantsDark(configManager.getConfig().theme));
         Fl::visual(FL_DOUBLE | FL_RGB);
 
         // Create UI manager for graphical interface using configured data path

@@ -13,6 +13,7 @@ import android.security.keystore.KeyProperties
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -132,17 +133,26 @@ object App {
     var notice by mutableStateOf("") // what just worked
     var items by mutableStateOf(listOf<Credential>())
     var bioOn by mutableStateOf(false) // fingerprint unlock is set up (bio.json)
+    var theme by mutableStateOf(Theme.System)
+        private set
     var update by mutableStateOf<Release?>(null) // a newer release with an APK
     var updating by mutableStateOf<Int?>(null) // download progress, %
     var storage by mutableStateOf("") // the board's flash use, for Settings
     var merge by mutableStateOf<MergePlan?>(null) // read from the board, being reviewed on the Merge screen
     val keepPhone = mutableStateListOf<Boolean>() // one per merge conflict decided so far: true = this phone's copy
 
+    /** System -> Light -> Dark -> System, remembered across launches. */
+    fun nextTheme() {
+        theme = Theme.entries[(theme.ordinal + 1) % Theme.entries.size]
+        prefs.edit().putString("theme", theme.name).apply()
+    }
+
     fun init(ctx: Context) {
         if (::dir.isInitialized) return
         dir = ctx.filesDir
         prefs = ctx.getSharedPreferences("pwvault", Context.MODE_PRIVATE)
         bioOn = bioFile.exists()
+        theme = Theme.entries.firstOrNull { it.name == prefs.getString("theme", null) } ?: Theme.System
         load()
     }
 
@@ -552,7 +562,13 @@ class MainActivity : ComponentActivity() {
             window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         App.init(this)
         setContent {
-            PwTheme {
+            val dark = App.theme.isDark()
+            LaunchedEffect(dark) { // the status bar's icons follow the app's colors, not the phone's
+                val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(bars, bars)
+            }
+            PwTheme(dark) {
                 Surface(Modifier.fillMaxSize(), color = palette.enclosure) {
                     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
                         when (App.screen) {
@@ -860,6 +876,10 @@ private fun SettingsSheet(close: () -> Unit, pin: () -> Unit, fingerprint: () ->
         if (App.bioOn || Biometric.available(ctx)) Setting("Fingerprint unlock", if (App.bioOn) "On" else "Off") {
             Switch(App.bioOn, { if (App.bioOn) App.disableFingerprint() else fingerprint() },
                 colors = SwitchDefaults.colors(checkedTrackColor = palette.accent, checkedThumbColor = palette.onAccent))
+        }
+        Setting("Colors", when (App.theme) { Theme.System -> "Follow the phone"; Theme.Light -> "Light"; Theme.Dark -> "Dark" }) {
+            QuietButton(when (App.theme) { Theme.System -> "Use light"; Theme.Light -> "Use dark"; Theme.Dark -> "Follow phone" },
+                { App.nextTheme() })
         }
 
         if (!BuildConfig.DEMO) {

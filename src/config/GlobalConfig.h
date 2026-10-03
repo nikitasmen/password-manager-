@@ -33,6 +33,7 @@ struct AppConfig {
     // UI settings
     bool showEncryptionInCredentials = true;
     std::string defaultUIMode = "auto";  // "cli", "gui", or "auto"
+    std::string theme = "system";        // the window's colors: "system", "light" or "dark"
 
     // ESP32 vault store; empty espHost = local only (no sync)
     std::string espHost;
