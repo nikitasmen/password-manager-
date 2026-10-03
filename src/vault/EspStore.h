@@ -28,8 +28,9 @@ class DeviceRevoked : public std::runtime_error {
 class EspStore : public IVaultStore {
    public:
     explicit EspStore(EspConfig cfg);
-    void setHost(const std::string& host) {  // e.g. the user corrected the address in the connector
+    void setHost(const std::string& host, int port) {  // e.g. the user corrected the address in the connector
         cfg_.host = host;
+        cfg_.port = port;
     }
 
     std::optional<VaultMeta> getMeta() override;

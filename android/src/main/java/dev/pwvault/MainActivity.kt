@@ -88,15 +88,15 @@ private const val PAIR_PORT = 8444 // PROTOCOL.md §9
 enum class Screen { Pair, Unlock, Vault, Merge }
 
 /**
- * A host this phone is paired with (PROTOCOL.md §6). The first one pairing made lives at the top of filesDir
- * (server.der, device.der, prefs "host"/"alias"; [dir] null); hosts added later in filesDir/hosts/<id prefix>/.
+ * A host this phone is paired with (PROTOCOL.md §6): server.der, device.der and host.json (address, role, the
+ * Keystore alias of this phone's key for it) in filesDir/hosts/<id prefix>/.
  */
-data class PhoneHost(val id: String, val address: String, val role: Role, val dir: File?, val alias: String, val store: EspStore)
+data class PhoneHost(val id: String, val address: String, val role: Role, val dir: File, val alias: String, val store: EspStore)
 
 /**
  * App state lives here, not in the activity, so a rotation keeps it. Every vault call runs on one worker thread, in
- * order. Files (filesDir): vault.json, sync.json, pin.json, server.der (the pinned board cert), device.der; the
- * device key is in the Android Keystore and never leaves it.
+ * order. Files (filesDir): vault.json, sync.json, pin.json, bio.json, and hosts/ (PhoneHost); each host's device
+ * key is in the Android Keystore and never leaves it.
  *
  * Standalone (off by default, chosen on the pair screen) is a local-only vault with no board; pairing later syncs
  * it to the board. The demo build (applicationIdSuffix .demo) is always standalone, with its own vault, and allows
@@ -106,19 +106,16 @@ object App {
     private lateinit var dir: File
     private lateinit var prefs: SharedPreferences
     private var vault: Vault? = null
-    private var board: EspStore? = null // the first host, which "Pair again" replaces
     private val worker = Executors.newSingleThreadExecutor()
     val pinFile get() = File(dir, "pin.json")
     val bioFile get() = File(dir, "bio.json")
     private val main = Handler(Looper.getMainLooper())
-    val host get() = prefs.getString("host", "").orEmpty()
     val deviceName get() = prefs.getString("name", "phone").orEmpty()
     val paired get() = vault != null
     val hasBoard get() = hosts.isNotEmpty()
     val pinHost get() = hosts.firstOrNull { it.role == Role.Dedicated } // the only kind that offers PINs (§11)
     var hosts by mutableStateOf(listOf<PhoneHost>()) // best role first
     var hostStatus by mutableStateOf(mapOf<String, Vault.Sync>()) // host id -> its last sync
-    var adding by mutableStateOf(false) // the Pair screen adds a host, rather than (re)pairing the first one
 
     var screen by mutableStateOf(Screen.Pair)
     var hasVault by mutableStateOf<Boolean?>(null) // null = not checked yet
@@ -160,34 +157,45 @@ object App {
             generateKeyPair()
         }
 
-    private fun phoneHost(address: String, role: Role, at: File?, alias: String, key: PrivateKey): PhoneHost {
-        val d = at ?: dir
-        val (h, p) = parseHost(address)
-        val server = File(d, "server.der").readBytes()
-        return PhoneHost(sha256(server).hex(), address, role, at, alias,
-            EspStore(h, p, parseCert(server), key, parseCert(File(d, "device.der").readBytes())))
+    private fun keyOf(alias: String?) = alias?.let { keystore().getKey(it, null) as? PrivateKey }
+
+    private fun saveHost(d: File, server: ByteArray, cert: ByteArray, address: String, role: Role, alias: String) {
+        d.mkdirs()
+        File(d, "server.der").writeBytes(server)
+        File(d, "device.der").writeBytes(cert)
+        File(d, "host.json").writeText(JSONObject().put("address", address).put("role", role.name.lowercase())
+            .put("alias", alias).toString())
     }
 
-    private fun keyOf(alias: String?) = alias?.let { keystore().getKey(it, null) as? PrivateKey }
+    /** A pairing from before hosts/ (at the top of filesDir, prefs "host"/"alias") moves there once. */
+    private fun moveFirstHost() {
+        val alias = prefs.getString("alias", null) ?: return
+        val server = File(dir, "server.der")
+        val cert = File(dir, "device.der")
+        if (!server.exists() || !cert.exists()) return
+        saveHost(File(dir, "hosts/${sha256(server.readBytes()).hex().take(16)}"), server.readBytes(), cert.readBytes(),
+            prefs.getString("host", "").orEmpty(), Role.Dedicated, alias)
+        prefs.edit().remove("alias").remove("host").commit()
+        server.delete()
+        cert.delete()
+    }
 
     private fun load() {
         val found = mutableListOf<PhoneHost>()
         if (!BuildConfig.DEMO) {
-            val alias = prefs.getString("alias", null)
-            val key = keyOf(alias)
-            if (key != null && File(dir, "server.der").exists() && File(dir, "device.der").exists())
-                found += phoneHost(host, Role.Dedicated, null, alias!!, key)
+            moveFirstHost()
             File(dir, "hosts").listFiles()?.forEach { d ->
                 runCatching { // one broken folder must not hide the others
                     val j = JSONObject(File(d, "host.json").readText())
-                    keyOf(j.getString("alias"))?.let { k ->
-                        found += phoneHost(j.getString("address"), roleOf(j.getString("role")), d, j.getString("alias"), k)
-                    }
+                    val key = keyOf(j.getString("alias")) ?: return@runCatching
+                    val (h, p) = parseHost(j.getString("address"))
+                    val server = File(d, "server.der").readBytes()
+                    found += PhoneHost(sha256(server).hex(), j.getString("address"), roleOf(j.getString("role")), d,
+                        j.getString("alias"), EspStore(h, p, parseCert(server), key, parseCert(File(d, "device.der").readBytes())))
                 }
             }
         }
         hosts = found.sortedBy { it.role }
-        board = hosts.firstOrNull { it.dir == null }?.store
         if (hosts.isEmpty() && !BuildConfig.DEMO && !prefs.getBoolean("standalone", false)) return
         vault = Vault(LocalStore(File(dir, "vault.json")), hosts.map { Host(it.id, it.role, it.store) }, File(dir, "sync.json"))
         hasVault = null
@@ -284,40 +292,35 @@ object App {
                 keystore().deleteEntry(alias)
                 throw e
             }
-            if (adding) return@run addHost(hostText.trim(), alias, keys, p)
-            File(dir, "server.der").writeBytes(p.server.encoded)
-            File(dir, "device.der").writeBytes(p.cert.encoded)
-            prefs.getString("alias", null)?.let { keystore().deleteEntry(it) }
-            prefs.edit().putString("host", hostText.trim()).putString("alias", alias).putString("name", name).commit()
-            pinFile.delete() // re-pairing deleted this name's PIN on the board
-            load()
+            prefs.edit().putString("name", name).apply()
+            addHost(hostText.trim(), alias, keys, p)
         }
     }
 
-    /** One more host, next to the others (§9): its files in hosts/<id prefix>/. */
+    /** §9's result, in hosts/<id prefix>/. Pairing a host again replaces this phone's key and files for it. */
     private fun addHost(address: String, alias: String, keys: KeyPair, p: Paired) {
         val id = sha256(p.server.encoded).hex()
-        val d = File(dir, "hosts/${id.take(16)}")
-        try {
-            if (hosts.any { it.id == id }) throw PairError("This phone is already paired with that host.")
-            d.mkdirs()
-            File(d, "server.der").writeBytes(p.server.encoded)
-            File(d, "device.der").writeBytes(p.cert.encoded)
-            val (h, port) = parseHost(address)
-            val store = EspStore(h, port, p.server, keys.private, p.cert)
-            val role = store.info().role // also proves the host accepts the cert it just issued
-            File(d, "host.json").writeText(JSONObject().put("address", address).put("role", role.name.lowercase())
-                .put("alias", alias).toString())
-            hosts = (hosts + PhoneHost(id, address, role, d, alias, store)).sortedBy { it.role }
-            vault!!.addHost(Host(id, role, store))
+        val (h, port) = parseHost(address)
+        val store = EspStore(h, port, p.server, keys.private, p.cert)
+        val role = try {
+            store.info().role // also proves the host accepts the cert it just issued, before anything is saved
         } catch (e: Exception) {
-            if (hosts.none { it.id == id }) d.deleteRecursively()
             keystore().deleteEntry(alias)
             throw e
         }
-        adding = false
-        vault!!.sync()
-        if (vault!!.unlocked) opened() else { showStatus(); screen = Screen.Unlock }
+        hosts.find { it.id == id }?.let { old -> // its PIN record went with the old pairing (§9)
+            if (runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull() in setOf(id, "")) pinFile.delete()
+            keystore().deleteEntry(old.alias)
+            vault?.removeHost(id)
+            hosts = hosts - old
+        }
+        val d = File(dir, "hosts/${id.take(16)}")
+        saveHost(d, p.server.encoded, p.cert.encoded, address, role, alias)
+        hosts = (hosts + PhoneHost(id, address, role, d, alias, store)).sortedBy { it.role }
+        val v = vault ?: return load() // the first pairing: the vault comes with it
+        v.addHost(Host(id, role, store))
+        v.sync()
+        if (v.unlocked) opened() else { showStatus(); screen = Screen.Unlock }
         notice = "Paired with $address."
     }
 
@@ -337,12 +340,7 @@ object App {
         if (pinOwner != null && (pinOwner == h.id || (pinOwner.isEmpty() && pinHost?.id == h.id))) pinFile.delete()
         vault!!.removeHost(h.id)
         keystore().deleteEntry(h.alias)
-        if (h.dir == null) {
-            File(dir, "server.der").delete()
-            File(dir, "device.der").delete()
-            prefs.edit().remove("alias").remove("host").apply()
-            board = null
-        } else h.dir.deleteRecursively()
+        h.dir.deleteRecursively()
         hosts = hosts - h
         if (hosts.isEmpty()) prefs.edit().putBoolean("standalone", true).apply() // keeps working here, unpaired
         showStatus()
@@ -350,15 +348,13 @@ object App {
         main.post(done)
     }
 
-    fun startAddHost() {
-        adding = true
+    fun startPair() {
         message = ""
         screen = Screen.Pair
     }
 
     /** Back from the Pair screen without pairing: to the vault if it's open. */
     fun leavePair() {
-        adding = false
         message = ""
         screen = if (vault?.unlocked == true) Screen.Vault else Screen.Unlock
     }
@@ -452,8 +448,7 @@ object App {
         val (h, p) = parseHost(text)
         host.store.host = h
         host.store.port = p
-        if (host.dir == null) prefs.edit().putString("host", text.trim()).apply()
-        else File(host.dir, "host.json").let { it.writeText(JSONObject(it.readText()).put("address", text.trim()).toString()) }
+        File(host.dir, "host.json").let { it.writeText(JSONObject(it.readText()).put("address", text.trim()).toString()) }
         hosts = hosts.map { if (it.id == host.id) it.copy(address = text.trim()) else it }
         close()
         syncNow()
@@ -621,7 +616,7 @@ private fun Heading(text: String) =
 @Composable
 private fun ColumnScope.PairScreen() {
     val ctx = LocalContext.current
-    var host by rememberSaveable { mutableStateOf(if (App.adding) "" else App.host) }
+    var host by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf(App.deviceName) }
     var code by rememberSaveable { mutableStateOf("") }
     var typing by rememberSaveable { mutableStateOf(false) }
@@ -647,7 +642,7 @@ private fun ColumnScope.PairScreen() {
             OledText("to approve", y = 54)), rules = listOf(10))
         else Oled(listOf(OledText("pair this phone"), OledText("1 press BOOT", y = 18), OledText("2 scan its code", y = 30),
             OledText("3 press BOOT again", y = 42)), rules = listOf(10))
-        Heading(if (App.adding) "Add a host" else "Pair with the board")
+        Heading(if (App.hasBoard) "Add a host" else "Pair with the board")
         Prose("The board shows a code for 2 minutes after you press BOOT. Scan it, then press BOOT again to let this " +
             "phone in.")
         if (App.paired && !App.hasBoard) Prose("If the board already has a vault, you'll be asked for its master " +
@@ -756,8 +751,8 @@ private fun ColumnScope.UnlockScreen() {
                         Method.Password -> "Master password"
                     }, { chosen = m; secret = ""; App.message = "" })
             }
-            if (!BuildConfig.DEMO) QuietButton(if (App.hasBoard) "Pair again" else "Pair with a board",
-                { App.message = ""; App.adding = false; App.screen = Screen.Pair }, color = palette.muted)
+            if (!BuildConfig.DEMO) QuietButton(if (App.hasBoard) "Pair a host" else "Pair with a board", { App.startPair() },
+                color = palette.muted)
         }
     }
 }
@@ -867,9 +862,9 @@ private fun SettingsSheet(close: () -> Unit, pin: () -> Unit, fingerprint: () ->
                 QuietButton("Manage", { host(h) })
             }
             if (!App.hasBoard) Setting("Pairing", "None: the vault is only on this phone") {
-                QuietButton("Pair", { close(); App.message = ""; App.adding = false; App.screen = Screen.Pair })
+                QuietButton("Pair", { close(); App.startPair() })
             } else Setting("Add a host", "Another board, or a computer that hosts the vault") {
-                QuietButton("Add", { close(); App.startAddHost() })
+                QuietButton("Add", { close(); App.startPair() })
             }
         }
 
@@ -926,8 +921,6 @@ private fun HostSheet(h: PhoneHost, close: () -> Unit) {
         Text("If it joined another network, type the IP it shows now. The pairing and PIN stay.",
             color = palette.muted, style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (h.dir == null) QuietButton("Pair again", { close(); App.message = ""; App.adding = false; App.screen = Screen.Pair },
-                color = palette.muted)
             Spacer(Modifier.weight(1f))
             PrimaryButton("Save address", go, enabled = !App.busy && address.isNotBlank() && address != h.address,
                 modifier = Modifier.width(160.dp))

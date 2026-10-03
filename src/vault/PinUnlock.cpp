@@ -24,6 +24,11 @@ std::optional<PinFile> loadPinFile(const std::string& path) {
     }
 }
 
+std::string readFile(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), {}};
+}
+
 void writePrivateTmp(const std::string& path, const std::string& content) {
     namespace fs = std::filesystem;
     const std::string tmp = path + ".tmp";

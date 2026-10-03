@@ -338,15 +338,19 @@ fun push(to: Store, entries: List<Record>) {
     if (batch.isNotEmpty()) to.putEntries(batch)
 }
 
-/** Returns whether the local store changed. */
-/** Drops a host's cursors (forget host, §10). */
-fun forgetCursors(state: File, hostId: String) {
-    val doc = runCatching { JSONObject(state.readText()) }.getOrNull() ?: return
-    if (doc.optJSONObject("hosts")?.remove(hostId) == null) return
+private fun writeState(state: File, doc: JSONObject) {
     val tmp = File(state.path + ".tmp")
     tmp.writeText(doc.toString())
     if (!tmp.renameTo(state)) throw IOException("cannot replace $state")
 }
+
+/** Drops a host's cursors (forget host, §10). */
+fun forgetCursors(state: File, hostId: String) {
+    val doc = runCatching { JSONObject(state.readText()) }.getOrNull() ?: return
+    if (doc.optJSONObject("hosts")?.remove(hostId) != null) writeState(state, doc)
+}
+
+/** Returns whether the local store changed. */
 
 fun syncStores(local: Store, remote: Store, state: File, hostId: String): Boolean {
     var localChanged = false
@@ -383,8 +387,6 @@ fun syncStores(local: Store, remote: Store, state: File, hostId: String): Boolea
         ?.takeIf { it.optString("vault_id") == vaultId && it.optJSONObject("hosts") != null }
         ?: JSONObject().put("vault_id", vaultId).put("hosts", JSONObject())
     doc.getJSONObject("hosts").put(hostId, JSONObject().put("local_seq", mine.seq).put("remote_seq", theirs.seq))
-    val tmp = File(state.path + ".tmp")
-    tmp.writeText(doc.toString())
-    if (!tmp.renameTo(state)) throw IOException("cannot replace $state")
+    writeState(state, doc)
     return localChanged
 }

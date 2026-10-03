@@ -39,6 +39,7 @@ class TerminalUIManager : public UIManager {
     void newEntry();
     void editEntry(const Credential& c);
     void changeMasterPassword();
+    bool pairWith(std::string address);  // asks name and code, then waits for the host's approval; "" asks the address
     void hostsScreen();    // the hosts this computer syncs with: add, forget, open one
     void devicesScreen(const PairedHost& host);  // devices paired with one host
     void connector();      // on start: pair with / reach the ESP32, unless it's already connected

@@ -34,6 +34,7 @@
 #include "../vault/Crypto.h"
 #include "../vault/EspStore.h"
 #include "../vault/LocalFileStore.h"
+#include "../vault/OpenSsl.h"
 #include "../vault/Pairing.h"
 #include "../vault/PinUnlock.h"
 #include "../vault/VaultService.h"
@@ -45,43 +46,11 @@ using Clock = std::chrono::steady_clock;
 using httplib::Request;
 using httplib::Response;
 
-template <class T, void (*Free)(T*)>
-using Owned = std::unique_ptr<T, std::integral_constant<decltype(Free), Free>>;
-using Pkey = Owned<EVP_PKEY, EVP_PKEY_free>;
-using Cert = Owned<X509, X509_free>;
-using Req = Owned<X509_REQ, X509_REQ_free>;
-using Bio = Owned<BIO, BIO_free_all>;
 using Bignum = Owned<BIGNUM, BN_free>;
-
-std::string readFile(const std::string& path) {  // "" if missing
-    std::ifstream in(path);
-    return {std::istreambuf_iterator<char>(in), {}};
-}
 
 void writePrivate(const std::string& path, const std::string& content) {  // mode 600, atomically
     writePrivateTmp(path, content);
     fs::rename(path + ".tmp", path);
-}
-
-std::string der(X509* x) {
-    std::string out(i2d_X509(x, nullptr), '\0');
-    auto* p = reinterpret_cast<unsigned char*>(out.data());
-    i2d_X509(x, &p);
-    return out;
-}
-
-template <class F>
-std::string toPem(F write) {
-    Bio b(BIO_new(BIO_s_mem()));
-    write(b.get());
-    char* p = nullptr;
-    long n = BIO_get_mem_data(b.get(), &p);
-    return std::string(p, n);
-}
-
-Cert readCert(const std::string& pem) {
-    Bio b(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())));
-    return Cert(PEM_read_bio_X509(b.get(), nullptr, nullptr, nullptr));
 }
 
 Pkey readKey(const std::string& pem) {
@@ -138,31 +107,22 @@ Identity loadIdentity() {
     const std::string dir = ConfigManager::configDir() + "/serve";
     Identity me{dir + "/server.pem", dir + "/server.key", dir + "/ca.pem", nullptr, nullptr, ""};
     const std::string caKeyPath = dir + "/ca.key";
-    if (!fs::exists(me.serverPem) || !fs::exists(me.serverKey)) {  // self-signed for pwvault.local, like the board's
+    // A self-signed key and cert, made once
+    auto ensure = [](const std::string& keyPath, const std::string& certPath, const std::string& cn,
+                     const std::vector<std::pair<int, std::string>>& exts) {
+        if (fs::exists(keyPath) && fs::exists(certPath)) return;
         Pkey k(EVP_EC_gen("P-256"));
-        Cert c = makeCert(k.get(),
-                          "pwvault.local",
-                          nullptr,
-                          k.get(),
-                          {{NID_basic_constraints, "CA:TRUE"}, {NID_subject_alt_name, "DNS:pwvault.local"}});
-        writePrivate(me.serverKey, toPem([&](BIO* b) {
-                         PEM_write_bio_PrivateKey(b, k.get(), nullptr, nullptr, 0, nullptr, nullptr);
-                     }));
-        writePrivate(me.serverPem, toPem([&](BIO* b) { PEM_write_bio_X509(b, c.get()); }));
-    }
-    if (!fs::exists(me.caPem) || !fs::exists(caKeyPath)) {
-        Pkey k(EVP_EC_gen("P-256"));
-        Cert c =
-            makeCert(k.get(),
-                     "pwvault device CA",
-                     nullptr,
-                     k.get(),
-                     {{NID_basic_constraints, "critical,CA:TRUE,pathlen:0"}, {NID_key_usage, "critical,keyCertSign"}});
-        writePrivate(caKeyPath, toPem([&](BIO* b) {
-                         PEM_write_bio_PrivateKey(b, k.get(), nullptr, nullptr, 0, nullptr, nullptr);
-                     }));
-        writePrivate(me.caPem, toPem([&](BIO* b) { PEM_write_bio_X509(b, c.get()); }));
-    }
+        Cert c = makeCert(k.get(), cn, nullptr, k.get(), exts);
+        Bio key(BIO_new(BIO_s_mem())), cert(BIO_new(BIO_s_mem()));
+        PEM_write_bio_PrivateKey(key.get(), k.get(), nullptr, nullptr, 0, nullptr, nullptr);
+        PEM_write_bio_X509(cert.get(), c.get());
+        writePrivate(keyPath, bioString(key.get()));
+        writePrivate(certPath, bioString(cert.get()));
+    };
+    ensure(me.serverKey, me.serverPem, "pwvault.local",  // like the board's
+           {{NID_basic_constraints, "CA:TRUE"}, {NID_subject_alt_name, "DNS:pwvault.local"}});
+    ensure(caKeyPath, me.caPem, "pwvault device CA",
+           {{NID_basic_constraints, "critical,CA:TRUE,pathlen:0"}, {NID_key_usage, "critical,keyCertSign"}});
     me.ca = readCert(readFile(me.caPem));
     me.caKey = readKey(readFile(caKeyPath));
     me.id = certFingerprint(readFile(me.serverPem));
@@ -312,6 +272,7 @@ class Host {
     // §9: like a BOOT press. Returns the code, the QR text and the seconds left.
     Json openPairing(const std::string& by) {
         std::lock_guard<std::mutex> l(pm_);
+        const std::string address = localAddress();
         if (code_.empty() || Clock::now() > until_) {
             static const char kAlphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";  // Crockford base32: 32 divides 256
             unsigned char raw[16];
@@ -320,17 +281,16 @@ class Host {
             for (unsigned char b : raw)
                 code_ += kAlphabet[b % 32];
             until_ = Clock::now() + std::chrono::minutes(2);
-            const std::string qr = "PWVAULT:" + localAddress() + ":" + code_ + ":" + std::to_string(port_);
             std::cout << "\r\n"
-                      << term::qrText(qr) << "Pairing is open for 2 minutes"
-                      << (by.empty() ? "" : " (asked by " + by + ")") << ". Code "
+                      << term::qrText("PWVAULT:" + address + ":" + code_ + ":" + std::to_string(port_))
+                      << "Pairing is open for 2 minutes" << (by.empty() ? "" : " (asked by " + by + ")") << ". Code "
                       << term::bold(code_.substr(0, 4) + "-" + code_.substr(4, 4) + "-" + code_.substr(8, 4) + "-" +
                                     code_.substr(12))
-                      << ", address " << localAddress() << ":" << port_ << std::endl;
+                      << ", address " << address << ":" << port_ << std::endl;
         }
         const auto left = std::chrono::duration_cast<std::chrono::seconds>(until_ - Clock::now()).count();
         return {{"code", code_},
-                {"qr", "PWVAULT:" + localAddress() + ":" + code_ + ":" + std::to_string(port_)},
+                {"qr", "PWVAULT:" + address + ":" + code_ + ":" + std::to_string(port_)},
                 {"seconds", left}};
     }
 
@@ -588,8 +548,9 @@ int runServe(int argc, char** argv) {
         fs::create_directories(c.dataPath);
         const std::string vaultPath = c.dataPath + "/vault.json";
         Console console;
-        Host host(loadIdentity(), role, port, vaultPath, console);
-        const std::string myId = certFingerprint(readFile(ConfigManager::configDir() + "/serve/server.pem"));
+        Identity me = loadIdentity();
+        const std::string myId = me.id;
+        Host host(std::move(me), role, port, vaultPath, console);
 
         // Syncing as a client with this computer's own paired hosts: it keeps them current, and a better one that
         // answers means this network already has its host (PROTOCOL.md §6, one active host per network).

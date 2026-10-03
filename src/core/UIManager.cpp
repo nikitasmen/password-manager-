@@ -18,11 +18,6 @@
 #include "../vault/LocalFileStore.h"
 
 namespace {
-std::string readFile(const std::string& path) {  // "" if missing
-    std::ifstream in(path);
-    return {std::istreambuf_iterator<char>(in), {}};
-}
-
 // "192.168.1.5" -> the board's port 443; "host:8443" -> 8443
 std::pair<std::string, int> splitAddress(const std::string& a) {
     auto colon = a.rfind(':');
@@ -48,25 +43,30 @@ R guarded(const char* what, R fallback, F&& call) {
 
 // Throws if the vault can't be set up (e.g. unwritable dataPath): tui_main/gui_main report it and exit,
 // so no UI code ever runs with a null vault. Stores:
-//   local-first (default): the local file, synced with the ESP32 when espHost is set
-//   device-only (localCopy=false): the ESP32 as the only store, nothing written to dataPath
+//   local-first (default): the local file, synced with every paired host
+//   device-only (localCopy=false): the best host as the only store, nothing written to dataPath
 UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(dataPath) {
     namespace fs = std::filesystem;
     const AppConfig& c = ConfigManager::getInstance().getConfig();
     deviceOnly_ = !c.localCopy;
     std::vector<SyncHost> hosts;
-    for (auto& [h, cfg] : loadPairedHosts(!deviceOnly_)) {
+    for (auto& [h, cfg] : loadPairedHosts()) {
         auto store = std::make_unique<EspStore>(cfg);
         h.store = store.get();
-        if (h.dir.empty()) board_ = h.store;
-        hosts.push_back({h.id, h.role, std::move(store)});
-        hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; }),
-                      h);
+        auto at = std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; });
+        hosts.insert(hosts.begin() + (at - hosts_.begin()), SyncHost{h.id, h.role, std::move(store)});
+        hosts_.insert(at, h);
     }
     if (deviceOnly_) {
-        if (!board_)
-            throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
-        vault = std::make_unique<VaultService>(std::move(hosts.front().store), std::vector<SyncHost>{}, "");
+        if (hosts.empty() && c.espHost.empty())
+            throw std::runtime_error("localCopy=false (device-only) needs a host: set espHost in " +
+                                     ConfigManager::configFile() + " and pair with it");
+        // No host yet: the config's address, unpaired, until the connector pairs it
+        vault = std::make_unique<VaultService>(
+            hosts.empty() ? std::make_unique<EspStore>(EspConfig{c.espHost, c.espPort, "", "", ""})
+                          : std::move(hosts.front().store),
+            std::vector<SyncHost>{}, "");
+        hosts_.resize(std::min<size_t>(hosts_.size(), 1));  // the one store; the others aren't used
         return;
     }
     fs::create_directories(dataPath);
@@ -74,30 +74,57 @@ UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(
                                            dataPath + "/sync.json");
 }
 
-std::vector<std::pair<PairedHost, EspConfig>> loadPairedHosts(bool withHostsDir) {
+namespace {
+// One host's folder: the three PEMs, and `host` (address=, role=); each mode 600, via .tmp + rename.
+void writeHostFile(const std::string& path, const std::string& content) {
+    writePrivateTmp(path, content);
+    std::filesystem::rename(path + ".tmp", path);
+}
+
+void saveHost(const std::string& dir, const PairedFiles& f, const std::string& address, HostRole role) {
+    writeHostFile(dir + "/server.pem", f.serverPem);
+    writeHostFile(dir + "/device.pem", f.certPem);
+    writeHostFile(dir + "/device.key", f.keyPem);
+    writeHostFile(dir + "/host", "address=" + address + "\nrole=" + hostRoleName(role) + "\n");
+}
+
+// A pairing in the config's esp* keys (made before hosts/ existed, or by esp32/pki.sh pair) moves into hosts/
+// once, so every host lives in one place. An espHost without certs stays: the connector pairs it.
+void moveConfigHost() {
     namespace fs = std::filesystem;
-    const AppConfig& c = ConfigManager::getInstance().getConfig();
-    std::vector<std::pair<PairedHost, EspConfig>> out;
-    auto add = [&](PairedHost h, const EspConfig& cfg) {
-        h.id = certFingerprint(readFile(cfg.certPath));  // not paired yet: no cert, id "" until pairing writes one
-        out.emplace_back(h, cfg);
-    };
-    if (!c.espHost.empty())
-        add({"", c.espHost + (c.espPort == 443 ? "" : ":" + std::to_string(c.espPort)), HostRole::Dedicated},
-            EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
+    ConfigManager& cm = ConfigManager::getInstance();
+    const AppConfig c = cm.getConfig();
+    const PairedFiles f{readFile(c.espCert), readFile(c.espClientCert), readFile(c.espClientKey)};
+    const std::string id = certFingerprint(f.serverPem);
+    if (c.espHost.empty() || id.empty() || f.certPem.empty() || f.keyPem.empty()) return;
+    saveHost(hostsDir() + "/" + id.substr(0, 16), f,
+             c.espHost + (c.espPort == 443 ? "" : ":" + std::to_string(c.espPort)), HostRole::Dedicated);
+    AppConfig next = c;
+    next.espHost.clear();
+    cm.updateConfig(next);
+    if (!cm.saveConfig()) return;  // the old files stay while the config still points at them
     std::error_code ec;
-    if (withHostsDir)
-        for (const auto& d : fs::directory_iterator(hostsDir(), ec)) {
-            std::map<std::string, std::string> kv;  // host: address=, role=
-            std::istringstream in(readFile((d.path() / "host").string()));
-            for (std::string line; std::getline(in, line);)
-                if (auto eq = line.find('='); eq != std::string::npos) kv[line.substr(0, eq)] = line.substr(eq + 1);
-            if (kv["address"].empty()) continue;
-            auto [addr, port] = splitAddress(kv["address"]);
-            const std::string dir = d.path().string();
-            add({"", kv["address"], hostRoleOf(kv["role"]), dir},
-                EspConfig{addr, port, dir + "/server.pem", dir + "/device.pem", dir + "/device.key"});
-        }
+    for (const std::string& p : {c.espCert, c.espClientCert, c.espClientKey})
+        if (fs::path(p).parent_path() == fs::path(ConfigManager::configDir())) fs::remove(p, ec);  // only ours
+}
+}  // namespace
+
+std::vector<std::pair<PairedHost, EspConfig>> loadPairedHosts() {
+    namespace fs = std::filesystem;
+    moveConfigHost();
+    std::vector<std::pair<PairedHost, EspConfig>> out;
+    std::error_code ec;
+    for (const auto& d : fs::directory_iterator(hostsDir(), ec)) {
+        std::map<std::string, std::string> kv;  // host: address=, role=
+        std::istringstream in(readFile((d.path() / "host").string()));
+        for (std::string line; std::getline(in, line);)
+            if (auto eq = line.find('='); eq != std::string::npos) kv[line.substr(0, eq)] = line.substr(eq + 1);
+        const std::string dir = d.path().string(), id = certFingerprint(readFile(dir + "/server.pem"));
+        if (kv["address"].empty() || id.empty()) continue;
+        auto [addr, port] = splitAddress(kv["address"]);
+        out.emplace_back(PairedHost{id, kv["address"], hostRoleOf(kv["role"]), dir},
+                         EspConfig{addr, port, dir + "/server.pem", dir + "/device.pem", dir + "/device.key"});
+    }
     return out;
 }
 
@@ -199,42 +226,53 @@ std::string UIManager::hostStatusText(const PairedHost& h) const {
 bool UIManager::safeAddHost(const std::string& address, const std::string& name, const std::string& code,
                             std::string& error) {
     namespace fs = std::filesystem;
-    if (deviceOnly_) return error = "Device-only mode keeps the vault on one host only.", false;
     auto [addr, port] = splitAddress(address);
     if (addr.empty()) return error = "Type the host's address, as it shows it.", false;
     std::string dir;
+    bool replaced = false;  // re-pairing a known host: its files were overwritten, so failing loses them
     try {
         const PairedFiles f = pairWithBoard(addr, port == 443 ? kPairPort : port + 1, name, code);
         const std::string id = certFingerprint(f.serverPem);
-        for (const PairedHost& h : hosts_)
-            if (h.id == id) return error = "This computer is already paired with that host.", false;
+        auto known = std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& h) { return h.id == id; });
+        if (deviceOnly_ && !hosts_.empty() && known == hosts_.end())
+            return error = "Device-only mode keeps the vault on one host only.", false;
         dir = hostsDir() + "/" + id.substr(0, 16);
-        for (const auto& [file, content] : {std::pair{"/server.pem", &f.serverPem}, {"/device.pem", &f.certPem},
-                                            {"/device.key", &f.keyPem}}) {
-            writePrivateTmp(dir + file, *content);
-            fs::rename(dir + file + ".tmp", dir + file);
-        }
+        replaced = known != hosts_.end();
+        saveHost(dir, f, address, HostRole::Dedicated);
         auto store = std::make_unique<EspStore>(
             EspConfig{addr, port, dir + "/server.pem", dir + "/device.pem", dir + "/device.key"});
         std::string role;
         store->devices(nullptr, &role);  // also proves the host accepts the cert it just issued
-        writePrivateTmp(dir + "/host", "address=" + address + "\nrole=" + hostRoleName(hostRoleOf(role)) + "\n");
-        fs::rename(dir + "/host.tmp", dir + "/host");
+        writeHostFile(dir + "/host", "address=" + address + "\nrole=" + hostRoleName(hostRoleOf(role)) + "\n");
+        if (replaced) {  // re-pairing deleted this name's PIN on the host, and the old cert is gone
+            if (auto pin = loadPinFile(pinFilePath()); pin && (pin->host == id || pin->host.empty()))
+                safeRemovePin(error);
+            if (!deviceOnly_) vault->removeHost(id);
+            hosts_.erase(known);
+        }
         PairedHost h{id, address, hostRoleOf(role), dir, store.get()};
-        vault->addHost({id, h.role, std::move(store)});
+        if (deviceOnly_) vault = std::make_unique<VaultService>(std::move(store), std::vector<SyncHost>{}, "");
+        else vault->addHost({id, h.role, std::move(store)});
         hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; }),
                       h);
+        error.clear();
     } catch (const StoreUnavailable&) {
         error = "Paired, but the host didn't answer on port " + std::to_string(port) + ". Nothing was saved.";
     } catch (const std::exception& e) {
         error = e.what();
     }
     if (error.empty()) {
-        vault->sync();
+        AppConfig c = ConfigManager::getInstance().getConfig();
+        if (!c.espHost.empty()) {  // the address the connector paired: it's in hosts/ now
+            c.espHost.clear();
+            ConfigManager::getInstance().updateConfig(c);
+            ConfigManager::getInstance().saveConfig();
+        }
+        if (!deviceOnly_) vault->sync();
         return true;
     }
     std::error_code ec;
-    if (!dir.empty()) fs::remove_all(dir, ec);
+    if (!dir.empty() && !replaced) fs::remove_all(dir, ec);
     return false;
 }
 
@@ -257,73 +295,55 @@ bool UIManager::safeForgetHost(std::string id, bool revokeFirst, std::string& er
     const bool pinIsItsOwn = pin && pin->id == id;
     if (auto f = loadPinFile(pinFilePath()); f && (f->host == id || (f->host.empty() && pinIsItsOwn)))
         safeRemovePin(error);
-    const PairedHost gone = *it;
+    const std::string dir = it->dir;
     hosts_.erase(it);
     vault->removeHost(id);  // destroys its store
     std::error_code ec;
-    if (gone.dir.empty()) {  // the config's host: its files, and espHost
-        const AppConfig& c = ConfigManager::getInstance().getConfig();
-        for (const std::string& f : {c.espCert, c.espClientCert, c.espClientKey}) fs::remove(f, ec);
-        AppConfig next = c;
-        next.espHost.clear();
-        ConfigManager::getInstance().updateConfig(next);
-        board_ = nullptr;
-        if (!ConfigManager::getInstance().saveConfig())
-            return error = "Forgot the host, but couldn't write " + ConfigManager::configFile(), false;
-    } else {
-        fs::remove_all(gone.dir, ec);
-    }
+    fs::remove_all(dir, ec);
     error.clear();
     return true;
 }
 
+std::string UIManager::boardAddress() const {
+    return hosts_.empty() ? ConfigManager::getInstance().getConfig().espHost : hosts_.front().address;
+}
+
 UIManager::BoardState UIManager::checkBoard(std::string& detail) {
-    if (!board_) return BoardState::Connected;  // nothing configured: nothing to connect
-    const AppConfig& c = ConfigManager::getInstance().getConfig();
-    if (!std::filesystem::exists(c.espClientKey) || !std::filesystem::exists(c.espClientCert)) {
-        detail = "This computer isn't paired with the ESP32 at " + c.espHost + " yet.";
+    if (hosts_.empty()) {  // an espHost without a pairing yet; none at all: nothing to connect
+        if (boardAddress().empty()) return BoardState::Connected;
+        detail = "This computer isn't paired with the host at " + boardAddress() + " yet.";
         return BoardState::NotPaired;
     }
     try {
-        board_->getMeta();  // any answer (a vault or none yet) means our certificate was accepted
+        hosts_.front().store->getMeta();  // any answer (a vault or none yet) means our certificate was accepted
     } catch (const StoreUnavailable&) {
-        detail = "Can't reach the ESP32 at " + ConfigManager::getInstance().getConfig().espHost +
-                 ". Is it on, and is this computer on its network?";
+        detail = "Can't reach the host at " + boardAddress() + ". Is it on, and is this computer on its network?";
         return BoardState::Unreachable;
     } catch (const std::exception& e) {
-        detail = "This computer isn't paired with the ESP32 (" + std::string(e.what()) + ").";
+        detail = "This computer isn't paired with the host at " + boardAddress() + " (" + e.what() + ").";
         return BoardState::NotPaired;
     }
-    ConfigManager::getInstance().saveConfig();  // keeps an address corrected in the connector
     return BoardState::Connected;
 }
 
-void UIManager::setBoardHost(const std::string& host) {
-    if (!board_ || host.empty()) return;
-    board_->setHost(host);
-    AppConfig c = ConfigManager::getInstance().getConfig();  // so checkBoard's messages name the new address
-    c.espHost = host;
-    ConfigManager::getInstance().updateConfig(c);
-}
-
-bool UIManager::savePairing(const PairedFiles& files, std::string& error) {
-    const AppConfig& c = ConfigManager::getInstance().getConfig();
-    namespace fs = std::filesystem;
+void UIManager::setBoardHost(const std::string& address) {
+    if (address.empty()) return;
+    if (hosts_.empty()) {  // where the connector will pair
+        AppConfig c = ConfigManager::getInstance().getConfig();
+        c.espHost = address;
+        ConfigManager::getInstance().updateConfig(c);
+        ConfigManager::getInstance().saveConfig();
+        return;
+    }
+    PairedHost& h = hosts_.front();
+    auto [addr, port] = splitAddress(address);
+    h.store->setHost(addr, port);
+    h.address = address;
     try {
-        // all three to .tmp first: cert and key must never be from different pairings
-        const std::pair<std::string, const std::string*> out[] = {
-            {c.espCert, &files.serverPem}, {c.espClientCert, &files.certPem}, {c.espClientKey, &files.keyPem}};
-        for (const auto& [path, content] : out) writePrivateTmp(path, *content);
-        for (const auto& [path, content] : out) fs::rename(path + ".tmp", path);
+        writeHostFile(h.dir + "/host", "address=" + address + "\nrole=" + hostRoleName(h.role) + "\n");
     } catch (const std::exception& e) {
-        error = std::string("Couldn't save the certificates: ") + e.what();
-        return false;
+        std::cerr << "couldn't save the new address: " << e.what() << "\n";
     }
-    if (!ConfigManager::getInstance().saveConfig()) {
-        error = "Paired, but couldn't write " + ConfigManager::configFile() + " (is it owned by root?)";
-        return false;
-    }
-    return true;
 }
 
 std::string UIManager::pinFilePath() {

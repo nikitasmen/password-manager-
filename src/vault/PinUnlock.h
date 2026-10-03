@@ -19,6 +19,7 @@ struct PinFile {
 };
 std::optional<PinFile> loadPinFile(const std::string& path);  // nullopt if missing or unreadable
 void savePinFile(const std::string& path, const PinFile& f);  // mode 600; throws on failure
+std::string readFile(const std::string& path);  // "" if missing
 // Writes path + ".tmp", mode 600 before any content lands; the caller renames it into place. Throws on failure.
 void writePrivateTmp(const std::string& path, const std::string& content);
 

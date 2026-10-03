@@ -56,7 +56,7 @@ class GuiUIManager : public UIManager {
     void editEntry(const std::optional<Credential>& existing);  // modal add/edit dialog
     void openSettings();                                         // modal settings dialog
     void openDevices();                                          // modal: hosts, and the devices paired with each
-    bool addHostDialog();                                        // modal: pair with one more host; true = paired
+    bool addHostDialog(const std::string& at = "");              // modal: pair with a host; true = paired
     void showPairingCode(const EspStore::PairInvite& invite);    // modal: the QR a phone scans to pair
     void changeMasterPassword();                                 // modal: current + new + repeat
     void setPinDialog();                                         // modal: master password + PIN + repeat

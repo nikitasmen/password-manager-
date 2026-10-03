@@ -102,25 +102,7 @@ void TerminalUIManager::connector() {
         if (in == "a") {
             setBoardHost(readLine("Board address (the IP on its screen): "));
         } else if (in == "p") {
-            const std::string def = defaultDeviceName();
-            std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
-            if (name.empty()) name = def;
-            const std::string code = normalizePairCode(readLine("Code on the board: "));
-            if (!validDeviceName(name) || code.empty()) {
-                message_ = danger(code.empty() ? "The code on the board has 16 characters."
-                                               : "Use 1-20 characters of a-z, 0-9 and - for the name.");
-                continue;
-            }
-            std::cout << "Now press BOOT on the board to approve '" << name << "' (within a minute)..." << std::flush;
-            try {
-                std::string why;
-                const std::string host = ConfigManager::getInstance().getConfig().espHost;
-                if (!savePairing(pairWithBoard(host, kPairPort, name, code), why)) throw PairError(why);
-                message_ = accent("Paired as " + name + ".");
-            } catch (const std::exception& e) {
-                message_ = danger(e.what());
-                continue;
-            }
+            if (!pairWith(boardAddress())) continue;
         } else if (in != "r") {
             continue;
         }
@@ -129,18 +111,38 @@ void TerminalUIManager::connector() {
     if (message_.empty() && detail.size()) message_ = accent("Connected to the ESP32.");
 }
 
+bool TerminalUIManager::pairWith(std::string address) {
+    if (address.empty()) address = readLine("Host address (the IP it shows; add :port if it isn't the board): ");
+    const std::string def = defaultDeviceName();
+    std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
+    if (name.empty()) name = def;
+    const std::string code = normalizePairCode(readLine("Code on the host: "));
+    if (!validDeviceName(name) || code.empty()) {
+        message_ = danger(code.empty() ? "The code has 16 characters."
+                                       : "Use 1-20 characters of a-z, 0-9 and - for the name.");
+        return false;
+    }
+    std::cout << "Now approve '" << name << "' on the host (BOOT on the board), within a minute..." << std::flush;
+    std::string error;
+    const bool ok = safeAddHost(address, name, code, error);
+    message_ = ok ? accent("Paired with " + address + ".") : danger(error);
+    return ok;
+}
+
 void TerminalUIManager::header(const std::string& state) {
     clear();
     const AppConfig& c = ConfigManager::getInstance().getConfig();
     using S = VaultService::SyncStatus;
     const S s = vault->lastSyncStatus();
-    std::string where = c.espHost.empty() ? muted("Vault on this computer")
-                        : !c.localCopy    ? (s == S::Offline ? danger("ESP32 at " + c.espHost + " is unreachable")
-                                                             : muted("Vault on the ESP32 at " + c.espHost + ", nothing stored here"))
-                        : s == S::Ok      ? muted("Synced with the ESP32 at " + c.espHost)
-                        : s == S::Offline ? muted("ESP32 offline, working on this computer's copy")
-                        : s == S::Error   ? danger("ESP32 sync error: " + vault->lastSyncError())
-                                          : muted("Vault on this computer, syncs with the ESP32 at " + c.espHost);
+    const std::string at = boardAddress();
+    std::string where = at.empty() ? muted("Vault on this computer")
+                        : !c.localCopy
+                            ? (s == S::Offline ? danger("The host at " + at + " is unreachable")
+                                               : muted("Vault on the host at " + at + ", nothing stored here"))
+                        : s == S::Ok      ? muted("Synced with " + at)
+                        : s == S::Offline ? muted("Hosts offline, working on this computer's copy")
+                        : s == S::Error   ? danger("Sync error: " + vault->lastSyncError())
+                                          : muted("Vault on this computer, syncs with " + at);
     auto panel = oled(now("%H:%M"));
     std::vector<std::string> side = {"", bold(state), where, ""};
     for (size_t i = 0; i < panel.size(); i++) std::cout << panel[i] << "  " << side[i] << "\n";
@@ -466,20 +468,8 @@ void TerminalUIManager::hostsScreen() {
         std::string in = readLine("> "), error;
         if (in.empty()) return;
         if (lower(in) == "a" && !deviceOnly_) {
-            std::cout << "\nOn the host: press BOOT on the board (or open pairing on the computer). It shows a code.\n";
-            const std::string address = readLine("Host address (as it shows it; add :port if it isn't the board): ");
-            const std::string def = defaultDeviceName();
-            std::string name = readLine("Name for this computer " + muted("[" + def + "]") + ": ");
-            if (name.empty()) name = def;
-            const std::string code = normalizePairCode(readLine("Code on the host: "));
-            if (!validDeviceName(name) || code.empty()) {
-                message_ = danger(code.empty() ? "The code has 16 characters."
-                                               : "Use 1-20 characters of a-z, 0-9 and - for the name.");
-                continue;
-            }
-            std::cout << "Now approve '" << name << "' on the host (BOOT on the board), within a minute..."
-                      << std::flush;
-            message_ = safeAddHost(address, name, code, error) ? accent("Paired with " + address + ".") : danger(error);
+            std::cout << "\nOn the host: press BOOT on the board (or p in its pwvault --serve). It shows a code.\n";
+            pairWith("");
             continue;
         }
         const bool forget = in.size() > 2 && lower(in).rfind("f ", 0) == 0;

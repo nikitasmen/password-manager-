@@ -11,19 +11,18 @@
 #include "../vault/PinUnlock.h"
 #include "../vault/VaultService.h"
 
-// A host this device is paired with (PROTOCOL.md §6). The config's esp* keys hold the first one (the connector's
-// board); hosts added later live in hostsDir()/<id prefix>/.
+// A host this device is paired with (PROTOCOL.md §6), in hostsDir()/<id prefix>/. A pairing still in the config's
+// esp* keys (older versions, esp32/pki.sh pair) moves there the first time hosts are loaded.
 struct PairedHost {
     std::string id;       // hex SHA-256 of its server cert; "" before pairing
     std::string address;  // as the user gave it: IP or name, with ":port" when it isn't 443
     HostRole role = HostRole::Dedicated;
-    std::string dir;  // its folder; "" = the config's esp* host
+    std::string dir;  // its folder, hostsDir()/<id prefix>
     EspStore* store = nullptr;
 };
 std::string hostsDir();  // configDir()/hosts
-// The paired hosts on disk, with what it takes to reach each (store unset); the config's host first.
-// withHostsDir false: only the config's host (device-only mode). Also used by --serve, to sync as a client.
-std::vector<std::pair<PairedHost, EspConfig>> loadPairedHosts(bool withHostsDir = true);
+// The paired hosts on disk, with what it takes to reach each (store unset). Also used by --serve.
+std::vector<std::pair<PairedHost, EspConfig>> loadPairedHosts();
 
 /**
  * @class UIManager
@@ -59,8 +58,7 @@ class UIManager {
     // Hosts this device is paired with, best role first; stores owned by `vault`. Paired devices aren't vault data,
     // so the Devices screens use these directly, bypassing VaultService.
     std::vector<PairedHost> hosts_;
-    EspStore* board_ = nullptr;  // the config's esp* host, null without espHost
-    bool deviceOnly_ = false;    // localCopy=false: board_ is the one store, and no other host can be added
+    bool deviceOnly_ = false;  // localCopy=false: the best host is the one store, and no other can be added
     const PairedHost* pinHost() const;  // the best dedicated host: the only kind that offers PINs (§11); may be null
     std::string hostStatusText(const PairedHost& h) const;  // "synced", "not on this network", ...
     // Pairs with one more host: "ip" (the board's ports) or "ip:port" (pairing on port+1). Blocks until it's approved
@@ -83,10 +81,10 @@ class UIManager {
 
     // The connector, shown on start (once per run) while an ESP32 is configured but not connected
     enum class BoardState { Connected, NotPaired, Unreachable };
+    // The best host (or the config's espHost before it's paired): reachable, and does it take our cert?
     BoardState checkBoard(std::string& detail);  // at most a couple of seconds; detail: why, for the user
-    void setBoardHost(const std::string& host);  // this run, and saved to the config once connected
-    // Writes the pairing result where the config points (mode 600) and saves espHost. false + error on failure.
-    bool savePairing(const PairedFiles& files, std::string& error);
+    void setBoardHost(const std::string& address);  // its new address, saved; pairing then goes there
+    std::string boardAddress() const;
     static std::string defaultDeviceName();  // from the hostname, e.g. "nixos"
 
     // PIN unlock, checked by the board (PinUnlock.h). Needs the board; the master password always works too.
