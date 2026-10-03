@@ -18,6 +18,7 @@ CipherAlg algOf(const std::string& name) {
 void to_json(nlohmann::json& j, const VaultMeta& m) {
     j = {{"v", m.v},       {"vault_id", m.vaultId}, {"rev", m.rev}, {"kdf", m.kdf},
          {"iter", m.iter}, {"salt", m.salt},        {"alg", m.alg}, {"key", m.key}};
+    if (!m.entryAlg.empty()) j["entry_alg"] = m.entryAlg;
 }
 
 void from_json(const nlohmann::json& j, VaultMeta& m) {
@@ -29,6 +30,7 @@ void from_json(const nlohmann::json& j, VaultMeta& m) {
     j.at("salt").get_to(m.salt);
     j.at("alg").get_to(m.alg);
     j.at("key").get_to(m.key);
+    m.entryAlg = j.value("entry_alg", "");
 }
 
 void to_json(nlohmann::json& j, const EntryRecord& e) {

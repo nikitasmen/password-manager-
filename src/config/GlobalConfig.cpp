@@ -99,8 +99,6 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
         // "version" is ignored: it's a build fact, and a stale line from an older install would win.
         if (key == "dataPath") {
             config_.dataPath = value;
-        } else if (key == "defaultCipher") {
-            if (auto alg = cipherFromName(value)) config_.defaultCipher = *alg;
         } else if (key == "espHost") {
             config_.espHost = value;
         } else if (key == "localCopy") {
@@ -202,7 +200,6 @@ bool ConfigManager::saveConfig(const std::string& configPath) {
 
     file << "# Core Settings\n";
     file << "dataPath=" << config_.dataPath << "\n";
-    file << "defaultCipher=" << cipherName(config_.defaultCipher) << "\n";
     file << "maxLoginAttempts=" << config_.maxLoginAttempts << "\n\n";
 
     file << "# Clipboard Settings\n";

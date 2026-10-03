@@ -68,6 +68,9 @@ class VaultService {
     // Rewraps the vault key; entries aren't re-encrypted. false = currentPassword is wrong (nothing changed).
     bool changeMasterPassword(const std::string& currentPassword, const std::string& newPassword);
     [[nodiscard]] bool verifyMasterPassword(const std::string& password);  // requires unlocked
+    // The cipher new entries get, on every device: the meta's entry_alg (PROTOCOL.md §3). Setting it syncs.
+    CipherAlg entryCipher();
+    void setEntryCipher(CipherAlg alg);
 
     // PIN unlock (PinUnlock.h): the vault key sealed under a key from the PIN and the board's secret.
     // These never see the PIN or the secret, only the derived key.

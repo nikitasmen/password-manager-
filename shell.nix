@@ -64,7 +64,9 @@ pkgs.mkShell {
       || echo "warning: ESP32 toolchain install failed (offline?); firmware builds may not work"
 
     echo "Runnig './build.sh' to build the project"
-    ./build.sh
+    # The hook runs with NIX_ENFORCE_PURITY=1, which makes the gcc wrapper drop -I/-isystem paths outside
+    # /nix/store, such as include/httplib (Serve.cpp's <httplib.h>)
+    NIX_ENFORCE_PURITY=0 ./build.sh
 '';
 }
 

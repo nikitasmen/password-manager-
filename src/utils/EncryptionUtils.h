@@ -32,10 +32,6 @@ inline CipherAlg fromDropdownIndex(int index) {
     return index >= 0 && static_cast<size_t>(index) < all.size() ? all[index] : all[0];
 }
 
-inline CipherAlg getDefault() {
-    return ConfigManager::getInstance().getConfig().defaultCipher;
-}
-
 }  // namespace encryption_utils
 
 #endif  // ENCRYPTION_UTILS_H

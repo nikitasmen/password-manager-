@@ -76,10 +76,11 @@ void saveCursors(const std::string& path, const std::string& hostId, const Curso
     writeState(path, state);
 }
 
-// Deterministic winner between two metas of the same vault: higher rev, then higher key blob.
-// The tie-break matters when two devices changed the master password offline from the same rev.
+// Deterministic winner between two metas of the same vault: higher rev, then higher key blob, then entry_alg.
+// The tie-break matters when two devices changed the master password or the cipher offline from the same rev.
 bool metaWins(const VaultMeta& a, const VaultMeta& b) {
-    return a.rev != b.rev ? a.rev > b.rev : a.key > b.key;
+    if (a.rev != b.rev) return a.rev > b.rev;
+    return a.key != b.key ? a.key > b.key : a.entryAlg > b.entryAlg;
 }
 
 void push(IVaultStore& to, const std::vector<EntryRecord>& entries) {

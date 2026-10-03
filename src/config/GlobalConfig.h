@@ -19,7 +19,6 @@ struct AppConfig {
 
     // Core settings
     std::string dataPath;  // empty = ConfigManager::dataDir()
-    CipherAlg defaultCipher = CipherAlg::Aes256Gcm;          // for new entries (docs/PROTOCOL.md §2)
     int maxLoginAttempts = 3;
 
     // Clipboard settings

@@ -120,10 +120,13 @@ Relative paths in `config` resolve against `~/.config/pwvault/`, and `~` is expa
 | `espCert` | `server.pem` | the board's pinned server certificate |
 | `espClientCert`, `espClientKey` | `device.pem`, `device.key` | this device's certificate and private key |
 | `dataPath` | *(empty)* = `~/.local/share/pwvault` | where `vault.json` and `sync.json` live |
-| `defaultCipher` | `aes-256-gcm` | cipher preselected for new entries (`aes-256-gcm` or `chacha20-poly1305`) |
 | `defaultUIMode` | `auto` | `gui`, `tui` or `auto` |
+| `theme` | `system` | window colors: `system`, `light` or `dark` |
 | `clipboardTimeoutSeconds`, `autoClipboardClear` | `30`, `true` | clipboard auto-clear |
 | `showEncryptionInCredentials` | `true` | show each entry's cipher when viewing it |
+
+The cipher for new entries isn't in this file: it's a vault setting (Settings → Encrypt new entries with, on the
+desktop or the phone), shared by every device.
 
 ### Local copy or device-only (per device)
 

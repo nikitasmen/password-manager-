@@ -58,6 +58,9 @@ A record names its cipher in its `alg` field. A client MUST reject an `alg` it d
 - **Password check:** there is no password hash. A password is right if and only if `key` opens.
 - **Changing the master password** reseals the same vault key under a KEK from a fresh salt, keeps `vault_id`, and
   sets `rev` to `rev + 1`. Entries aren't touched.
+- `entry_alg` (optional): the cipher (§2) every device seals new entries with. Absent means `aes-256-gcm`; a client
+  that doesn't know the name uses `aes-256-gcm` too. Changing it keeps everything else and sets `rev` to `rev + 1`.
+  A client MUST keep the field when it rewrites the meta (a master password change), and writes it only when set.
 
 ## 4. Entries
 
@@ -186,7 +189,7 @@ missing from it, means "sync everything" with that host, which §5 makes harmles
 
 1. **Meta.** If neither side has one, stop. If both do and their `vault_id`s differ, fail with *vault mismatch* and
    never merge. Otherwise the winner is the meta with the higher `rev`, with ties broken by the larger `key` blob
-   (bytewise). The winner is copied to the other side with `putMeta(winner, loser.rev or 0)`. A lost CAS race is
+   (bytewise), then by the larger `entry_alg` (bytewise; absent is empty). The winner is copied to the other side with `putMeta(winner, loser.rev or 0)`. A lost CAS race is
    left to the next sync.
 2. **Reset the cursors to 0** when:
    - the cursors belong to another `vault_id`,

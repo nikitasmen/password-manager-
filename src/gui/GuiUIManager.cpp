@@ -201,7 +201,7 @@ void GuiUIManager::buildUnlockWindow(bool create) {
         Fl::flush();  // deriving the key takes a moment; show that something is happening
         unlockError_->labelcolor(danger());
         if (create)
-            setupPassword(pass1_->value(), pass2_->value(), encryption_utils::getDefault());
+            setupPassword(pass1_->value(), pass2_->value(), CipherAlg::Aes256Gcm);
         else if (pin)
             loginWithPin(pass1_->value());
         else
@@ -533,7 +533,7 @@ void GuiUIManager::editEntry(const std::optional<Credential>& existing) {
     auto* pass = field<Fl_Secret_Input>(x, 214, fw, 36, "Password");
     Fl_Choice* alg = choice(x, 276, fw, 36, "Encrypt with");
     for (CipherAlg a : allCiphers()) alg->add(encryption_utils::getDisplayName(a));
-    alg->value(encryption_utils::toDropdownIndex(existing ? existing->alg : encryption_utils::getDefault()));
+    alg->value(encryption_utils::toDropdownIndex(existing ? existing->alg : safeEntryCipher()));
     if (existing) {
         platform->value(existing->platform.c_str());
         platform->deactivate();  // the name is the entry's identity; renaming = a new entry
@@ -589,9 +589,10 @@ void GuiUIManager::openSettings() {
          kSans, kSmall, muted());
 
     text(x, 250, fw, 22, "Entries", kSansBold, kBody, ink());
-    Fl_Choice* cipher = choice(x, 298, fw, 36, "Encrypt new entries with");
+    Fl_Choice* cipher = choice(x, 298, fw, 36, "Encrypt new entries with, on every device");
     for (CipherAlg a : allCiphers()) cipher->add(encryption_utils::getDisplayName(a));
-    cipher->value(encryption_utils::toDropdownIndex(c.defaultCipher));
+    const CipherAlg entryAlg = safeEntryCipher();
+    cipher->value(encryption_utils::toDropdownIndex(entryAlg));
     auto* showAlg = new Fl_Check_Button(x, 344, fw, 28, " Show each entry's encryption");
     showAlg->value(c.showEncryptionInCredentials);
     auto* autoClear = new Fl_Check_Button(x, 378, fw - 120, 28, " Clear copied passwords after (seconds)");
@@ -650,7 +651,6 @@ void GuiUIManager::openSettings() {
     on(save, [&] {
         AppConfig n = c;
         n.localCopy = localCopy->value();
-        n.defaultCipher = encryption_utils::fromDropdownIndex(cipher->value());
         n.showEncryptionInCredentials = showAlg->value();
         n.autoClipboardClear = autoClear->value();
         n.clipboardTimeoutSeconds = std::max(1, std::atoi(clearAfter->value()));
@@ -658,6 +658,11 @@ void GuiUIManager::openSettings() {
         n.theme = look->value() == 1 ? "light" : look->value() == 2 ? "dark" : "system";
         recolor = wantsDark(n.theme) != wantsDark(c.theme);
         const bool restart = n.localCopy != c.localCopy;
+        std::string error;  // the cipher is the vault's, not this computer's: it goes to every device
+        if (!safeSetEntryCipher(encryption_utils::fromDropdownIndex(cipher->value()), error)) {
+            fl_alert("%s", literal(error).c_str());
+            return;
+        }
         ConfigManager::getInstance().updateConfig(n);
         if (!ConfigManager::getInstance().saveConfig()) {
             fl_alert("Couldn't write %s", ConfigManager::configFile().c_str());

@@ -97,14 +97,19 @@ fun open(alg: Alg, key: ByteArray, blob: String, aad: String): ByteArray {
 data class Meta(
     val vaultId: String, val rev: Int, val iter: Int, val salt: String, val alg: String, val key: String,
     val v: Int = 1, val kdf: String = "pbkdf2-sha256",
+    val entryAlg: String = "", // the cipher for new entries on every device; "" = aes-256-gcm
 ) {
     fun json(): JSONObject = JSONObject().put("v", v).put("vault_id", vaultId).put("rev", rev).put("kdf", kdf)
         .put("iter", iter).put("salt", salt).put("alg", alg).put("key", key)
+        .apply { if (entryAlg.isNotEmpty()) put("entry_alg", entryAlg) }
+
+    /** The cipher new entries get; an unknown name means AES too (§3). */
+    fun entryCipher() = Alg.entries.firstOrNull { it.wire == entryAlg } ?: Alg.AES
 
     companion object {
         fun of(j: JSONObject) = Meta(
             j.getString("vault_id"), j.getInt("rev"), j.getInt("iter"), j.getString("salt"), j.getString("alg"),
-            j.getString("key"), j.getInt("v"), j.getString("kdf"),
+            j.getString("key"), j.getInt("v"), j.getString("kdf"), j.optString("entry_alg", ""),
         )
     }
 }

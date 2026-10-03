@@ -231,6 +231,19 @@ void testSync(const fs::path& dir) {
     CHECK(!phone.vault->unlock("master"));
     CHECK(phone.vault->unlock("new-master"));
 
+    // the cipher for new entries is the vault's (PROTOCOL.md §3 entry_alg): set on one device, used on all, and it
+    // survives a master password change
+    CHECK(phone.vault->entryCipher() == CipherAlg::Aes256Gcm);  // absent = AES
+    laptop.vault->setEntryCipher(CipherAlg::ChaCha20Poly1305);
+    phone.vault->sync();
+    CHECK(phone.vault->entryCipher() == CipherAlg::ChaCha20Poly1305);
+    CHECK(phone.vault->changeMasterPassword("new-master", "newer-master"));
+    laptop.vault->sync();
+    CHECK(laptop.vault->entryCipher() == CipherAlg::ChaCha20Poly1305);
+    laptop.vault->put({"Bank", "nik", "pw3", laptop.vault->entryCipher()});
+    phone.vault->sync();
+    CHECK(phone.vault->get("bank")->alg == CipherAlg::ChaCha20Poly1305);
+
     // a different vault pointed at the same ESP32 is refused, not merged
     auto stranger = makeDevice(dir, "stranger", esp);
     auto strangerLocal = std::make_unique<LocalFileStore>((dir / "stranger-solo.json").string());

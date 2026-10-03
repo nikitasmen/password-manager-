@@ -47,6 +47,9 @@ class UIManager {
     std::optional<Credential> safeGetCredentials(const std::string& platform);
     bool safeDeleteCredential(const std::string& platform);
     std::vector<std::string> safeGetPlatforms();
+    // The vault's cipher for new entries, shared by every device (AES-256-GCM if it can't be read)
+    CipherAlg safeEntryCipher();
+    bool safeSetEntryCipher(CipherAlg alg, std::string& error);
     // Validates (current right, new repeated, long enough, actually new) and changes it. false + error on failure.
     bool safeChangeMasterPassword(const std::string& current,
                                   const std::string& next,

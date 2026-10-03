@@ -133,6 +133,8 @@ object App {
     var notice by mutableStateOf("") // what just worked
     var items by mutableStateOf(listOf<Credential>())
     var bioOn by mutableStateOf(false) // fingerprint unlock is set up (bio.json)
+    var entryAlg by mutableStateOf(Alg.AES) // the vault's cipher for new entries (§3 entry_alg), on every device
+        private set
     var theme by mutableStateOf(Theme.System)
         private set
     var update by mutableStateOf<Release?>(null) // a newer release with an APK
@@ -250,6 +252,7 @@ object App {
     private fun opened() {
         hasVault = true // open now, whatever the last check said (a vault just created was "none" before)
         items = vault!!.credentials()
+        entryAlg = vault!!.entryCipher()
         showStatus()
         screen = Screen.Vault
         if (System.currentTimeMillis() - prefs.getLong("updateCheckedAt", 0) > 24 * 3600_000L) checkUpdate(manual = false)
@@ -528,6 +531,11 @@ object App {
             vault!!.sync()
             opened()
         }
+    }
+
+    fun changeEntryAlg(alg: Alg) = run {
+        vault!!.setEntryCipher(alg)
+        opened()
     }
 
     fun save(c: Credential) = run {
@@ -845,7 +853,7 @@ private fun ColumnScope.VaultScreen() {
         QuietButton("Lock", { App.lock() }, color = palette.muted)
         QuietButton("Settings", { settings = true }, color = palette.muted)
         Spacer(Modifier.width(8.dp))
-        PrimaryButton("Add entry", { edit = Credential("", "", "") }, enabled = !App.busy, modifier = Modifier.weight(1f))
+        PrimaryButton("Add entry", { edit = Credential("", "", "", App.entryAlg) }, enabled = !App.busy, modifier = Modifier.weight(1f))
     }
 
     open?.let { c -> EntrySheet(c, close = { open = null }, edit = { open = null; edit = c }) }
@@ -880,6 +888,12 @@ private fun SettingsSheet(close: () -> Unit, pin: () -> Unit, fingerprint: () ->
         Setting("Colors", when (App.theme) { Theme.System -> "Follow the phone"; Theme.Light -> "Light"; Theme.Dark -> "Dark" }) {
             QuietButton(when (App.theme) { Theme.System -> "Use light"; Theme.Light -> "Use dark"; Theme.Dark -> "Follow phone" },
                 { App.nextTheme() })
+        }
+
+        Group("Entries")
+        val other = if (App.entryAlg == Alg.AES) Alg.CHACHA else Alg.AES
+        Setting("Encryption for new entries", "${algName(App.entryAlg)}, on every device") {
+            QuietButton("Use ${algName(other).substringBefore('-')}", { App.changeEntryAlg(other) }, enabled = !App.busy)
         }
 
         if (!BuildConfig.DEMO) {
@@ -1216,3 +1230,5 @@ private fun FingerprintSheet(close: () -> Unit) {
         Feedback()
     }
 }
+
+private fun algName(a: Alg) = when (a) { Alg.AES -> "AES-256-GCM"; Alg.CHACHA -> "ChaCha20-Poly1305" }

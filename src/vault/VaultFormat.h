@@ -22,6 +22,7 @@ struct VaultMeta {
     std::string salt;  // base64
     std::string alg;   // cipher of `key`
     std::string key;   // AEAD blob of the vault key
+    std::string entryAlg;  // cipher for new entries on every device; "" = aes-256-gcm (PROTOCOL.md §3)
 };
 
 struct EntryRecord {

@@ -320,7 +320,11 @@ fun parseCert(der: ByteArray) = java.security.cert.CertificateFactory.getInstanc
 private const val BATCH_COUNT = 32
 private const val BATCH_BYTES = 12 * 1024
 
-private fun metaWins(a: Meta, b: Meta) = if (a.rev != b.rev) a.rev > b.rev else compareBytes(a.key, b.key) > 0
+private fun metaWins(a: Meta, b: Meta) = when {
+    a.rev != b.rev -> a.rev > b.rev
+    a.key != b.key -> compareBytes(a.key, b.key) > 0
+    else -> compareBytes(a.entryAlg, b.entryAlg) > 0
+}
 
 fun push(to: Store, entries: List<Record>) {
     val batch = mutableListOf<Record>()

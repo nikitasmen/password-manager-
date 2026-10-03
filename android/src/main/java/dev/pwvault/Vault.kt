@@ -133,6 +133,17 @@ class Vault(private val local: Store, initialHosts: List<Host>, private val sync
         sync()
     }
 
+    /** §3 entry_alg: the cipher every device seals new entries with. */
+    @Synchronized fun entryCipher(): Alg = local.getMeta()?.entryCipher() ?: Alg.AES
+
+    @Synchronized fun setEntryCipher(alg: Alg) {
+        requireKey()
+        val m = local.getMeta()!!
+        if (m.entryCipher() == alg) return
+        check(local.putMeta(m.copy(entryAlg = alg.wire, rev = m.rev + 1), m.rev)) { "The vault changed meanwhile; try again." }
+        sync()
+    }
+
     @Synchronized fun remove(platform: String) {
         val id = entryId(requireKey(), platform)
         if (id !in index) return

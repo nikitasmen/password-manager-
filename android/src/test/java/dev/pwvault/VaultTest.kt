@@ -87,6 +87,21 @@ class VaultTest {
         assertEquals(Vault.Sync.Disabled, v.status) // not a stale Ok (or Mismatch, offering a merge) for no host
     }
 
+    @Test fun entryCipherSyncs() { // §3 entry_alg: set on one device, used on every one
+        val board = LocalStore(File(dir, "e-board.json"))
+        val a = Vault(LocalStore(File(dir, "e-a.json")), listOf(Host("aaaa", Role.Dedicated, board)), File(dir, "e-a.sync"))
+        val b = Vault(LocalStore(File(dir, "e-b.json")), listOf(Host("aaaa", Role.Dedicated, board)), File(dir, "e-b.sync"))
+        a.create("m", iterations = 1000)
+        assertFalse(board.getMeta()!!.json().has("entry_alg")) // written only when set
+        b.sync()
+        assertTrue(b.unlock("m"))
+        assertEquals(Alg.AES, b.entryCipher())
+        a.setEntryCipher(Alg.CHACHA)
+        b.sync()
+        assertEquals(Alg.CHACHA, b.entryCipher())
+        assertEquals(Alg.AES, Meta.of(board.getMeta()!!.json().put("entry_alg", "rot13")).entryCipher()) // unknown
+    }
+
     @Test fun pairingHelpers() {
         assertEquals("ABCD0123EFGH4567", normalizePairCode("abcd-o123-efgh-4567"))
         assertEquals("", normalizePairCode("short"))

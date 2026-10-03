@@ -168,7 +168,7 @@ bool TerminalUIManager::unlockScreen() {
         if (create_) {
             std::string pw = readSecret("Master password: ");
             std::string again = readSecret("Repeat it: ");
-            if (setupPassword(pw, again, encryption_utils::getDefault())) return true;
+            if (setupPassword(pw, again, CipherAlg::Aes256Gcm)) return true;
             attempt = -1;  // mistakes while creating don't count as failed unlocks
             continue;
         }
@@ -386,7 +386,7 @@ void TerminalUIManager::newEntry() {
         message_ = danger("The two passwords don't match. Nothing was saved.");
         return;
     }
-    CipherAlg alg = askCipher(encryption_utils::getDefault());
+    CipherAlg alg = askCipher(safeEntryCipher());
     if (addCredential(platform, user, pw, alg)) viewCredential(platform);
 }
 

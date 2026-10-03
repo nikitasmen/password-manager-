@@ -185,6 +185,23 @@ bool VaultService::changeMasterPassword(const std::string& currentPassword, cons
     return true;
 }
 
+CipherAlg VaultService::entryCipher() {
+    requireUnlocked();
+    auto meta = local_->getMeta();
+    return meta ? cipherFromName(meta->entryAlg).value_or(CipherAlg::Aes256Gcm) : CipherAlg::Aes256Gcm;
+}
+
+void VaultService::setEntryCipher(CipherAlg alg) {
+    requireUnlocked();
+    VaultMeta m = *local_->getMeta();
+    if (cipherFromName(m.entryAlg).value_or(CipherAlg::Aes256Gcm) == alg) return;
+    const int rev = m.rev;
+    m.entryAlg = cipherName(alg);
+    m.rev = rev + 1;
+    if (!local_->putMeta(m, rev)) throw std::runtime_error("the vault changed meanwhile; try again");
+    sync();
+}
+
 bool VaultService::verifyMasterPassword(const std::string& password) {
     requireUnlocked();
     try {

@@ -144,7 +144,7 @@ bool UIManager::safeAddCredential(const std::string& platform,
                                   const std::string& password,
                                   std::optional<CipherAlg> encryptionType) {
     return guarded("adding credential", false, [&] {
-        vault->put({platform, username, password, encryptionType.value_or(encryption_utils::getDefault())});
+        vault->put({platform, username, password, encryptionType.value_or(vault->entryCipher())});
         return true;
     });
 }
@@ -159,6 +159,20 @@ bool UIManager::safeDeleteCredential(const std::string& platform) {
 
 std::vector<std::string> UIManager::safeGetPlatforms() {
     return guarded("listing platforms", std::vector<std::string>{}, [&] { return vault->platforms(); });
+}
+
+CipherAlg UIManager::safeEntryCipher() {
+    return guarded("reading the entry cipher", CipherAlg::Aes256Gcm, [&] { return vault->entryCipher(); });
+}
+
+bool UIManager::safeSetEntryCipher(CipherAlg alg, std::string& error) {
+    try {
+        vault->setEntryCipher(alg);
+        return true;
+    } catch (const std::exception& e) {
+        error = std::string("Couldn't change the encryption: ") + e.what();
+        return false;
+    }
 }
 
 bool UIManager::safeChangeMasterPassword(const std::string& current,
