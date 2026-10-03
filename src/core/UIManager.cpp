@@ -55,21 +55,38 @@ UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(
     const AppConfig& c = ConfigManager::getInstance().getConfig();
     deviceOnly_ = !c.localCopy;
     std::vector<SyncHost> hosts;
-    auto add = [&](PairedHost h, const EspConfig& cfg) {
+    for (auto& [h, cfg] : loadPairedHosts(!deviceOnly_)) {
         auto store = std::make_unique<EspStore>(cfg);
         h.store = store.get();
-        h.id = certFingerprint(readFile(cfg.certPath));  // not paired yet: no cert, id "" until pairing writes one
+        if (h.dir.empty()) board_ = h.store;
         hosts.push_back({h.id, h.role, std::move(store)});
         hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; }),
                       h);
+    }
+    if (deviceOnly_) {
+        if (!board_)
+            throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
+        vault = std::make_unique<VaultService>(std::move(hosts.front().store), std::vector<SyncHost>{}, "");
+        return;
+    }
+    fs::create_directories(dataPath);
+    vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>(dataPath + "/vault.json"), std::move(hosts),
+                                           dataPath + "/sync.json");
+}
+
+std::vector<std::pair<PairedHost, EspConfig>> loadPairedHosts(bool withHostsDir) {
+    namespace fs = std::filesystem;
+    const AppConfig& c = ConfigManager::getInstance().getConfig();
+    std::vector<std::pair<PairedHost, EspConfig>> out;
+    auto add = [&](PairedHost h, const EspConfig& cfg) {
+        h.id = certFingerprint(readFile(cfg.certPath));  // not paired yet: no cert, id "" until pairing writes one
+        out.emplace_back(h, cfg);
     };
-    if (!c.espHost.empty()) {
+    if (!c.espHost.empty())
         add({"", c.espHost + (c.espPort == 443 ? "" : ":" + std::to_string(c.espPort)), HostRole::Dedicated},
             EspConfig{c.espHost, c.espPort, c.espCert, c.espClientCert, c.espClientKey});
-        board_ = hosts_.front().store;
-    }
     std::error_code ec;
-    if (!deviceOnly_)
+    if (withHostsDir)
         for (const auto& d : fs::directory_iterator(hostsDir(), ec)) {
             std::map<std::string, std::string> kv;  // host: address=, role=
             std::istringstream in(readFile((d.path() / "host").string()));
@@ -81,15 +98,7 @@ UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(
             add({"", kv["address"], hostRoleOf(kv["role"]), dir},
                 EspConfig{addr, port, dir + "/server.pem", dir + "/device.pem", dir + "/device.key"});
         }
-    if (deviceOnly_) {
-        if (!board_)
-            throw std::runtime_error("localCopy=false (device-only) needs espHost in " + ConfigManager::configFile());
-        vault = std::make_unique<VaultService>(std::move(hosts.front().store), std::vector<SyncHost>{}, "");
-        return;
-    }
-    fs::create_directories(dataPath);
-    vault = std::make_unique<VaultService>(std::make_unique<LocalFileStore>(dataPath + "/vault.json"), std::move(hosts),
-                                           dataPath + "/sync.json");
+    return out;
 }
 
 bool UIManager::safeAddCredential(const std::string& platform,
@@ -161,11 +170,11 @@ std::optional<EspStore::PairInvite> UIManager::safeOpenPairing(EspStore& host, s
     return boardCall(error, std::optional<EspStore::PairInvite>{}, [&] { return std::optional(host.openPairing()); });
 }
 
-std::string UIManager::hostsDir() {
+std::string hostsDir() {
     return ConfigManager::configDir() + "/hosts";
 }
 
-const UIManager::PairedHost* UIManager::pinHost() const {
+const PairedHost* UIManager::pinHost() const {
     for (const PairedHost& h : hosts_)
         if (h.role == HostRole::Dedicated) return &h;
     return nullptr;

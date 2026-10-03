@@ -57,6 +57,8 @@ class VaultTest {
         assertEquals("", normalizePairCode("short"))
         assertEquals("192.168.2.5" to "ABCD0123EFGH4567", parsePairQr("PWVAULT:192.168.2.5:ABCD0123EFGH4567"))
         assertNull(parsePairQr("PWVAULT:192.168.2.5:SHORT"))
+        assertEquals("192.168.2.5:8443" to "ABCD0123EFGH4567", parsePairQr("PWVAULT:192.168.2.5:ABCD0123EFGH4567:8443"))
+        assertNull(parsePairQr("PWVAULT:192.168.2.5:ABCD0123EFGH4567:x"))
         assertNull(parsePairQr("https://example.com"))
         assertTrue(validDeviceName("phone-2") && !validDeviceName("-x") && !validDeviceName("Phone") && !validDeviceName(""))
         assertTrue(validPin("1234") && !validPin("123") && !validPin("12a4"))

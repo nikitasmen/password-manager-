@@ -7,7 +7,6 @@
 
 #include "../config/GlobalConfig.h"
 #include "../core/clipboard.h"
-#include "../core/qrcodegen.hpp"
 #include "../core/terminal_ui.h"
 #include "../updater/AppUpdater.h"
 #include "../utils/EncryptionUtils.h"
@@ -71,24 +70,6 @@ CipherAlg askCipher(CipherAlg current) {
     if (in.empty()) return current;
     int i = std::atoi(in.c_str());
     return i >= 1 && i <= static_cast<int>(all.size()) ? all[i - 1] : current;
-}
-
-// A QR code in half blocks (two modules per character row), black on white with a 4-module quiet zone.
-// Colours are set explicitly so it scans on dark terminal themes too.
-std::string qrText(const std::string& text) {
-    const auto qr = qrcodegen::QrCode::encodeText(text.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
-    const int n = qr.getSize();
-    auto dark = [&](int x, int y) { return x >= 0 && y >= 0 && x < n && y < n && qr.getModule(x, y); };
-    std::string out;
-    for (int y = -4; y < n + 4; y += 2) {
-        out += "\033[30;47m";
-        for (int x = -4; x < n + 4; x++) {
-            const bool top = dark(x, y), bottom = dark(x, y + 1);
-            out += top && bottom ? "\u2588" : top ? "\u2580" : bottom ? "\u2584" : " ";
-        }
-        out += "\033[0m\n";
-    }
-    return out;
 }
 
 }  // namespace

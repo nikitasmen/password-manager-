@@ -6,6 +6,7 @@
 
 #include "config/GlobalConfig.h"
 #include "gui_main.h"
+#include "serve/Serve.h"
 #include "tui_main.h"
 
 /**
@@ -35,12 +36,15 @@ int main(int argc, char** argv) {
             mode = "gui";
         } else if (arg == "-t" || arg == "--tui" || arg == "tui" || arg == "cli") {
             mode = "tui";
+        } else if (arg == "--serve") {
+            return runServe(argc, argv);
         } else if (arg == "-h" || arg == "--help") {
             std::cout << "Password Manager\n";
             std::cout << "Usage: " << argv[0] << " [mode]\n";
             std::cout << "Modes:\n";
             std::cout << "  -g, --gui, gui     : Start in GUI mode\n";
             std::cout << "  -t, --tui, tui, cli: Start in CLI/TUI mode\n";
+            std::cout << "  --serve [--role server|peer] [--port N]: host the vault for your other devices\n";
             std::cout << "  -h, --help         : Show this help\n";
             std::cout << "\nIf no mode is specified, defaultUIMode from " << ConfigManager::configFile() << " is used.\n";
             return 0;

@@ -27,6 +27,9 @@ std::string readLine(const std::string& prompt);
 std::string readSecret(const std::string& prompt);  // no echo
 bool confirm(const std::string& question);          // y/N, default no
 
+// A QR code in half blocks, black on white with its quiet zone, so it scans on dark themes too.
+std::string qrText(const std::string& text);
+
 }  // namespace term
 
 #endif  // TERMINAL_UI_H

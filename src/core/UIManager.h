@@ -11,6 +11,20 @@
 #include "../vault/PinUnlock.h"
 #include "../vault/VaultService.h"
 
+// A host this device is paired with (PROTOCOL.md §6). The config's esp* keys hold the first one (the connector's
+// board); hosts added later live in hostsDir()/<id prefix>/.
+struct PairedHost {
+    std::string id;       // hex SHA-256 of its server cert; "" before pairing
+    std::string address;  // as the user gave it: IP or name, with ":port" when it isn't 443
+    HostRole role = HostRole::Dedicated;
+    std::string dir;  // its folder; "" = the config's esp* host
+    EspStore* store = nullptr;
+};
+std::string hostsDir();  // configDir()/hosts
+// The paired hosts on disk, with what it takes to reach each (store unset); the config's host first.
+// withHostsDir false: only the config's host (device-only mode). Also used by --serve, to sync as a client.
+std::vector<std::pair<PairedHost, EspConfig>> loadPairedHosts(bool withHostsDir = true);
+
 /**
  * @class UIManager
  * @brief Abstract base class for UI implementations
@@ -42,20 +56,11 @@ class UIManager {
     // One line for the user: where the vault is kept and whether the ESP32 is reachable.
     std::string syncStatusText() const;
 
-    // Hosts this device is paired with (PROTOCOL.md §6), best role first. The config's esp* keys hold the first one
-    // (board_, which the connector manages); hosts added later live in hostsDir()/<id prefix>/. Stores are owned by
-    // `vault`. Paired devices aren't vault data, so the Devices screens use these directly, bypassing VaultService.
-    struct PairedHost {
-        std::string id;       // hex SHA-256 of its server cert
-        std::string address;  // as the user gave it: IP or name, with ":port" when it isn't 443
-        HostRole role = HostRole::Dedicated;
-        std::string dir;  // its folder; "" = the config's esp* host
-        EspStore* store = nullptr;
-    };
+    // Hosts this device is paired with, best role first; stores owned by `vault`. Paired devices aren't vault data,
+    // so the Devices screens use these directly, bypassing VaultService.
     std::vector<PairedHost> hosts_;
     EspStore* board_ = nullptr;  // the config's esp* host, null without espHost
     bool deviceOnly_ = false;    // localCopy=false: board_ is the one store, and no other host can be added
-    static std::string hostsDir();  // configDir()/hosts
     const PairedHost* pinHost() const;  // the best dedicated host: the only kind that offers PINs (§11); may be null
     std::string hostStatusText(const PairedHost& h) const;  // "synced", "not on this network", ...
     // Pairs with one more host: "ip" (the board's ports) or "ip:port" (pairing on port+1). Blocks until it's approved

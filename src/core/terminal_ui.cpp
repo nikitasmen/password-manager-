@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "oled_font.h"
+#include "qrcodegen.hpp"
 
 #ifdef _WIN32
 #include <io.h>
@@ -133,6 +134,23 @@ std::string readSecret(const std::string& prompt) {
 bool confirm(const std::string& question) {
     std::string a = readLine(question + " " + muted("[y/N]") + " ");
     return a == "y" || a == "Y" || a == "yes";
+}
+
+// Two modules per character row; colours set explicitly so it scans on dark terminal themes too.
+std::string qrText(const std::string& text) {
+    const auto qr = qrcodegen::QrCode::encodeText(text.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
+    const int n = qr.getSize();
+    auto dark = [&](int x, int y) { return x >= 0 && y >= 0 && x < n && y < n && qr.getModule(x, y); };
+    std::string out;
+    for (int y = -4; y < n + 4; y += 2) {
+        out += "\033[30;47m";
+        for (int x = -4; x < n + 4; x++) {
+            const bool top = dark(x, y), bottom = dark(x, y + 1);
+            out += top && bottom ? "\u2588" : top ? "\u2580" : bottom ? "\u2584" : " ";
+        }
+        out += "\033[0m\n";
+    }
+    return out;
 }
 
 }  // namespace term

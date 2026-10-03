@@ -232,8 +232,9 @@ the host.
    Crockford base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), 80 bits in total. Clients normalize what the user types:
    they drop spaces and dashes, uppercase, and read `I` and `L` as `1` and `O` as `0`.
    The board also shows a QR code of `PWVAULT:<its IPv4 address>:<code>` (all QR alphanumeric characters), so a
-   phone can scan the address and code instead of typing them. The QR is only a convenience: it carries nothing the
-   OLED text doesn't, and the macs below still authenticate the exchange.
+   phone can scan the address and code instead of typing them. A host on other ports appends its main port,
+   `PWVAULT:<address>:<code>:<port>`, and pairing is on the next port up. The QR is only a convenience: it carries
+   nothing the OLED text doesn't, and the macs below still authenticate the exchange.
 2. The client connects without verifying, and takes `fp` = hex SHA-256 of the server cert's DER. It makes a P-256
    key and a CSR with `CN=<name>`. A name is 1-20 characters of `a-z 0-9 -` and doesn't start with `-`.
 3. `POST /pair` with `{"name":…,"csr":"<base64 DER>","mac":…}`, where
