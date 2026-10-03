@@ -10,6 +10,7 @@ constexpr std::chrono::seconds kSyncMaxAge{30};
 // One active host per network (PROTOCOL.md §6): most hosts are elsewhere at any moment. One that didn't answer
 // is skipped this long, unless no other host syncs.
 constexpr std::chrono::minutes kOfflineRetry{5};
+constexpr std::chrono::seconds kJustChecked{10};  // noteOffline's answer stands this long
 constexpr size_t kMaxRecordBytes = 12 * 1024;  // fits one POST /entries with room to spare
 
 int64_t nowMs() {
@@ -24,10 +25,21 @@ VaultService::VaultService(std::unique_ptr<IVaultStore> local, std::vector<SyncH
 }
 
 void VaultService::addHost(SyncHost host) {
-    // after the hosts with the same or a better role: best role first, otherwise in the order added
-    auto at = std::find_if(hosts_.begin(), hosts_.end(), [&](const SyncHost& h) { return h.role > host.role; });
+    auto at = std::find_if(hosts_.begin(), hosts_.end(),
+                           [&](const SyncHost& h) { return hostBefore(host.role, host.id, h.role, h.id); });
     hostStatus_.insert(hostStatus_.begin() + (at - hosts_.begin()), {host.id, host.role});
     hosts_.insert(at, std::move(host));
+}
+
+void VaultService::noteOffline(const std::vector<std::string>& ids) {
+    const auto now = std::chrono::steady_clock::now();
+    for (HostStatus& s : hostStatus_)
+        if (std::find(ids.begin(), ids.end(), s.id) != ids.end()) {
+            s.status = SyncStatus::Offline;
+            s.error = "not reachable";
+            s.triedAt = now;
+            s.justChecked = true;
+        }
 }
 
 void VaultService::removeHost(const std::string& id) {
@@ -38,6 +50,7 @@ void VaultService::removeHost(const std::string& id) {
             break;
         }
     if (!syncStatePath_.empty()) forgetCursors(syncStatePath_, id);
+    summarize();  // forgetting the only host that synced, or the last one, changes what the status should say
 }
 
 VaultService::~VaultService() {
@@ -118,10 +131,12 @@ std::optional<Credential> VaultService::get(const std::string& platform) {
     refresh();
     auto it = index_.find(vaultformat::entryId(vaultKey_, platform));
     if (it == index_.end()) return std::nullopt;
-    // The OLED hint goes to the best host that answered (or, device-only, to the one store, the board)
-    IVaultStore* shown = hosts_.empty() ? local_.get() : nullptr;
+    // The OLED hint goes to the best dedicated host that answered (device-only: the one store, if it's one). It's in
+    // the clear, and only the board shows it: a server or peer host never gets it (PROTOCOL.md §7, §12).
+    IVaultStore* shown = hosts_.empty() && localHints_ ? local_.get() : nullptr;
     for (size_t i = 0; i < hosts_.size() && !shown; i++)
-        if (hostStatus_[i].status == SyncStatus::Ok) shown = hosts_[i].store.get();
+        if (hostStatus_[i].status == SyncStatus::Ok && hosts_[i].role == HostRole::Dedicated)
+            shown = hosts_[i].store.get();
     if (shown) {
         try {
             shown->noteAccess(it->second.platform, it->second.username);
@@ -221,6 +236,7 @@ VaultService::SyncStatus VaultService::sync() {
     auto syncWith = [&](size_t i) {
         HostStatus& s = hostStatus_[i];
         s.triedAt = now;
+        s.justChecked = false;
         try {
             changed |= syncStores(*local_, *hosts_[i].store, syncStatePath_, hosts_[i].id);
             s.status = SyncStatus::Ok;
@@ -243,9 +259,20 @@ VaultService::SyncStatus VaultService::sync() {
         return std::none_of(
             hostStatus_.begin(), hostStatus_.end(), [](const HostStatus& s) { return s.status == SyncStatus::Ok; });
     };
-    for (size_t i : away)
-        if (none()) syncWith(i);  // nothing else answered: maybe we just came back to its network
+    for (size_t i : away)  // nothing else answered: maybe we just came back to its network (unless it was just checked)
+        if (none() && !(hostStatus_[i].justChecked && now - hostStatus_[i].triedAt < kJustChecked)) syncWith(i);
     if (changed && isUnlocked()) reindex();
+    summarize();
+    return syncStatus_;
+}
+
+// What the hosts' last results add up to: Ok if any synced, Error if none did and one failed, else Offline.
+void VaultService::summarize() {
+    if (hosts_.empty()) {
+        syncStatus_ = SyncStatus::Disabled;
+        syncError_.clear();
+        return;
+    }
     auto first = [&](SyncStatus st) {
         return std::find_if(
             hostStatus_.begin(), hostStatus_.end(), [&](const HostStatus& s) { return s.status == st; });
@@ -260,7 +287,6 @@ VaultService::SyncStatus VaultService::sync() {
         syncStatus_ = SyncStatus::Offline;
         syncError_ = hostStatus_.front().error;
     }
-    return syncStatus_;
 }
 
 void VaultService::refresh() {

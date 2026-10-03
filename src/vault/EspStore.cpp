@@ -63,7 +63,7 @@ EspStore::Response EspStore::request(const std::string& method, const std::strin
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &res.status);
     // Other 403s (e.g. a revoke not confirmed on the board) are for the caller
     if (res.status == 403 && res.body.find("device revoked") != std::string::npos)
-        throw DeviceRevoked("ESP32: this device was revoked or re-paired; pair it again (esp32/pki.sh pair)");
+        throw DeviceRevoked("the host revoked this device, or it was paired again elsewhere; pair it again");
     return res;
 }
 

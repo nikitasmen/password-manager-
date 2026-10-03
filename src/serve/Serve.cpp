@@ -141,15 +141,25 @@ class Console {
             prompt();
     }
     // Asks the person at the host; `done` gets the answer, or false after `seconds` without one.
-    void ask(const std::string& question, int seconds, std::function<void(bool)> done) {
+    // `key` names it for reword().
+    void ask(const std::string& question, int seconds, std::function<void(bool)> done, const std::string& key = "") {
         std::unique_lock<std::mutex> l(m_);
         if (closed_) {  // stopping: a question now would keep stop() waiting for its answer
             l.unlock();
             return done(false);
         }
-        asks_.push_back({question, Clock::now() + std::chrono::seconds(seconds), std::move(done)});
+        asks_.push_back({question, Clock::now() + std::chrono::seconds(seconds), std::move(done), key});
         if (asks_.size() == 1)
             prompt();
+    }
+    // A pending question's subject changed (a newer revoke request): what's asked is what a y will do.
+    void reword(const std::string& key, const std::string& question) {
+        std::lock_guard<std::mutex> l(m_);
+        for (size_t i = 0; i < asks_.size(); i++)
+            if (asks_[i].key == key) {
+                asks_[i].question = question;
+                if (i == 0) prompt();
+            }
     }
     bool askAndWait(const std::string& question, int seconds) {
         auto answer = std::make_shared<std::promise<bool>>();
@@ -206,6 +216,7 @@ class Console {
         std::string question;
         Clock::time_point until;
         std::function<void(bool)> done;
+        std::string key;
     };
     std::mutex m_;
     bool closed_ = false;
@@ -221,9 +232,26 @@ void refuse(Response& res, int status, const std::string& error) {
     reply(res, status, {{"error", error}});
 }
 
-std::string localAddress() {  // for the pairing QR: the first IPv4 address that isn't loopback
-    ifaddrs* all = nullptr;
+// For the pairing QR: the address this computer's traffic leaves from, i.e. the one its network can reach. Asking the
+// kernel which source it would use towards a public address sends nothing. Without a route (offline), the first
+// IPv4 interface that's up and not loopback, which may be a VM bridge or a VPN: --address says it outright.
+std::string localAddress() {
     std::string out;
+    if (int s = socket(AF_INET, SOCK_DGRAM, 0); s >= 0) {
+        sockaddr_in to{}, from{};
+        socklen_t len = sizeof from;
+        to.sin_family = AF_INET;
+        to.sin_port = htons(53);
+        inet_pton(AF_INET, "192.0.2.1", &to.sin_addr);  // TEST-NET-1: routed like any public address, never used
+        char buf[INET_ADDRSTRLEN] = "";
+        if (connect(s, reinterpret_cast<sockaddr*>(&to), sizeof to) == 0 &&
+            getsockname(s, reinterpret_cast<sockaddr*>(&from), &len) == 0 &&
+            inet_ntop(AF_INET, &from.sin_addr, buf, sizeof buf) && std::string(buf) != "0.0.0.0")
+            out = buf;
+        close(s);
+        if (!out.empty()) return out;
+    }
+    ifaddrs* all = nullptr;
     if (getifaddrs(&all) != 0)
         return out;
     for (ifaddrs* a = all; a && out.empty(); a = a->ifa_next)
@@ -241,8 +269,9 @@ std::string localAddress() {  // for the pairing QR: the first IPv4 address that
 // pairing on port + 1, over this computer's own vault file.
 class Host {
    public:
-    Host(Identity me, HostRole role, int port, const std::string& vaultPath, Console& console)
-        : me_(std::move(me)), role_(role), port_(port), vaultPath_(vaultPath), store_(vaultPath), console_(console) {
+    Host(Identity me, HostRole role, int port, std::string address, const std::string& vaultPath, Console& console)
+        : me_(std::move(me)), role_(role), port_(port), address_(std::move(address)), vaultPath_(vaultPath),
+          store_(vaultPath), console_(console) {
         Json j = Json::parse(readFile(devicesPath()), nullptr, false);
         if (j.is_object())
             for (auto& [name, fp] : j.items())
@@ -287,7 +316,7 @@ class Host {
     // §9: like a BOOT press. Returns the code, the QR text and the seconds left.
     Json openPairing(const std::string& by) {
         std::lock_guard<std::mutex> l(pm_);
-        const std::string address = localAddress();
+        const std::string address = address_.empty() ? localAddress() : address_;
         if (code_.empty() || Clock::now() > until_) {
             static const char kAlphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";  // Crockford base32: 32 divides 256
             unsigned char raw[16];
@@ -462,10 +491,29 @@ class Host {
                              if (!devices_.count(name))
                                  return refuse(res, 404, "no such device");
                          }
-                         // §10: only a request; someone at the host performs it
-                         console_.ask("Revoke '" + name + "' (asked by " + who + ")?", 60, [this, name](bool yes) {
-                             console_.say(yes && revoke(name) ? "[" + name + "] revoked" : "kept " + name);
-                         });
+                         // §10: only a request, which someone at the host performs; a newer one replaces it
+                         bool ask;
+                         {
+                             std::lock_guard<std::mutex> l(dm_);
+                             ask = revokeName_.empty();
+                             revokeName_ = name;
+                             revokeBy_ = who;
+                         }
+                         const std::string question = "Revoke '" + name + "' (asked by " + who + ")?";
+                         if (!ask) {
+                             std::cout << "\r(a newer revoke request replaces the pending one)\n";
+                             console_.reword("revoke", question);
+                         } else {
+                             console_.ask(question, 60, [this](bool yes) {
+                                 std::string target;
+                                 {
+                                     std::lock_guard<std::mutex> l(dm_);
+                                     std::swap(target, revokeName_);
+                                     revokeBy_.clear();
+                                 }
+                                 console_.say(yes && revoke(target) ? "[" + target + "] revoked" : "kept " + target);
+                             }, "revoke");
+                         }
                          reply(res, 202, {{"pending", true}});
                      }));
         api_->Post("/pair/open",
@@ -518,6 +566,7 @@ class Host {
     Identity me_;
     HostRole role_;
     int port_;
+    std::string address_;  // --address, for the pairing QR; "" = this computer's route address
     std::string vaultPath_;
     LocalFileStore store_;
     Console& console_;
@@ -529,6 +578,7 @@ class Host {
     std::map<std::string, std::time_t> seen_;     // name -> last request
     std::mutex pm_;                               // code_, until_
     std::string code_;                            // "" = pairing closed
+    std::string revokeName_, revokeBy_;           // §10: the one pending revoke request (under dm_); "" = none
     Clock::time_point until_{};
 };
 
@@ -537,6 +587,7 @@ class Host {
 int runServe(int argc, char** argv) {
     HostRole role = HostRole::Peer;
     int port = 8443;
+    std::string address;  // for the pairing QR
     for (int i = 2; i < argc; i++) {
         const std::string a = argv[i];
         if (a == "--role" && i + 1 < argc &&
@@ -544,10 +595,13 @@ int runServe(int argc, char** argv) {
             role = hostRoleOf(argv[++i]);
         } else if (a == "--port" && i + 1 < argc && std::atoi(argv[i + 1]) > 0 && std::atoi(argv[i + 1]) < 65535) {
             port = std::atoi(argv[++i]);
+        } else if (a == "--address" && i + 1 < argc) {
+            address = argv[++i];
         } else {
-            std::cerr << "Usage: " << argv[0] << " --serve [--role server|peer] [--port N]\n"
+            std::cerr << "Usage: " << argv[0] << " --serve [--role server|peer] [--port N] [--address IP]\n"
                       << "  server: an always-on machine (a Raspberry Pi); peer (default): a computer someone uses.\n"
-                      << "  Pairing is on port N+1. dedicated is only for single-purpose hardware, like the board.\n";
+                      << "  Pairing is on port N+1. dedicated is only for single-purpose hardware, like the board.\n"
+                      << "  --address: the one to show devices in the pairing QR (default: this computer's route).\n";
             return 2;
         }
     }
@@ -565,7 +619,7 @@ int runServe(int argc, char** argv) {
         Console console;
         Identity me = loadIdentity();
         const std::string myId = me.id;
-        Host host(std::move(me), role, port, vaultPath, console);
+        Host host(std::move(me), role, port, address, vaultPath, console);
 
         // Syncing as a client with this computer's own paired hosts: it keeps them current, and a better one that
         // answers means this network already has its host (PROTOCOL.md §6, one active host per network).

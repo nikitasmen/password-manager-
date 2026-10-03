@@ -121,6 +121,7 @@ class FlakyStore : public IVaultStore {
     explicit FlakyStore(IVaultStore& inner) : inner_(inner) {
     }
     bool online = true;
+    mutable int contacts = 0;  // requests that reached it (or tried to)
     std::optional<VaultMeta> getMeta() override {
         up();
         return inner_.getMeta();
@@ -148,6 +149,7 @@ class FlakyStore : public IVaultStore {
 
    private:
     void up() const {
+        contacts++;
         if (!online) throw StoreUnavailable("offline");
     }
     IVaultStore& inner_;
@@ -291,7 +293,8 @@ void testHosts(const fs::path& dir) {
     pi.vault->sync();
     CHECK(pi.vault->get("pi")->password == "from-desk");
 
-    // one host away: still Ok, and that host says why; the OLED hint goes to the best host that answered
+    // one host away: still Ok, and that host says why. The OLED hint (platform and username, in the clear) goes only
+    // to a dedicated host: with the board away, the laptop must not get it (PROTOCOL.md §7, §12)
     phone.links[0]->online = false;  // links are in the order given: [0] laptop
     phone.links[1]->online = false;  // [1] board
     CHECK(phone.vault->sync() == S::Offline);
@@ -299,7 +302,7 @@ void testHosts(const fs::path& dir) {
     CHECK(phone.vault->sync() == S::Ok);
     CHECK(phone.vault->hostStatuses()[0].status == S::Offline && phone.vault->hostStatuses()[1].status == S::Ok);
     phone.vault->get("pi");
-    CHECK(phone.links[0]->lastAccess == "Pi/u");
+    CHECK(phone.links[0]->lastAccess.empty());
     // back on the board's network: the board was offline a moment ago, so while the laptop answers it's skipped...
     phone.links[1]->online = true;
     phone.links[1]->lastAccess.clear();
@@ -653,6 +656,59 @@ void testHostileHost(const fs::path& dir) {
     std::cout << "hostile host: ok (changed and moved records don't open; a changed key blob doesn't unlock)\n";
 }
 
+// Hosts of one role sort by id, so "the" PIN host and the sync order are the same on every start; PIN unlock goes
+// to the host pin.json names; and hosts the startup check found away aren't waited on again by the next sync.
+void testHostOrderAndChecks(const fs::path& dir) {
+    LocalFileStore s1((dir / "o-1.json").string()), s2((dir / "o-2.json").string()), s3((dir / "o-3.json").string());
+    auto b = std::make_unique<FlakyStore>(s1), a = std::make_unique<FlakyStore>(s2),
+         c = std::make_unique<FlakyStore>(s3);
+    FlakyStore *pa = a.get(), *pb = b.get(), *pc = c.get();
+    std::vector<SyncHost> hosts;
+    hosts.push_back({"bbbb", HostRole::Dedicated, std::move(b)});  // added out of order on purpose
+    hosts.push_back({"cccc", HostRole::Server, std::move(c)});
+    hosts.push_back({"aaaa", HostRole::Dedicated, std::move(a)});
+    VaultService v(std::make_unique<LocalFileStore>((dir / "o-local.json").string()), std::move(hosts),
+                   (dir / "o.sync").string());
+    std::vector<std::string> order;
+    for (const auto& s : v.hostStatuses()) order.push_back(s.id);
+    CHECK((order == std::vector<std::string>{"aaaa", "bbbb", "cccc"}));
+
+    CHECK(pinHostId(PinFile{"", 1, "", "bbbb"}, {"aaaa", "bbbb"}) == "bbbb");  // the one it names, not the first
+    CHECK(pinHostId(PinFile{"", 1, "", ""}, {"aaaa", "bbbb"}) == "aaaa");      // from before: the best one
+    CHECK(pinHostId(PinFile{"", 1, "", "gone"}, {"aaaa", "bbbb"}).empty());    // its host was forgotten
+    CHECK(pinHostId(PinFile{"", 1, "", ""}, {}).empty());
+
+    v.create("master", CipherAlg::Aes256Gcm, 1000);
+    using S = VaultService::SyncStatus;
+    pa->online = pb->online = false;
+    v.noteOffline({"aaaa", "bbbb"});  // the startup check found the two boards away
+    int before = pa->contacts + pb->contacts;
+    CHECK(v.sync() == S::Ok);                      // through the server host
+    CHECK(pa->contacts + pb->contacts == before);  // the boards weren't waited on again
+    pc->online = false;
+    v.noteOffline({"aaaa", "bbbb", "cccc"});  // all three away
+    before = pa->contacts + pb->contacts + pc->contacts;
+    CHECK(v.sync() == S::Offline);
+    CHECK(pa->contacts + pb->contacts + pc->contacts == before);  // nothing to wait on: offline at once
+
+    // Forgetting hosts recomputes the status from the ones left
+    LocalFileStore r1((dir / "o-r1.json").string()), r2((dir / "o-r2.json").string());
+    auto up = std::make_unique<FlakyStore>(r1), down = std::make_unique<FlakyStore>(r2);
+    down->online = false;
+    std::vector<SyncHost> two;
+    two.push_back({"up", HostRole::Dedicated, std::move(up)});
+    two.push_back({"down", HostRole::Server, std::move(down)});
+    VaultService w(std::make_unique<LocalFileStore>((dir / "o-w.json").string()), std::move(two),
+                   (dir / "o-w.sync").string());
+    w.create("master", CipherAlg::Aes256Gcm, 1000);
+    CHECK(w.lastSyncStatus() == S::Ok);
+    w.removeHost("up");  // the only one that synced: the status can't stay Ok
+    CHECK(w.lastSyncStatus() == S::Offline);
+    w.removeHost("down");
+    CHECK(w.lastSyncStatus() == S::Disabled && w.lastSyncError().empty());  // no host left: not a stale result
+    std::cout << "host order and checks: ok\n";
+}
+
 // Forgetting or re-pairing a host deletes pin.json only if the PIN is that host's (PROTOCOL.md §11)
 void testPinOwnership() {
     PinFile old{"salt", 1, "blob", ""};  // from before there were several hosts: the PIN host's alone
@@ -675,6 +731,7 @@ int main() {
     testRobustness(dir);
     testDeviceOnly(dir);
     testPinOwnership();
+    testHostOrderAndChecks(dir);
     testHostileHost(dir);
     if (const char* esp = std::getenv("PWVAULT_TEST_ESP")) testEsp(dir, esp);
     if (const char* pair = std::getenv("PWVAULT_TEST_PAIR")) testPair(dir, pair);

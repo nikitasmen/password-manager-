@@ -60,6 +60,7 @@ class UIManager {
     std::vector<PairedHost> hosts_;
     bool deviceOnly_ = false;  // localCopy=false: the best host is the one store, and no other can be added
     const PairedHost* pinHost() const;  // the best dedicated host: the only kind that offers PINs (§11); may be null
+    const PairedHost* pinHostOfFile() const;  // the one pin.json's PIN unlocks with; null = no PIN to offer
     std::string hostStatusText(const PairedHost& h) const;  // "synced", "not on this network", ...
     // Pairs with one more host: "ip" (the board's ports) or "ip:port" (pairing on port+1). Blocks until it's approved
     // there (<= 90 s). false + error on failure, and nothing is saved.

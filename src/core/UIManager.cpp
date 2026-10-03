@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <future>
 #include <map>
 #include <sstream>
 
@@ -53,10 +54,19 @@ UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(
     for (auto& [h, cfg] : loadPairedHosts()) {
         auto store = std::make_unique<EspStore>(cfg);
         h.store = store.get();
-        auto at = std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; });
+        auto at = std::find_if(hosts_.begin(), hosts_.end(),
+                               [&](const PairedHost& o) { return hostBefore(h.role, h.id, o.role, o.id); });
         hosts.insert(hosts.begin() + (at - hosts_.begin()), SyncHost{h.id, h.role, std::move(store)});
         hosts_.insert(at, h);
     }
+    // A pin.json from before PINs named their host belongs to today's PIN host: say so in the file, so pairing a
+    // second dedicated host later can't change whose it is
+    if (auto pin = loadPinFile(pinFilePath()); pin && pin->host.empty() && pinHost()) try {
+            pin->host = pinHost()->id;
+            savePinFile(pinFilePath(), *pin);
+        } catch (const std::exception& e) {
+            std::cerr << "couldn't update pin.json: " << e.what() << "\n";
+        }
     if (deviceOnly_) {
         if (hosts.empty() && c.espHost.empty())
             throw std::runtime_error("localCopy=false (device-only) needs a host: set espHost in " +
@@ -67,6 +77,7 @@ UIManager::UIManager(const std::string& dataPath) : isLoggedIn(false), dataPath(
                           : std::move(hosts.front().store),
             std::vector<SyncHost>{}, "");
         hosts_.resize(std::min<size_t>(hosts_.size(), 1));  // the one store; the others aren't used
+        vault->setLocalAccessHints(hosts_.empty() || hosts_.front().role == HostRole::Dedicated);
         return;
     }
     fs::create_directories(dataPath);
@@ -207,6 +218,18 @@ const PairedHost* UIManager::pinHost() const {
     return nullptr;
 }
 
+const PairedHost* UIManager::pinHostOfFile() const {
+    auto f = loadPinFile(pinFilePath());
+    if (!f) return nullptr;
+    std::vector<std::string> dedicated;  // best first
+    for (const PairedHost& h : hosts_)
+        if (h.role == HostRole::Dedicated) dedicated.push_back(h.id);
+    const std::string id = pinHostId(*f, dedicated);
+    for (const PairedHost& h : hosts_)
+        if (!id.empty() && h.id == id) return &h;
+    return nullptr;
+}
+
 std::string UIManager::hostStatusText(const PairedHost& h) const {
     if (deviceOnly_) return "the only store (device-only)";
     for (const auto& s : vault->hostStatuses())
@@ -254,7 +277,8 @@ bool UIManager::safeAddHost(const std::string& address, const std::string& name,
         PairedHost h{id, address, hostRoleOf(role), dir, store.get()};
         if (deviceOnly_) vault = std::make_unique<VaultService>(std::move(store), std::vector<SyncHost>{}, "");
         else vault->addHost({id, h.role, std::move(store)});
-        hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(), [&](const PairedHost& o) { return o.role > h.role; }),
+        hosts_.insert(std::find_if(hosts_.begin(), hosts_.end(),
+                                   [&](const PairedHost& o) { return hostBefore(h.role, h.id, o.role, o.id); }),
                       h);
         if (pairedId) *pairedId = id;
         error.clear();
@@ -311,16 +335,33 @@ UIManager::BoardState UIManager::checkBoard(std::string& detail, std::string& ad
         detail = "This computer isn't paired with the host at " + address + " yet.";
         return BoardState::NotPaired;
     }
-    // Most hosts are on other networks at any moment (PROTOCOL.md §6): only a refusal needs the user
-    for (const PairedHost& h : hosts_) try {
-            h.store->getMeta();  // any answer (a vault or none yet) means our certificate was accepted
-        } catch (const StoreUnavailable&) {
-        } catch (const std::exception& e) {
-            address = h.address;
-            detail = "The host at " + address + " refuses this computer (" + e.what() + ").";
-            return BoardState::NotPaired;
+    // Most hosts are on other networks at any moment (PROTOCOL.md §6): only a refusal needs the user. All at once,
+    // since an unreachable one costs a connect timeout; the ones that didn't answer, the next sync won't wait on.
+    std::vector<std::future<std::string>> answers;  // "" = accepted, "\x01" = unreachable, else why it refused
+    for (const PairedHost& h : hosts_)
+        answers.push_back(std::async(std::launch::async, [store = h.store]() -> std::string {
+            try {
+                store->getMeta();  // any answer (a vault or none yet) means our certificate was accepted
+                return "";
+            } catch (const StoreUnavailable&) {
+                return "\x01";
+            } catch (const std::exception& e) {
+                return std::string("refused: ") + e.what();
+            }
+        }));
+    std::vector<std::string> away;
+    BoardState state = BoardState::Connected;
+    for (size_t i = 0; i < hosts_.size(); i++) {
+        const std::string answer = answers[i].get();
+        if (answer == "\x01") away.push_back(hosts_[i].id);
+        else if (!answer.empty() && state == BoardState::Connected) {
+            state = BoardState::NotPaired;
+            address = hosts_[i].address;
+            detail = "The host at " + address + " refuses this computer (" + answer.substr(9) + ").";
         }
-    return BoardState::Connected;
+    }
+    if (!deviceOnly_) vault->noteOffline(away);
+    return state;
 }
 
 bool UIManager::safeSetHostAddress(const std::string& id, const std::string& address, std::string& error) {
@@ -349,18 +390,14 @@ std::string UIManager::pinFilePath() {
 }
 
 bool UIManager::hasPin() const {
-    return pinHost() && std::filesystem::exists(pinFilePath());
+    return pinHostOfFile() != nullptr;
 }
 
 UIManager::PinResult UIManager::safeUnlockWithPin(const std::string& pin, std::string& message) {
     auto file = loadPinFile(pinFilePath());
-    const PairedHost* host = pinHost();
+    const PairedHost* host = pinHostOfFile();  // the host this PIN was set with, whichever comes first
     if (!host || !file) {
         message = "PIN unlock isn't set up here. Use your master password.";
-        return PinResult::Failed;
-    }
-    if (!file->host.empty() && !host->id.empty() && file->host != host->id) {
-        message = "This PIN belongs to another host. Use your master password.";
         return PinResult::Failed;
     }
     const std::string proof = pinProofHex(pin, base64::decode(file->salt), file->iterations);

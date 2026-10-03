@@ -107,8 +107,10 @@ set(VAULT_SOURCES
 
 set(CLI_SOURCES
     src/cli/TerminalUIManager.cpp
-    src/serve/Serve.cpp
 )
+if(NOT WIN32)  # --serve: POSIX sockets, poll, getifaddrs
+    list(APPEND CLI_SOURCES src/serve/Serve.cpp)
+endif()
 
 set(GUI_SOURCES
     src/gui/GuiUIManager.cpp

@@ -16,6 +16,10 @@ enum class HostRole { Dedicated, Server, Peer };
 inline HostRole hostRoleOf(const std::string& wire) {  // as GET /devices says it; unknown = the least trusted
     return wire == "dedicated" ? HostRole::Dedicated : wire == "server" ? HostRole::Server : HostRole::Peer;
 }
+// Sync order, and which dedicated host is "the" PIN host: best role first, then by id, so it's the same on every start.
+inline bool hostBefore(HostRole a, const std::string& aId, HostRole b, const std::string& bId) {
+    return a != b ? a < b : aId < bId;
+}
 inline const char* hostRoleName(HostRole r) {
     return r == HostRole::Dedicated ? "dedicated" : r == HostRole::Server ? "server" : "peer";
 }
@@ -70,6 +74,13 @@ class VaultService {
     std::string sealKeyForPin(const std::string& pinKey);  // requires unlocked; returns the blob
     bool unlockWithPinKey(const std::string& pinKey, const std::string& blob);  // false = doesn't open this vault
 
+    // Hosts the caller just found unreachable (the connector's startup check): the next sync doesn't wait on them
+    // again, even when nothing else answers, if it comes within a few seconds.
+    void noteOffline(const std::vector<std::string>& ids);
+    // Device-only: may the one store get access hints? Only if it's a dedicated host (the hint is in the clear).
+    void setLocalAccessHints(bool on) {
+        localHints_ = on;
+    }
     // Pairing with another host, or forgetting one (which also drops its cursors). Not in device-only mode.
     void addHost(SyncHost host);
     void removeHost(const std::string& id);
@@ -83,6 +94,7 @@ class VaultService {
         SyncStatus status = SyncStatus::Disabled;  // Disabled = not tried yet
         std::string error;
         std::chrono::steady_clock::time_point triedAt{};  // last attempt; an Offline host waits kOfflineRetry
+        bool justChecked = false;  // noteOffline: it didn't answer the startup check a moment ago
     };
     [[nodiscard]] const std::vector<HostStatus>& hostStatuses() const {
         return hostStatus_;
@@ -102,6 +114,8 @@ class VaultService {
     int64_t nextTimestamp(const std::string& id) const;
 
     std::unique_ptr<IVaultStore> local_;
+    void summarize();
+    bool localHints_ = true;
     std::vector<SyncHost> hosts_;  // best role first
     std::vector<HostStatus> hostStatus_;  // parallel to hosts_
     std::string syncStatePath_;

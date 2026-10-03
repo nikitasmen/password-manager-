@@ -128,10 +128,11 @@ Clients prefer hosts in that order. The Android app never hosts: Android stops b
 address on every network. `tests/fake_esp.py` implements the API in memory, as a `dedicated` host.
 
 **One active host per network.** A network has at most one serving host. The board always serves. Any other host
-looks for hosts on the network (§9, *Finding hosts*) before it serves, then every 60 s and whenever its network
-changes. When it finds a host it's paired with, holding the same vault (the same `vault_id` in its meta), with a better
-role, or the same role and a lower id, it **stands down**: it stops both servers and its advertisement, and keeps syncing as an
-ordinary client. When that host has been gone for one check, it serves again. Hosts it isn't paired with (someone else's vault on
+syncs, as a client, with the hosts it's paired with before it serves and then every 60 s. When one of them answers
+holding the same vault (the same `vault_id` in its meta) and has a better role, or the same role and a lower id, it
+**stands down**: it stops both servers, and keeps syncing as an ordinary client. When that host has been gone for one
+check, it serves again. The check reaches paired hosts at their saved addresses; a host that moved isn't seen until
+its address is updated, and once discovery (§9) exists it will find them wherever they are. Hosts it isn't paired with (someone else's vault on
 a shared network) don't count. Devices still pair with several hosts,
 one per network they use (the board at home, a Raspberry Pi at the office), and changes travel between them through
 devices that move. A network that hides devices from each other (client isolation) can end up with two hosts; that
@@ -163,7 +164,7 @@ Request and reply bodies are JSON. Errors are `{"error":"<message>"}`. A request
 | `PUT /meta` | `{"meta":{…},"if_rev":N}` | 200 `{"ok":true}`; 409 `rev` isn't `if_rev`; 400 malformed |
 | `GET /entries?after=N` | | 200 `{"entries":[…],"seq":S}`: records with `seq` > N, in no particular order |
 | `POST /entries` | `{"entries":[…]}`, at most 32 | 200 `{"seq":S}`; 400 if any record is malformed (then none is written) |
-| `POST /access` | `{"platform":…,"username":…}` | 200. Display-only hint for the OLED (see §12) |
+| `POST /access` | `{"platform":…,"username":…}` | 200. Display-only hint for the OLED (see §12). Clients send it only to `dedicated` hosts: it's in the clear |
 | `GET /devices` | | 200 `{"devices":[{"name":…,"seen":T}],"you":"<name>","role":…,"storage":{"used":B,"total":B,"records":N}}`: `role` is the host's role (§6); older firmware omits it, which means `dedicated`. `storage` is the space the host has for the vault, in bytes, and how many entry records it holds (tombstones included). Optional: older firmware omits it |
 | `DELETE /devices/<name>` | | 202 `{"pending":true}`; 404 no such device (§10) |
 | `POST /pair/open` | | 200 `{"code":…,"qr":…,"seconds":S}`: opens pairing like a BOOT press, or returns the open session's code (§9) |

@@ -2,6 +2,11 @@
 
 #include <filesystem>
 #include <fstream>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -30,8 +35,29 @@ Cursors cursorsOf(const nlohmann::json& state, const std::string& hostId) {
     return {state.value("vault_id", ""), h.value("local_seq", uint64_t{0}), h.value("remote_seq", uint64_t{0})};
 }
 
+// The whole read-modify-write of sync.json: the app and `--serve` on one machine share it (PROTOCOL.md §8).
+class StateLock {
+   public:
+    explicit StateLock(const std::string& path) {
+#ifndef _WIN32
+        fd_ = ::open((path + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+        if (fd_ < 0 || ::flock(fd_, LOCK_EX) != 0) throw std::runtime_error("cannot lock " + path + ".lock");
+#endif  // ponytail: no lock on Windows, where --serve doesn't exist and one app instance writes it
+    }
+    ~StateLock() {
+#ifndef _WIN32
+        if (fd_ >= 0) ::close(fd_);
+#endif
+    }
+    StateLock(const StateLock&) = delete;
+    StateLock& operator=(const StateLock&) = delete;
+
+   private:
+    int fd_ = -1;
+};
+
 void writeState(const std::string& path, const nlohmann::json& state) {
-    std::string tmp = path + ".tmp";  // temp + rename: never a half-written file
+    std::string tmp = path + ".tmp";  // temp + rename: never a half-written file (writers take StateLock first)
     {
         std::ofstream out(tmp, std::ios::trunc);
         out << state.dump();
@@ -42,6 +68,7 @@ void writeState(const std::string& path, const nlohmann::json& state) {
 
 // Re-reads the file so another host's cursors, saved meanwhile, survive. Another vault's cursors don't.
 void saveCursors(const std::string& path, const std::string& hostId, const Cursors& c) {
+    StateLock lock(path);
     nlohmann::json state = loadState(path);
     if (state.value("vault_id", "") != c.vaultId || !state.contains("hosts") || !state["hosts"].is_object())
         state = {{"vault_id", c.vaultId}, {"hosts", nlohmann::json::object()}};
@@ -74,6 +101,7 @@ void push(IVaultStore& to, const std::vector<EntryRecord>& entries) {
 }  // namespace
 
 void forgetCursors(const std::string& statePath, const std::string& hostId) {
+    StateLock lock(statePath);
     nlohmann::json state = loadState(statePath);
     if (state.contains("hosts") && state["hosts"].is_object() && state["hosts"].erase(hostId))
         writeState(statePath, state);

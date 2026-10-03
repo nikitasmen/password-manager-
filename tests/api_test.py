@@ -299,11 +299,16 @@ def suite(c, h):
         if h.kind == "fake":
             c.equal(bob.call("DELETE", "/devices/alice"), (202, {"pending": True}), "DELETE /devices: 202 pending")
         else:
-            c.equal(bob.call("DELETE", "/devices/alice"), (202, {"pending": True}), "DELETE /devices: 202 pending")
-            h.proc.expect(r"Revoke 'alice' \(asked by bob\)\?")
+            c.equal(bob.call("DELETE", "/devices/bob"), (202, {"pending": True}), "DELETE /devices: 202 pending")
+            h.proc.expect(r"Revoke 'bob' \(asked by bob\)\?")
+            c.equal(bob.call("DELETE", "/devices/alice"), (202, {"pending": True}), "...a newer request")
+            h.proc.expect(r"Revoke 'alice' \(asked by bob\)\?")  # the pending question, now about alice
+            c.check(h.proc.saw(r"Revoke '", 2) is None,
+                    "...replaces the pending one (§10): one question, and it names what a y will revoke")
             c.equal(alice.call("GET", "/meta")[0], 200, "...only a request: alice works until approved at the host")
             h.proc.type("y")
             h.proc.expect(r"\[alice\] revoked")
+            c.equal(bob.call("GET", "/meta")[0], 200, "...and the replaced request revoked nothing: bob still works")
         status, body = alice.call("GET", "/meta")
         c.equal((status, body), (403, {"error": "device revoked"}), "a revoked device: 403 device revoked")
         names = [x["name"] for x in bob.call("GET", "/devices")[1]["devices"]]

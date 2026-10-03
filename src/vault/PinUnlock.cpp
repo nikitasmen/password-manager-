@@ -33,6 +33,11 @@ bool pinBelongsTo(const PinFile& f, const std::string& hostId, const std::string
     return f.host.empty() ? hostId == pinHostId : f.host == hostId;
 }
 
+std::string pinHostId(const PinFile& f, const std::vector<std::string>& dedicated) {
+    if (f.host.empty()) return dedicated.empty() ? "" : dedicated.front();
+    return std::find(dedicated.begin(), dedicated.end(), f.host) != dedicated.end() ? f.host : "";
+}
+
 void writePrivateTmp(const std::string& path, const std::string& content) {
     namespace fs = std::filesystem;
     const std::string tmp = path + ".tmp";

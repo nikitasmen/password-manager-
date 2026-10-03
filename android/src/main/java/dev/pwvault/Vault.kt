@@ -12,6 +12,9 @@ enum class Role { Dedicated, Server, Peer }
 /** As GET /devices says it; unknown = the least trusted. */
 fun roleOf(wire: String) = when (wire) { "dedicated" -> Role.Dedicated; "server" -> Role.Server; else -> Role.Peer }
 
+/** Sync order, and which dedicated host is "the" PIN host: best role first, then by id, the same on every start. */
+val hostOrder: Comparator<Host> = compareBy<Host>({ it.role }, { it.id })
+
 /** One host this phone syncs with. [id]: hex SHA-256 of its pinned server cert, which keys its sync cursors. */
 class Host(val id: String, val role: Role, val store: Store)
 
@@ -31,7 +34,7 @@ class Vault(private val local: Store, initialHosts: List<Host>, private val sync
 
     /** Pairing with another host: after the hosts with the same or a better role. */
     @Synchronized fun addHost(h: Host) {
-        val at = hosts.indexOfFirst { it.role > h.role }.let { if (it < 0) hosts.size else it }
+        val at = hosts.indexOfFirst { hostOrder.compare(h, it) < 0 }.let { if (it < 0) hosts.size else it }
         hosts.add(at, h)
         hostStatus.add(at, HostStatus(h))
     }
@@ -41,6 +44,7 @@ class Vault(private val local: Store, initialHosts: List<Host>, private val sync
         val i = hosts.indexOfFirst { it.id == id }
         if (i >= 0) { hosts.removeAt(i); hostStatus.removeAt(i) }
         forgetCursors(syncState, id)
+        summarize() // e.g. forgetting the board that held another vault must stop offering a merge into it
     }
     var status = Sync.Disabled
         private set
@@ -109,8 +113,8 @@ class Vault(private val local: Store, initialHosts: List<Host>, private val sync
 
     /** Tells the board's OLED who read what (display only, never blocks a read). */
     @Synchronized fun noteAccess(c: Credential) {
-        // to the best host that answered
-        val to = hostStatus.firstOrNull { it.status == Sync.Ok }?.host?.store as? EspStore
+        // to the best dedicated host that answered: the hint is in the clear, and only the board shows it (§7, §12)
+        val to = hostStatus.firstOrNull { it.status == Sync.Ok && it.host.role == Role.Dedicated }?.host?.store as? EspStore
         runCatching { to?.noteAccess(c) }
     }
 
@@ -250,11 +254,16 @@ class Vault(private val local: Store, initialHosts: List<Host>, private val sync
         here.forEach(::syncWith)
         for (s in away) if (hostStatus.none { it.status == Sync.Ok }) syncWith(s)
         if (changed && unlocked) reindex()
-        val worst = listOf(Sync.Ok, Sync.Mismatch, Sync.Error, Sync.Offline) // what the round reports, in this order
-            .first { st -> hostStatus.any { it.status == st } }
-        status = worst
-        error = if (worst == Sync.Ok) "" else hostStatus.first { it.status == worst }.error
+        summarize()
         return status
+    }
+
+    /** What the hosts' last results add up to, best first: Ok if any synced. No hosts: Disabled. */
+    private fun summarize() {
+        val worst = listOf(Sync.Ok, Sync.Mismatch, Sync.Error, Sync.Offline)
+            .firstOrNull { st -> hostStatus.any { it.status == st } } ?: Sync.Disabled
+        status = worst
+        error = if (worst == Sync.Ok || worst == Sync.Disabled) "" else hostStatus.first { it.status == worst }.error
     }
 }
 
@@ -279,6 +288,15 @@ sealed interface PinResult {
 fun pinBelongsTo(pinFile: File, hostId: String, pinHostId: String?): Boolean {
     val owner = runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull() ?: return false
     return if (owner.isEmpty()) hostId == pinHostId else owner == hostId
+}
+
+/**
+ * The host a PIN unlocks with: the one pin.json names, if it's still among the [dedicated] hosts (their ids, best
+ * first); for a file without `host`, the best dedicated host. null: no PIN to offer.
+ */
+fun pinHostId(pinFile: File, dedicated: List<String>): String? {
+    val owner = runCatching { JSONObject(pinFile.readText()).optString("host") }.getOrNull() ?: return null
+    return if (owner.isEmpty()) dedicated.firstOrNull() else owner.takeIf { it in dedicated }
 }
 
 /** [hostId]: the host holding the secret, recorded in pin.json (§11). */

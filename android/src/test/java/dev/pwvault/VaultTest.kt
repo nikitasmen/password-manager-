@@ -65,6 +65,28 @@ class VaultTest {
         assertFalse(pinBelongsTo(f, "laptop", "laptop"))
     }
 
+    // Same-role hosts sort by id; PIN unlock goes to the host pin.json names; forgetting a host updates the status
+    @Test fun hostOrderPinHostAndStatus() {
+        val v = Vault(LocalStore(File(dir, "o-local.json")), listOf(
+            Host("bbbb", Role.Dedicated, LocalStore(File(dir, "o-1.json"))),
+            Host("cccc", Role.Server, LocalStore(File(dir, "o-2.json"))),
+            Host("aaaa", Role.Dedicated, LocalStore(File(dir, "o-3.json")))), File(dir, "o.sync"))
+        assertEquals(listOf("aaaa", "bbbb", "cccc"), v.hostStatus.map { it.host.id })
+
+        val f = File(dir, "o-pin.json")
+        assertNull(pinHostId(f, listOf("aaaa", "bbbb"))) // no PIN
+        f.writeText("""{"host":"bbbb"}""")
+        assertEquals("bbbb", pinHostId(f, listOf("aaaa", "bbbb"))) // the one it names, not the first
+        assertNull(pinHostId(f, listOf("aaaa"))) // its host was forgotten
+        f.writeText("""{"salt":""}""")
+        assertEquals("aaaa", pinHostId(f, listOf("aaaa", "bbbb"))) // from before: the best one
+
+        v.create("m", iterations = 1000)
+        assertEquals(Vault.Sync.Ok, v.status)
+        listOf("aaaa", "bbbb", "cccc").forEach(v::removeHost)
+        assertEquals(Vault.Sync.Disabled, v.status) // not a stale Ok (or Mismatch, offering a merge) for no host
+    }
+
     @Test fun pairingHelpers() {
         assertEquals("ABCD0123EFGH4567", normalizePairCode("abcd-o123-efgh-4567"))
         assertEquals("", normalizePairCode("short"))

@@ -488,13 +488,13 @@ void GuiUIManager::drawStrip() {
         const AppConfig& c = ConfigManager::getInstance().getConfig();
         auto s = vault->lastSyncStatus();
         if (!c.localCopy)
-            status = s == VaultService::SyncStatus::Offline ? "esp32 unreachable" : "device-only, on the esp32";
+            status = s == VaultService::SyncStatus::Offline ? "host unreachable" : "device-only, on the host";
         else if (boardAddress().empty())
             status = "on this computer";
         else if (s == VaultService::SyncStatus::Ok)
-            status = "synced with esp32";
+            status = "synced with " + lower(boardAddress());
         else if (s == VaultService::SyncStatus::Offline)
-            status = "esp32 offline, local copy";
+            status = "hosts offline, local copy";
         else
             status = "sync error: " + lower(vault->lastSyncError()).substr(0, 40);
     }

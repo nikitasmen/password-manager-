@@ -508,8 +508,8 @@ void TerminalUIManager::devicesScreen(const PairedHost& host) {
                            muted(lastSeenText(d.lastSeen)));
         printEntries(rows);
         std::cout << "\n"
-                  << muted("To add a phone, type a and scan the code with the pwvault app. On a computer, run "
-                            "esp32/pki.sh pair <name> instead.") << "\n\n"
+                  << muted("To add a phone, type a and scan the code with the pwvault app. On a computer, use "
+                            "hosts & devices -> add a host there.") << "\n\n"
                   << legend({{"a", "add a device"}, {"r 1-" + std::to_string(devices->size()), "revoke"}, {"Enter", "back"}})
                   << "\n";
 

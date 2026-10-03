@@ -114,6 +114,9 @@ object App {
     val paired get() = vault != null
     val hasBoard get() = hosts.isNotEmpty()
     val pinHost get() = hosts.firstOrNull { it.role == Role.Dedicated } // the only kind that offers PINs (§11)
+    /** The host pin.json's PIN unlocks with (not necessarily the best one); null: no PIN to offer. */
+    val pinHostOfFile get() = pinHostId(pinFile, hosts.filter { it.role == Role.Dedicated }.map { it.id })
+        ?.let { id -> hosts.find { it.id == id } }
     var hosts by mutableStateOf(listOf<PhoneHost>()) // best role first
     var hostStatus by mutableStateOf(mapOf<String, Vault.Sync>()) // host id -> its last sync
 
@@ -195,7 +198,14 @@ object App {
                 }
             }
         }
-        hosts = found.sortedBy { it.role }
+        hosts = found.sortedWith(compareBy({ it.role }, { it.id }))
+        // A pin.json from before PINs named their host is today's PIN host's: say so, so a second board can't change that
+        pinHost?.let { h ->
+            runCatching {
+                val j = JSONObject(pinFile.readText())
+                if (j.optString("host").isEmpty()) pinFile.writeText(j.put("host", h.id).toString())
+            }
+        }
         if (hosts.isEmpty() && !BuildConfig.DEMO && !prefs.getBoolean("standalone", false)) return
         vault = Vault(LocalStore(File(dir, "vault.json")), hosts.map { Host(it.id, it.role, it.store) }, File(dir, "sync.json"))
         hasVault = null
@@ -317,7 +327,7 @@ object App {
         }
         val d = File(dir, "hosts/${id.take(16)}")
         saveHost(d, p.server.encoded, p.cert.encoded, address, role, alias)
-        hosts = (hosts + PhoneHost(id, address, role, d, alias, store)).sortedBy { it.role }
+        hosts = (hosts + PhoneHost(id, address, role, d, alias, store)).sortedWith(compareBy({ it.role }, { it.id }))
         val v = vault ?: return load() // the first pairing: the vault comes with it
         v.addHost(Host(id, role, store))
         v.sync()
@@ -378,7 +388,7 @@ object App {
     }
 
     fun unlockPin(pin: String) = run {
-        val h = pinHost ?: throw Exception("PIN unlock needs a dedicated host, like the board.")
+        val h = pinHostOfFile ?: throw Exception("PIN unlock isn't set up here. Use the master password.")
         when (val r = unlockWithPin(vault!!, h.store, pinFile, pin, h.id)) {
             PinResult.Unlocked -> opened()
             is PinResult.Wrong -> message = if (r.left == 1) "Wrong PIN. 1 try left before the PIN is deleted."
@@ -683,7 +693,7 @@ private fun ColumnScope.UnlockScreen() {
     // What's set up on this phone, best first. A PIN needs the board; a fingerprint doesn't.
     val methods = listOfNotNull(
         Method.Fingerprint.takeIf { App.bioOn && Biometric.available(ctx) },
-        Method.Pin.takeIf { App.pinHost != null && App.pinFile.exists() },
+        Method.Pin.takeIf { App.pinHostOfFile != null },
         Method.Password,
     )
     var chosen by remember { mutableStateOf<Method?>(null) }

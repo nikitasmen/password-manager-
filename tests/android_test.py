@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 
-from harness import ROOT, Proc, fake_host
+from harness import ROOT, Proc, children, fake_host
 
 print = functools.partial(print, flush=True)  # noqa: A001 - progress shows as it happens, even into a pipe
 
@@ -84,6 +84,8 @@ def main():
     if emulator and not keep:
         sh("adb emu kill", check=False)
         emulator.stop()
+    elif emulator:  # kept: off the list harness kills at exit
+        children.remove(emulator.p)
     sys.exit(r.returncode)
 
 

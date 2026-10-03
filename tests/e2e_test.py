@@ -14,6 +14,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import time
 
 from harness import APP, ROOT, Checks, Proc, fake_host, sandbox, serve_host
 
@@ -317,10 +318,40 @@ def main():
         open_dirs = [d for d in dirs if stat.S_IMODE(os.stat(d).st_mode) != 0o700]
         c.check(not open_dirs, "config folders: mode 700", open_dirs)
 
+    def hosts_away():
+        # Three paired hosts, all on other networks: the startup check asks them at once, and unlocking right after
+        # doesn't wait on them again. 192.0.2.x (TEST-NET-1) never answers, so each attempt is a 1.5 s timeout.
+        g_env = sandbox(tmp, "g")
+        ports = [FAKE_PORT + 20 + 2 * i for i in range(3)]
+        fakes = [fake_host(tmp, f"away{i}", port, FAKE_CODE) for i, port in enumerate(ports)]
+        g = App(g_env)
+        g.create(PW)
+        for i, port in enumerate(ports):
+            g.pair_from_hosts(None, f"127.0.0.1:{port}", f"g-{i}", lambda: FAKE_CODE)
+        g.quit()
+        for f in fakes:
+            f.stop()
+        for i, path in enumerate(sorted(glob.glob(f"{tmp}/g/cfg/pwvault/hosts/*/host"))):
+            text = open(path).read()
+            open(path, "w").write(text.replace("address=127.0.0.1:", f"address=192.0.2.{i + 1}:"))
+        start = time.time()
+        g = App(g_env)
+        g.p.expect(r"Master password: ", 30)
+        waited = time.time() - start
+        c.check(waited < 3.2, f"three hosts away: startup asks them together ({waited:.1f} s; one by one is 4.5+)")
+        start = time.time()
+        g.p.type(PW)
+        g.home()
+        unlocking = time.time() - start
+        c.check(unlocking < 2.5, f"...and unlocking doesn't wait on them again ({unlocking:.1f} s)")
+        c.check("Hosts offline, working on this computer's copy" in g.p.log, "...and says they're offline")
+        g.quit()
+
     for title, fn in (("onboarding: create, pair, join", onboarding), ("edits and deletes", edits),
                       ("wrong master password", wrong_password), ("master password change", master_password),
                       ("offline, then back", offline), ("revoking a device", revoke), ("PIN unlock (§11)", pin),
-                      ("an old pairing moves; files on disk", migration_and_files)):
+                      ("an old pairing moves; files on disk", migration_and_files),
+                      ("hosts away: no waiting on each in turn", hosts_away)):
         c.run(title, fn)
     state["host"].stop()
     c.done()

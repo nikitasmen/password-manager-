@@ -71,7 +71,27 @@ def main():
         host.stop()
         fake.stop()
 
+    def pairing_address():
+        # The QR's address is the one this computer's traffic leaves from (what its network reaches), or --address
+        import socket
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.connect(("192.0.2.1", 53))  # nothing is sent: the kernel just picks the source address for that route
+        route = u.getsockname()[0]
+        u.close()
+        env = sandbox(tmp, "addr")
+        host = serve_host(env, PORT + 20)
+        host.type("p")
+        c.equal(host.expect(r"address ([\d.]+):%d" % (PORT + 20)).group(1), route,
+                "the pairing QR shows this computer's route address, not just any interface")
+        host.stop()
+        host = Proc([APP, "--serve", "--port", str(PORT + 20), "--address", "203.0.113.7"], env)
+        host.expect(r"Serving")
+        host.type("p")
+        c.check(host.saw(r"address 203\.0\.113\.7:%d" % (PORT + 20), 10) is not None, "--address overrides it")
+        host.stop()
+
     c.run("pki.sh, storage, the C++ client", with_pki)
+    c.run("the pairing address", pairing_address)
     c.run("one active host per network (§6)", standing_down)
     c.done()
 
