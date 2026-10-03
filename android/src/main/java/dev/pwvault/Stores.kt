@@ -154,7 +154,7 @@ fun parseHost(s: String): Pair<String, Int> {
 
 /** The board (§7). One instance keeps its socket factory, so HttpsURLConnection reuses the connection. */
 class EspStore(
-    private val host: String, private val port: Int, private val server: X509Certificate,
+    @Volatile var host: String, @Volatile var port: Int, private val server: X509Certificate, // the board can move network
     key: PrivateKey, cert: X509Certificate,
 ) : Store {
     private val device = DeviceKey(key, cert)
