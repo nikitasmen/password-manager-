@@ -1,6 +1,6 @@
 // ESP32 vault store: docs/PROTOCOL.md §6-7. Zero-knowledge: it stores ciphertext records and never sees a key.
 // Mutual TLS: the board is its own device CA. Only certificates it issued, and hasn't revoked, get in.
-// The OLED shows the clock, and which device read which entry (from the client's display hint).
+// The OLED shows CPU, RAM and flash use, and which device read which entry (from the client's display hint).
 //
 // Pairing (esp32/pki.sh pair): press BOOT and the board opens PAIR_PORT for PAIR_MS, showing a one-time code.
 // The new device sends {name, csr, mac}, mac = HMAC-SHA256(code, "pwvault-pair-req\n" fp "\n" name "\n" csr), fp being
@@ -29,6 +29,7 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <esp_https_server.h>
+#include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <esp_tls.h>
 #include <esp_random.h>
@@ -56,8 +57,7 @@
 constexpr int OLED_SDA = 21, OLED_SCL = 22, OLED_ADDR = 0x3C, OLED_W = 128, OLED_H = 64;
 constexpr int BUTTON = 0;  // BOOT, active low
 
-constexpr const char* TZ_INFO = "EET-2EEST,M3.5.0/3,M10.5.0/4";  // Europe/Athens
-constexpr const char* HOSTNAME = "pwvault";                      // pwvault.local, must match the cert
+constexpr const char* HOSTNAME = "pwvault";  // pwvault.local, must match the cert
 constexpr uint32_t EVENT_SHOW_MS = 8000;
 constexpr size_t MAX_BODY = 16 * 1024;
 constexpr size_t MAX_BATCH = 32;
@@ -838,17 +838,84 @@ void startServer() {
 
 // ---- display ----
 
-// The pairing QR (PROTOCOL.md §9) at the right edge: lit background, dark modules, 2 px per module, 3 px quiet zone.
-// Called back by esp_qrcode_generate().
+// The pairing QR (PROTOCOL.md §9) at the right edge: lit background, dark modules, 2 px per module, ~3 px quiet zone.
+// Modules start on an even row: two-colour panels (rows 0-15 yellow, the rest blue, a gap between) then split
+// between modules, not through one, which cameras can't read. Called back by esp_qrcode_generate().
 void drawQr(esp_qrcode_handle_t qr) {
-    const int size = esp_qrcode_get_size(qr), box = size * 2 + 6, x0 = OLED_W - box, y0 = (OLED_H - box) / 2;
-    oled.fillRect(x0, y0, box, box, SSD1306_WHITE);
+    const int size = esp_qrcode_get_size(qr), box = size * 2 + 6, x0 = OLED_W - box;
+    const int top = ((OLED_H - size * 2) / 2) & ~1;  // the first module row
+    oled.fillRect(x0, top - 3, box, box, SSD1306_WHITE);
     for (int y = 0; y < size; y++)
         for (int x = 0; x < size; x++)
-            if (esp_qrcode_get_module(qr, x, y)) oled.fillRect(x0 + 3 + 2 * x, y0 + 3 + 2 * y, 2, 2, SSD1306_BLACK);
+            if (esp_qrcode_get_module(qr, x, y)) oled.fillRect(x0 + 3 + 2 * x, top + 2 * y, 2, 2, SSD1306_BLACK);
 }
 
 String apPass;  // the setup hotspot's password while it's up, else ""
+
+// A labelled bar 60 px wide; with b >= 0, two thin bars (the two CPU cores)
+void meter(int y, const char* label, int a, int b, const String& val) {
+    oled.setCursor(0, y);
+    oled.print(label);
+    oled.drawRect(22, y, 62, 7, SSD1306_WHITE);
+    if (b < 0) oled.fillRect(23, y + 1, a * 60 / 100, 5, SSD1306_WHITE);
+    else {
+        oled.fillRect(23, y + 1, a * 60 / 100, 2, SSD1306_WHITE);
+        oled.fillRect(23, y + 4, b * 60 / 100, 2, SSD1306_WHITE);
+    }
+    oled.setCursor(88, y);
+    oled.print(val);
+}
+
+// The idle screen: load per core, free heap, vault and app flash use, the IP, a hex stream and the odd glitch.
+void drawStats() {
+    // CPU: the idle task's run time (us, esp_timer) per core since the last frame
+    static uint32_t idleWas[2];
+    static int64_t at;
+    int64_t now = esp_timer_get_time();
+    int load[2] = {0, 0};
+    for (int c = 0; c < 2; c++) {
+        uint32_t idle = ulTaskGetIdleRunTimeCounterForCore(c);
+        if (at) load[c] = constrain(100 - (int)((idle - idleWas[c]) * 100 / (now - at)), 0, 100);
+        idleWas[c] = idle;
+    }
+    at = now;
+    // usedBytes() walks the whole file system, so not every frame
+    static uint32_t fsAt = 0;
+    static int fsPct = 0;
+    if (!fsAt || millis() - fsAt > 10000) {
+        fsAt = millis() | 1;
+        fsPct = LittleFS.usedBytes() * 100 / LittleFS.totalBytes();
+    }
+    static const int appPct = ESP.getSketchSize() * 100 / esp_ota_get_running_partition()->size;
+    const uint32_t heap = ESP.getHeapSize(), free = ESP.getFreeHeap();
+
+    static char hex[14] = "";  // shifts one character per frame
+    memmove(hex, hex + 1, 12);
+    hex[12] = "0123456789ABCDEF"[esp_random() & 15];
+    oled.setCursor(0, 0);
+    oled.print("PWVAULT");
+    oled.setCursor(50, 0);
+    oled.print(hex);
+    oled.drawFastHLine(0, 10, OLED_W, SSD1306_WHITE);
+    meter(14, "CPU", load[0], load[1], String(max(load[0], load[1])) + "%");
+    meter(24, "RAM", 100 - free * 100 / heap, -1, String(free / 1024) + "K");
+    meter(34, "FS", fsPct, -1, String(fsPct) + "%");
+    meter(44, "ROM", appPct, -1, String(appPct) + "%");
+    oled.setCursor(0, 56);
+    if (WiFi.isConnected()) oled.print(WiFi.localIP());
+    else oled.print("no wifi");  // the last IP would be misleading
+
+    // Glitch, ~every 6 s at 5 fps: shift or invert one 8-px band of the frame buffer (a page: 128 column bytes)
+    if (esp_random() % 30 == 0) {
+        uint8_t* band = oled.getBuffer() + (esp_random() % (OLED_H / 8)) * OLED_W;
+        if (esp_random() & 1) {
+            const int by = 2 + esp_random() % 6;
+            memmove(band + by, band, OLED_W - by);
+            memset(band, 0, by);
+        } else
+            for (int x = 0; x < OLED_W; x++) band[x] ^= 0xFF;
+    }
+}
 
 void draw() {
     oled.clearDisplay();
@@ -860,13 +927,14 @@ void draw() {
         oled.setCursor(0, 0);
         oled.print("wifi setup");
         oled.drawFastHLine(0, 10, 62, SSD1306_WHITE);
-        oled.setCursor(0, 16);
-        oled.print("scan, or");
-        oled.setCursor(0, 26);
-        oled.print("join");
-        oled.setCursor(0, 38);
+        // Labelled lines: the name right above the password read as one string ("pwvault-apczdxmj64zk")
+        oled.setCursor(0, 14);
+        oled.print("network");
+        oled.setCursor(0, 23);
         oled.print(SETUP_SSID);
-        oled.setCursor(0, 50);
+        oled.setCursor(0, 37);
+        oled.print("password");
+        oled.setCursor(0, 46);
         oled.print(apPass);
         esp_qrcode_config_t qr = ESP_QRCODE_CONFIG_DEFAULT();
         qr.display_func = drawQr;
@@ -921,24 +989,7 @@ void draw() {
         oled.setCursor(0, 50);
         oled.println(event.note);
     } else {
-        struct tm t;
-        char buf[24];
-        if (getLocalTime(&t, 0)) {
-            strftime(buf, sizeof buf, "%H:%M:%S", &t);
-            oled.setTextSize(2);
-            oled.setCursor(16, 8);
-            oled.print(buf);
-            strftime(buf, sizeof buf, "%a %d %b %Y", &t);
-            oled.setTextSize(1);
-            oled.setCursor(19, 32);
-            oled.print(buf);
-        } else {
-            oled.setCursor(0, 16);
-            oled.print(WiFi.isConnected() ? "syncing time..." : "no wifi");
-        }
-        oled.setCursor(0, 56);
-        if (WiFi.isConnected()) oled.print(WiFi.localIP());
-        else oled.print("no wifi");  // the last IP would be misleading
+        drawStats();
     }
     oled.display();
 }
@@ -955,9 +1006,16 @@ String htmlEscape(const String& in) {
 void runSetup() {
     WiFi.mode(WIFI_AP_STA);
     WiFi.disconnect();  // a station still connecting makes the scan fail
-    String options;
-    for (int i = 0, n = WiFi.scanNetworks(); i < n; i++) options += "<option value=\"" + htmlEscape(WiFi.SSID(i)) + "\">";
-    if (haveSavedWifi()) WiFi.begin();  // keep retrying the saved network meanwhile
+    String options, names;  // names: one SSID per line, for the phone app
+    for (int i = 0, n = WiFi.scanNetworks(); i < n; i++) {
+        options += "<option value=\"" + htmlEscape(WiFi.SSID(i)) + "\">";
+        names += WiFi.SSID(i) + "\n";
+        Serial.printf("scan: %s ch %d %d dBm auth %d\n", WiFi.SSID(i).c_str(), WiFi.channel(i), WiFi.RSSI(i),
+                      WiFi.encryptionType(i));  // a join timing out below about -80 dBm is the signal, not the password
+    }
+    // A connecting station scans every channel and drags the hotspot along, so phones can't join it: no automatic
+    // reconnects, and the saved network is retried (below) only while nobody is on the hotspot.
+    WiFi.setAutoReconnect(false);
     const char* ALPHA = "23456789abcdefghjkmnpqrstuvwxyz";  // no 0 1 i l o: read off a small screen
     uint8_t raw[10];
     rng(nullptr, raw, sizeof raw);  // radio on: real entropy
@@ -980,14 +1038,16 @@ void runSetup() {
                      "</datalist><p>Password<br><input name=pass type=password style='width:100%'>"
                      "<p><button>Connect</button></form><p><small>2.4 GHz networks only.</small>");
     });
+    web.on("/networks", HTTP_GET, [&] { web.send(200, "text/plain", names); });
     web.on("/join", HTTP_POST, [&] {
         ssid = web.arg("ssid");
         pass = web.arg("pass");
+        Serial.printf("wifi setup: joining %s\n", ssid.c_str());
         web.send(200, "text/html",
                  "<!doctype html><meta name=viewport content='width=device-width'>"
                  "<body style='font:16px sans-serif;max-width:24em;margin:2em auto;padding:0 1em'>"
                  "<h2>Connecting to " + htmlEscape(ssid) + "</h2><p>This hotspot goes away now. If the board's "
-                 "screen shows the clock and an IP, it's online. If it shows the setup QR again, the password was "
+                 "screen shows its stats and an IP, it's online. If it shows the setup QR again, the password was "
                  "wrong: join again and retry.");
         join = true;
     });
@@ -997,7 +1057,7 @@ void runSetup() {
     });
     web.begin();
 
-    for (uint32_t joinAt = 0, drawn = 0;; delay(10)) {
+    for (uint32_t joinAt = 0, drawn = 0, retried = millis();; delay(10)) {
         dns.processNextRequest();
         web.handleClient();
         if (join && !joinAt) joinAt = millis() | 1;
@@ -1006,6 +1066,11 @@ void runSetup() {
             joinAt = 0;
             WiFi.begin(ssid.c_str(), pass.c_str());  // saved to NVS: the next boot uses it
             for (uint32_t t = millis(); !WiFi.isConnected() && millis() - t < 20000;) delay(100);
+            if (!WiFi.isConnected()) WiFi.disconnect();  // wrong password: stop trying, the hotspot stays usable
+        }
+        if (haveSavedWifi() && !joinAt && !WiFi.softAPgetStationNum() && millis() - retried > 60000) {
+            retried = millis();
+            WiFi.begin();  // the saved network may be back (a router slower to boot than the board)
         }
         if (WiFi.isConnected()) {
             Serial.printf("wifi: joined %s\n", WiFi.SSID().c_str());
@@ -1073,6 +1138,23 @@ void setup() {
 
     WiFi.setHostname(HOSTNAME);
     WiFi.mode(WIFI_STA);
+    static uint8_t lastWhy = 0;
+    WiFi.onEvent(  // why a join fails (wrong password, not found, WPA3 only...); each reason once in a row
+        [](WiFiEvent_t, WiFiEventInfo_t info) {
+            uint8_t why = info.wifi_sta_disconnected.reason;
+            if (why != lastWhy)
+                Serial.printf("wifi: %.32s: %s (%u)\n", (const char*)info.wifi_sta_disconnected.ssid,
+                              WiFi.disconnectReasonName((wifi_err_reason_t)why), why);
+            lastWhy = why;
+        },
+        ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    WiFi.onEvent(  // joined, password and all; online only once DHCP gives an address, which can fail on its own
+        [](WiFiEvent_t, WiFiEventInfo_t info) {
+            Serial.printf("wifi: associated with %.32s on channel %u, waiting for an address\n",
+                          (const char*)info.wifi_sta_connected.ssid, info.wifi_sta_connected.channel);
+            lastWhy = 0;
+        },
+        ARDUINO_EVENT_WIFI_STA_CONNECTED);
     if (!haveSavedWifi()) runSetup();
     WiFi.begin();  // the network saved by the setup page
     for (uint32_t t = millis(); !WiFi.isConnected(); delay(200))
@@ -1082,7 +1164,7 @@ void setup() {
         Serial.println("device CA or server cert failed");
         showEvent("error", "certs failed", "", "");
     }
-    configTzTime(TZ_INFO, "pool.ntp.org", "time.google.com");
+    configTime(0, 0, "pool.ntp.org", "time.google.com");  // UTC, for devices' last seen times
     MDNS.begin(HOSTNAME);
     MDNS.addService("https", "tcp", 443);
     startServer();

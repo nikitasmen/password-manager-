@@ -2,17 +2,28 @@ package dev.pwvault
 
 // docs/PROTOCOL.md §6-9: the two stores (a JSON file on the phone, the board over mutual TLS), pairing, and sync.
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiNetworkSpecifier
+import android.os.Build
+import androidx.annotation.RequiresApi
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.Socket
 import java.net.URL
+import java.net.URLEncoder
 import java.security.KeyPair
 import java.security.Principal
 import java.security.PrivateKey
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
+import java.util.concurrent.CompletableFuture
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.KeyManager
@@ -393,4 +404,62 @@ fun syncStores(local: Store, remote: Store, state: File, hostId: String): Boolea
     doc.getJSONObject("hosts").put(hostId, JSONObject().put("local_seq", mine.seq).put("remote_seq", theirs.seq))
     writeState(state, doc)
     return localChanged
+}
+
+/**
+ * The board's Wi-Fi setup hotspot (README, Wi-Fi): WPA2 with the password on its OLED (and its Wi-Fi QR), plain
+ * HTTP at 192.168.4.1. GET /networks lists the SSIDs it sees, one per line; POST /join (form ssid, pass) makes it
+ * join that network and drop the hotspot.
+ */
+class BoardSetup private constructor(private val cm: ConnectivityManager, private val net: Network,
+                                     private val callback: ConnectivityManager.NetworkCallback) {
+    companion object {
+        private const val URL_BASE = "http://192.168.4.1"
+
+        /** Joins the hotspot for this app only (the system asks the user first). Blocks: not on the main thread. */
+        @RequiresApi(Build.VERSION_CODES.Q)
+        fun join(ctx: Context, ssid: String, pass: String): BoardSetup {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            val found = CompletableFuture<Network?>()
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) { found.complete(network) }
+                override fun onUnavailable() { found.complete(null) } // declined, or not found in time
+            }
+            cm.requestNetwork(NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .setNetworkSpecifier(WifiNetworkSpecifier.Builder().setSsid(ssid).setWpa2Passphrase(pass).build())
+                .build(), callback, 60_000)
+            val net = found.get() ?: run {
+                runCatching { cm.unregisterNetworkCallback(callback) }
+                throw IOException("Couldn't join $ssid. Check that the board shows \"wifi setup\" and try again.")
+            }
+            return BoardSetup(cm, net, callback)
+        }
+    }
+
+    private fun open(path: String) = (net.openConnection(URL(URL_BASE + path)) as HttpURLConnection).apply {
+        connectTimeout = 10_000
+        readTimeout = 10_000
+    }
+
+    fun networks(): List<String> = open("/networks").inputStream.bufferedReader().readLines()
+        .filter { it.isNotBlank() }.distinct()
+
+    fun send(ssid: String, pass: String) {
+        val c = open("/join")
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+        c.outputStream.use {
+            it.write("ssid=${URLEncoder.encode(ssid, "UTF-8")}&pass=${URLEncoder.encode(pass, "UTF-8")}".toByteArray())
+        }
+        if (c.responseCode != 200) throw IOException("The board answered ${c.responseCode}.")
+    }
+
+    /** A VPN that apps can't bypass keeps them off every other network: binding to the hotspot fails with EPERM. */
+    fun underVpn() = cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+
+    /** Back to the phone's usual network. */
+    fun leave() = runCatching { cm.unregisterNetworkCallback(callback) }
 }

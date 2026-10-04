@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -142,6 +143,8 @@ object App {
     var storage by mutableStateOf("") // the board's flash use, for Settings
     var merge by mutableStateOf<MergePlan?>(null) // read from the board, being reviewed on the Merge screen
     val keepPhone = mutableStateListOf<Boolean>() // one per merge conflict decided so far: true = this phone's copy
+    private var setup: BoardSetup? = null // on the board's Wi-Fi setup hotspot
+    var setupNetworks by mutableStateOf<List<String>?>(null) // what the board sees, while on its hotspot
 
     /** System -> Light -> Dark -> System, remembered across launches. */
     fun nextTheme() {
@@ -376,6 +379,38 @@ object App {
         screen = Screen.Pair
     }
 
+    /** Joins the board's setup hotspot, from its Wi-Fi QR, and reads the networks the board sees. */
+    fun joinSetup(ctx: Context, ssid: String, pass: String) = run {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
+            throw Exception("On this Android version, join $ssid in Wi-Fi settings and open http://192.168.4.1.")
+        leaveSetup()
+        val s = BoardSetup.join(ctx.applicationContext, ssid, pass)
+        setup = s
+        setupNetworks = try {
+            s.networks()
+        } catch (e: Exception) {
+            val vpn = s.underVpn()
+            leaveSetup()
+            throw Exception(if (vpn) "A VPN on this phone keeps apps off other networks. Exclude pwvault from it (or " +
+                "pause it) and try again." else "Joined the board's hotspot, but it didn't answer (${e.message}).")
+        }
+    }
+
+    /** The board joins [ssid] and drops its hotspot; the phone goes back to its own network. */
+    fun sendWifi(ssid: String, pass: String) = run {
+        val s = setup ?: return@run
+        s.send(ssid, pass)
+        leaveSetup()
+        notice = "The board is joining $ssid. Once its screen shows an IP, pair: press BOOT and scan its code. If it " +
+            "shows \"wifi setup\" again, the password was wrong."
+    }
+
+    fun leaveSetup() {
+        setup?.leave()
+        setup = null
+        setupNetworks = null
+    }
+
     /** Back from the Pair screen without pairing: to the vault if it's open. */
     fun leavePair() {
         message = ""
@@ -580,7 +615,7 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize(), color = palette.enclosure) {
                     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
                         when (App.screen) {
-                            Screen.Pair -> PairScreen()
+                            Screen.Pair -> if (App.setupNetworks != null) WifiSetup() else PairScreen()
                             Screen.Unlock -> UnlockScreen()
                             Screen.Vault -> VaultScreen()
                             Screen.Merge -> MergeScreen()
@@ -654,7 +689,18 @@ private fun ColumnScope.PairScreen() {
     var name by rememberSaveable { mutableStateOf(App.deviceName) }
     var code by rememberSaveable { mutableStateOf("") }
     var typing by rememberSaveable { mutableStateOf(false) }
+    var hotspot by rememberSaveable { mutableStateOf<String?>(null) } // non-null: typing the setup hotspot's password
     val nameOk = validDeviceName(name)
+
+    // The OLED's "wifi setup" QR: WIFI:T:WPA;S:pwvault-ap;P:<password>;;
+    fun scanWifi() = GmsBarcodeScanning.getClient(ctx, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
+        .startScan()
+        .addOnSuccessListener { b ->
+            val w = b.wifi
+            if (w?.ssid.isNullOrEmpty()) App.message = "That's not the board's Wi-Fi code. It shows one under \"wifi setup\"."
+            else App.joinSetup(ctx, w!!.ssid!!, w.password.orEmpty())
+        }
+        .addOnFailureListener { App.message = "The scanner didn't open (${it.message})." }
 
     fun scan() = GmsBarcodeScanning.getClient(ctx, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
         .startScan()
@@ -684,6 +730,27 @@ private fun ColumnScope.PairScreen() {
         Field(name, { name = it.lowercase().trim() }, "Name for this phone")
         if (!nameOk) Text("Use 1 to 20 lowercase letters, digits or dashes.", color = palette.danger,
             style = MaterialTheme.typography.bodySmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Prose("Board says \"wifi setup\"?", Modifier.weight(1f))
+            QuietButton("Set up its Wi-Fi", { App.message = ""; hotspot = if (hotspot == null) "" else null })
+        }
+        AnimatedVisibility(hotspot != null) {
+            Column {
+                // The hotspot's name is fixed (SETUP_SSID in vault.ino); its password is the line under it on the screen
+                // Older boards print the name right above the password, so they get typed as one string
+                val pass = hotspot.orEmpty().filterNot { it.isWhitespace() }.lowercase().removePrefix("pwvault-ap")
+                val join = {
+                    // vault.ino's alphabet: 10 of 2-9 and a-z without i, l, o
+                    if (Regex("[2-9a-hjkmnp-z]{10}").matches(pass)) App.joinSetup(ctx, "pwvault-ap", pass)
+                    else App.message = "The password is the 10 characters on the board's screen, without pwvault-ap."
+                }
+                Field(hotspot.orEmpty(), { hotspot = it }, "Hotspot password, from the board's screen", onDone = join)
+                Row {
+                    QuietButton("Join its hotspot", join, enabled = !App.busy && hotspot.orEmpty().isNotBlank())
+                    QuietButton("Scan its code", { App.message = ""; scanWifi() }, enabled = !App.busy)
+                }
+            }
+        }
         AnimatedVisibility(typing) {
             Column {
                 Field(host, { host = it }, "Board address, as shown on its screen")
@@ -700,6 +767,29 @@ private fun ColumnScope.PairScreen() {
             if (!App.paired) QuietButton("Use without a board", { App.useStandalone() }, color = palette.muted)
             else QuietButton("Cancel", { App.leavePair() }, color = palette.muted)
         }
+    }
+}
+
+/** On the board's setup hotspot: pick the network it should join. */
+@Composable
+private fun ColumnScope.WifiSetup() {
+    var ssid by rememberSaveable { mutableStateOf("") }
+    var pass by rememberSaveable { mutableStateOf("") }
+    val go = { App.sendWifi(ssid, pass) }
+    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        Spacer(Modifier.height(16.dp))
+        Oled(listOf(OledText("wifi setup"), OledText("phone connected", y = 18), OledText("pick a network", y = 30)),
+            rules = listOf(10))
+        Heading("Board Wi-Fi")
+        Prose("Pick the network the board should join. The ESP32 only sees 2.4 GHz networks.")
+        App.setupNetworks.orEmpty().forEach { n -> QuietButton(n, { ssid = n }, color = if (n == ssid) palette.accent else palette.ink) }
+        Field(ssid, { ssid = it }, "Network")
+        Field(pass, { pass = it }, "Wi-Fi password", secret = true, onDone = go)
+        Feedback()
+    }
+    Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
+        PrimaryButton("Connect the board", go, enabled = !App.busy && ssid.isNotEmpty())
+        QuietButton("Cancel", { App.leaveSetup() }, color = palette.muted)
     }
 }
 
